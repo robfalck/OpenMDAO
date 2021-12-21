@@ -108,6 +108,13 @@ class PassthruComp(ExplicitComponent):
         res_ref : float or ndarray
             Scaling parameter. The value in the user-defined res_units of this output's residual
             when the scaled value is 1. Default is 1.
+
+        Returns
+        -------
+        input_meta : dict
+            The metadata associated with the input.
+        output_meta : dict
+            The metadata associated with the output.
         """
         _out_name = output_name if output_name is not None else f'{name}_value'
 
@@ -132,15 +139,18 @@ class PassthruComp(ExplicitComponent):
         elif isinstance(output_tags, str):
             output_tags = [output_tags]
 
-        self.add_input(name=name, val=val, shape=shape, units=units, desc=desc, src_indices=src_indices,
-                       flat_src_indices=flat_src_indices, tags=tags + input_tags, shape_by_conn=input_shape_by_conn,
-                       copy_shape=input_copy_shape, distributed=distributed)
+        i_meta = self.add_input(name=name, val=val, shape=shape, units=units, desc=desc, src_indices=src_indices,
+                                flat_src_indices=flat_src_indices, tags=tags + input_tags,
+                                shape_by_conn=input_shape_by_conn, copy_shape=input_copy_shape, distributed=distributed)
 
-        self.add_output(name=_out_name, val=val, shape=shape, units=units, desc=desc, tags=tags + output_tags,
-                        res_units=res_units, ref=ref, ref0=ref0, res_ref=res_ref, lower=lower, upper=upper,
-                        shape_by_conn=output_shape_by_conn, copy_shape=output_copy_shape, distributed=distributed)
+        o_meta = self.add_output(name=_out_name, val=val, shape=shape, units=units, desc=desc, tags=tags + output_tags,
+                                 res_units=res_units, ref=ref, ref0=ref0, res_ref=res_ref, lower=lower, upper=upper,
+                                 shape_by_conn=output_shape_by_conn, copy_shape=output_copy_shape,
+                                 distributed=distributed)
 
         self.declare_partials(of=_out_name, wrt=name, rows=ar, cols=ar, val=1.0)
+
+        return i_meta, o_meta
 
     def compute(self, inputs, outputs, discrete_inputs=None, discrete_outputs=None):
         """
