@@ -28,6 +28,7 @@ from openmdao.components.matrix_vector_product_comp import MatrixVectorProductCo
 from openmdao.components.meta_model_structured_comp import MetaModelStructuredComp
 from openmdao.components.meta_model_semi_structured_comp import MetaModelSemiStructuredComp
 from openmdao.components.meta_model_unstructured_comp import MetaModelUnStructuredComp
+from openmdao.components.passthru_comp import PassthruComp
 from openmdao.components.spline_comp import SplineComp
 from openmdao.components.multifi_meta_model_unstructured_comp \
     import MultiFiMetaModelUnStructuredComp
