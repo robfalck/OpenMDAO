@@ -33,9 +33,17 @@ class _RecIteration(object):
             The rank to use when constructing iteration coordinates.
         """
         self.stack = []
-        self.prefix = None
+        self._prefix = None
         self.rank = 0
         self._norec_refcount = 0
+
+    @property
+    def prefix(self):
+        return self._prefix
+
+    @prefix.setter
+    def prefix(self, s):
+        self._prefix = s
 
     def print_recording_iteration_stack(self):
         """

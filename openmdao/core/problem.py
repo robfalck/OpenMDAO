@@ -701,12 +701,10 @@ class Problem(object):
             raise RuntimeError(self.msginfo +
                                ": The `setup` method must be called before `run_model`.")
 
-        if case_prefix:
+        if case_prefix is not None:
             if not isinstance(case_prefix, str):
                 raise TypeError(self.msginfo + ": The 'case_prefix' argument should be a string.")
             self._recording_iter.prefix = case_prefix
-        else:
-            self._recording_iter.prefix = None
 
         if self.model.iter_count > 0 and reset_iter_counts:
             self.driver.iter_count = 0
@@ -741,12 +739,10 @@ class Problem(object):
             raise RuntimeError(self.msginfo +
                                ": The `setup` method must be called before `run_driver`.")
 
-        if case_prefix:
+        if case_prefix is not None:
             if not isinstance(case_prefix, str):
                 raise TypeError(self.msginfo + ": The 'case_prefix' argument should be a string.")
             self._recording_iter.prefix = case_prefix
-        else:
-            self._recording_iter.prefix = None
 
         if self.model.iter_count > 0 and reset_iter_counts:
             self.driver.iter_count = 0
@@ -758,6 +754,7 @@ class Problem(object):
         record_model_options(self, self._run_counter)
 
         self.model._clear_iprint()
+
         return self.driver.run()
 
     def compute_jacvec_product(self, of, wrt, mode, seed):
