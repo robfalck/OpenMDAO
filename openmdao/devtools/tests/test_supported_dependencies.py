@@ -10,7 +10,7 @@ from datetime import datetime, timedelta
 
 
 def _find_setup_file():
-    openmdao_dir = os.environ.get('OPENMDAO_DIR', None)
+    openmdao_dir = os.environ.get('OPENMDAO_PATH', None)
     if openmdao_dir is None:
         this_dir = pathlib.Path(__file__).parent
         while True:
