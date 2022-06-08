@@ -24,7 +24,7 @@ def _find_setup_file():
 
 
 def _find_ci_workflow_file():
-    openmdao_dir = os.environ.get('OPENMDAO_DIR', None)
+    openmdao_dir = os.environ.get('OPENMDAO_PATH', None)
     if openmdao_dir is None:
         this_dir = pathlib.Path(__file__).parent
         while True:
@@ -135,6 +135,9 @@ class TestCIDependencies(unittest.TestCase):
 
         workflow_file = _find_ci_workflow_file()
 
+        if workflow_file is None:
+            cls.skipTest(cls, 'Unable to determine path of OpenMDAO github CI workflow file.')
+
         with open(workflow_file) as f:
             ci_data = cls.workflow_yaml = yaml.load(f)
 
@@ -153,7 +156,6 @@ class TestCIDependencies(unittest.TestCase):
                 continue
 
         cls.matrix = matrix
-
 
     def test_workflow_versions(self):
         for job in self.matrix:
