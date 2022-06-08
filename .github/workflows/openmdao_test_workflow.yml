@@ -111,8 +111,6 @@ jobs:
           echo "Install OpenMDAO"
           echo "============================================================="
           python -m pip install .${{ matrix.OPTIONAL }}
-          
-          export OPENMDAO_PATH = ${PWD}
 
       - name: Install jax
         if: matrix.JAX
@@ -218,6 +216,8 @@ jobs:
           python -m pip_audit
 
       - name: Run tests
+        env:
+          OPENMDAO_PATH: ${GITHUB_WORKSPACE}
         shell: bash -l {0}
         run: |
           echo "============================================================="
