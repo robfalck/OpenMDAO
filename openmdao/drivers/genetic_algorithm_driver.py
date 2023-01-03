@@ -998,7 +998,7 @@ class GeneticAlgorithm(object):
         -------
         ndarray
             New shuffled population.
-        ndarray(dtype=np.int)
+        ndarray(dtype=int)
             Index array that maps the shuffle from old to new.
         """
         temp = np.random.rand(self.npop)
@@ -1017,7 +1017,7 @@ class GeneticAlgorithm(object):
             Lower bound array.
         vub : ndarray
             Upper bound array.
-        bits : ndarray(dtype=np.int)
+        bits : ndarray(dtype=int)
             Number of bits for decoding.
 
         Returns
@@ -1056,7 +1056,7 @@ class GeneticAlgorithm(object):
             Lower bound array.
         vub : ndarray
             Upper bound array.
-        bits : ndarray(dtype=np.int)
+        bits : ndarray(dtype=int)
             Number of bits for decoding.
 
         Returns
