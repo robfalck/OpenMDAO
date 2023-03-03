@@ -3,57 +3,114 @@ import numpy as np
 import openmdao.api as om
 
 
-class TanhRampComp(om.ExplicitComponent):
+class tanh_act():
+
+    def __call__(self, *args, **kwargs):
+
+def tanh_act(x, mu=1, z=0, a=-1, b=1):
+    """
+    A function which provides a differentiable activation function based on the hyperbolic tangent.
+
+    Parameters
+    ----------
+    x : float or np.array
+        The input at which the value of the activation function is to be computed.
+    mu : float
+        A shaping parameter which impacts the "abruptness" of the activation function. As this value approaches zero
+        the response approaches that of a step function.
+    z : float
+        The value of the independent variable about which the activation response is centered.
+    a : float
+        The initial value that the input asymptotically approaches negative infinity.
+    b : float
+        The final value that the input asymptotically approaches positive infinity.
+
+    Returns
+    -------
+        The value of the activation response at the given input.
+    """
+    dy = b - a
+    tanh_term = np.tanh((x - z) / mu)
+    return 0.5 * dy * (1 + tanh_term) + a
+
+
+def dtanh_act(x, mu=1.0, z=0.0, a=-1.0, b=1.0):
+    """
+    A function which provides a differentiable activation function based on the hyperbolic tangent.
+
+    Parameters
+    ----------
+    x : float or np.array
+        The input at which the value of the activation function is to be computed.
+    mu : float
+        A shaping parameter which impacts the "abruptness" of the activation function. As this value approaches zero
+        the response approaches that of a step function.
+    z : float
+        The value of the independent variable about which the activation response is centered.
+    a : float
+        The initial value that the input asymptotically approaches negative infinity.
+    b : float
+        The final value that the input asymptotically approaches positive infinity.
+
+    Returns
+    -------
+    dict
+        A dictionary which contains the partial derivatives of the tanh activation function wrt inputs, stored in the
+        keys 'x', 'mu', 'z', 'a', 'b'.
+    """
+    dy = b - a
+    xmz = x - z
+    tanh_term = np.tanh(xmz / mu)
+    partials = {'x': (0.5 * dy) / (mu * np.cosh(xmz / mu)**2),
+                'mu': (-0.5 * dy * xmz) / (mu**2 * np.cosh(xmz / mu)**2),
+                'z': (-0.5 * dy) / (mu * np.cosh(xmz / mu)**2),
+                'a': 0.5 * (1 - tanh_term),
+                'b': 0.5 * (1 + tanh_term)}
+
+    return partials
+
+
+class TanhActComp(om.ExplicitComponent):
     """ Differentiable transition from one steady state condition to another using a hyperbolic tangent.
-    The hyperbolic tangent activation function is:
-    r_1(t) = np.tanh(t)
-    This has a response centered about t=0, and a value of (-0.996, 0.996) at (-np.pi, np.pi) (thus the duration
-    is roughly 2*np.pi.
-    This implementation allows that response to be shifted and stretch such that the user can specify:
-    1. the initial steady state value before the ramp.
-    2. the final steady state value after the ramp.
-    3. the starting time of the ramp (where we assume the nominal start time is -np.pi).
-    4. the duration of the ramp (where we assume the nominal duration of the ramp is 2 * np.pi.
     """
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
-        self._ramps = {}
+        self._response_meta = {}
 
-    def add_response(self, name, units=None, shape=(1,), initial_val=0.0,
-                 final_val=1.0, t_init_val=0.0, t_duration_val=1.0):
+    def add_response(self, name, units=None, input_name='x', input_units=None, shape=(1,), a=-1.0, b=1.0, mu=0.1, z=0.0):
         """
         Add a tanh ramp function with the given output name to the component.
         Parameters
         ----------
-        output_name : str
+        name : str
             The name of the output response variable.
-        output_units : str or None
+        units : str or None
             Units of the response variable.
+        input_name : str
+            The name of the input variable used in the output of this response.
+        input_units : str or None
+            Units on the input associated with the response.
         shape : tuple
             Shape of the variable subject to the ramp at each node.
-        initial_val : float
-            The initial value that the ramp asymptotically approaches backward in time.
-        final_val : float
-            The final value that the ramp asymptotically approaches forward in time.
-        t_init_val : float
-            The default value for the time at which the ramp is initiated. Note that the value asymptotically
-            departs the initial value and so it nearly but not exactly the initial value at this point.
-        t_duration_val : float
-            The default value for the time after t_init_val at which the ramp is approximately equal to the desired
-            final value. Again, the hyperbolic tangent function will never exactly equal the final value but it is
-            relatively flat after this duration is expired.
+        a : float
+            The initial value that the input asymptotically approaches negative infinity.
+        b : float
+            The final value that the input asymptotically approaches positive infinity.
+        mu : float
+            A shaping parameter that impacts the "abruptness" of the activation response. As mu approaches
+            negative infinity, the behavior of the activation approaches a step function.
+        z : float
+            The value of the input at which the tanh response is centered.
         """
-        self._ramps[output_name] = {'shape': shape,
-                                    'units': output_units,
-                                    'initial_val_name': f"{output_name}:initial_val",
-                                    'initial_val': initial_val,
-                                    'final_val_name': f"{output_name}:final_val",
-                                    'final_val': final_val,
-                                    't_init_name': f"{output_name}:t_init",
-                                    't_init_val': t_init_val,
-                                    't_duration_name': f"{output_name}:t_duration",
-                                    't_duration_val': t_duration_val}
+        self.response_meta[name] = {'units': units,
+                                    'input_name': input_name,
+                                    'input_units': input_units,
+                                    'shape': shape,
+                                    'a': a,
+                                    'b': b,
+                                    'mu': mu,
+                                    'z': z }
 
     def initialize(self):
         self.options.declare("num_nodes", types=int)
@@ -65,14 +122,19 @@ class TanhRampComp(om.ExplicitComponent):
 
         self.add_input("time", units=self.options["time_units"], shape=(nn,))
 
-        for output_name, options in self._ramps.items():
-            size = np.prod(options['shape'], dtype=int)
+        input_names = set()
+
+        for name, options in self._response_meta.items():
+            shape = options['shape']
+            size = np.prod(shape, dtype=int)
             cs = np.tile(np.arange(size, dtype=int), nn)
 
-            self.add_output(output_name, shape=(nn,) +
-                            options['shape'], units=options['units'])
+            self.add_output(name, shape=(nn,) + shape, units=options['units'])
 
-            self.add_input(options['initial_val_name'], val=options['initial_val']
+            if options['input_name'] not in input_names:
+                self.add_input(options['input_name'], val=np.ones(shape), units=options['input_units'])
+
+            self.add_input(f'name:{}', val=options['initial_val']
                            * np.ones(options['shape']), units=options['units'])
             self.add_input(options['final_val_name'], val=options['final_val']
                            * np.ones(options['shape']), units=options['units'])
@@ -131,3 +193,7 @@ class TanhRampComp(om.ExplicitComponent):
             partials[name, options["t_duration_name"]] = dvald2 * dtanh_term_dtduration
             partials[name, options["initial_val_name"]] = -0.5 * (1+tanh_term) + 1.0
             partials[name, options["final_val_name"]] = 0.5 * (1+tanh_term)
+
+
+if __name__ == '__main__':
+    print(dtanh_act(10.0, mu=0.01, z=10.1))
