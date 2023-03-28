@@ -226,8 +226,8 @@ class TestSimpleGA(unittest.TestCase):
         prob = om.Problem()
         model = prob.model
 
-        model.add_subsystem('xc_a1', om.IndepVarComp('area1', 5.0, units='cm**2'), promotes=['*'])
-        model.add_subsystem('xc_a2', om.IndepVarComp('area2', 5.0, units='cm**2'), promotes=['*'])
+        model.add_subsystem('xc_a1', om.IndepVarComp('area1', 1.25, units='cm**2'), promotes=['*'])
+        model.add_subsystem('xc_a2', om.IndepVarComp('area2', 2.05, units='cm**2'), promotes=['*'])
         model.add_subsystem('xc_a3', om.IndepVarComp('area3', 5.0, units='cm**2'), promotes=['*'])
         model.add_subsystem('xi_m1', om.IndepVarComp('mat1', 1), promotes=['*'])
         model.add_subsystem('xi_m2', om.IndepVarComp('mat2', 1), promotes=['*'])
@@ -294,11 +294,11 @@ class TestSimpleGA(unittest.TestCase):
         prob = om.Problem()
         model = prob.model
 
-        model.add_subsystem('xc_a1', om.IndepVarComp('area1', 5.0, units='cm**2'), promotes=['*'])
-        model.add_subsystem('xc_a2', om.IndepVarComp('area2', 5.0, units='cm**2'), promotes=['*'])
+        model.add_subsystem('xc_a1', om.IndepVarComp('area1', 1.25, units='cm**2'), promotes=['*'])
+        model.add_subsystem('xc_a2', om.IndepVarComp('area2', 2.05, units='cm**2'), promotes=['*'])
         model.add_subsystem('xc_a3', om.IndepVarComp('area3', 5.0, units='cm**2'), promotes=['*'])
-        model.add_subsystem('xi_m1', om.IndepVarComp('mat1', 1), promotes=['*'])
-        model.add_subsystem('xi_m2', om.IndepVarComp('mat2', 1), promotes=['*'])
+        model.add_subsystem('xi_m1', om.IndepVarComp('mat1', 3), promotes=['*'])
+        model.add_subsystem('xi_m2', om.IndepVarComp('mat2', 3), promotes=['*'])
         model.add_subsystem('xi_m3', om.IndepVarComp('mat3', 1), promotes=['*'])
         model.add_subsystem('comp', ThreeBarTruss(), promotes=['*'])
         model.add_subsystem('obj_with_penalty', ObjPenalty(), promotes=['*'])
@@ -1171,11 +1171,11 @@ class MPITestSimpleGA(unittest.TestCase):
         prob = om.Problem()
         model = prob.model
 
-        model.add_subsystem('xc_a1', om.IndepVarComp('area1', 5.0, units='cm**2'), promotes=['*'])
-        model.add_subsystem('xc_a2', om.IndepVarComp('area2', 5.0, units='cm**2'), promotes=['*'])
+        model.add_subsystem('xc_a1', om.IndepVarComp('area1', 1.25, units='cm**2'), promotes=['*'])
+        model.add_subsystem('xc_a2', om.IndepVarComp('area2', 2.05, units='cm**2'), promotes=['*'])
         model.add_subsystem('xc_a3', om.IndepVarComp('area3', 5.0, units='cm**2'), promotes=['*'])
-        model.add_subsystem('xi_m1', om.IndepVarComp('mat1', 1), promotes=['*'])
-        model.add_subsystem('xi_m2', om.IndepVarComp('mat2', 1), promotes=['*'])
+        model.add_subsystem('xi_m1', om.IndepVarComp('mat1', 3), promotes=['*'])
+        model.add_subsystem('xi_m2', om.IndepVarComp('mat2', 3), promotes=['*'])
         model.add_subsystem('xi_m3', om.IndepVarComp('mat3', 1), promotes=['*'])
         model.add_subsystem('comp', ThreeBarTruss(), promotes=['*'])
         model.add_subsystem('obj_with_penalty', ObjPenalty(), promotes=['*'])

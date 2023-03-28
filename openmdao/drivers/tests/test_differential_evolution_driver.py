@@ -1089,7 +1089,7 @@ class MPITestDifferentialEvolution4Procs(unittest.TestCase):
         prob = om.Problem()
         model = prob.model
 
-        model.add_subsystem('p', om.IndepVarComp('x', 3.0), promotes=['x'])
+        model.add_subsystem('p', om.IndepVarComp('x', 0.5), promotes=['x'])
 
         model.add_subsystem('d1', D1(), promotes=['*'])
         model.add_subsystem('d2', D2(), promotes=['*'])
