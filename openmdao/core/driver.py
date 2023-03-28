@@ -115,7 +115,8 @@ class Driver(object):
                                   "iteration.",
                              default=[])
 
-        default_desvar_behavior = os.environ.get('OPENMDAO_INVALID_DESVAR_BEHAVIOR', 'warn').lower()
+        default_desvar_behavior = os.environ.get('OPENMDAO_INVALID_DESVAR_BEHAVIOR',
+                                                 'raise').lower()
 
         self.options.declare('invalid_desvar_behavior', values=('warn', 'raise', 'ignore'),
                              desc='Behavior of driver if the initial value of a design '

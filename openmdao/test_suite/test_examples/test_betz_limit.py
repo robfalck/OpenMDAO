@@ -195,7 +195,7 @@ class TestBetzLimit(unittest.TestCase):
         prob.setup()
 
         prob.set_val('a', .5)
-        prob.set_val('Area', 10.0, units='m**2')
+        prob.set_val('Area', 1.0, units='m**2')
         prob.set_val('rho', 1.225, units='kg/m**3')
         prob.set_val('Vu', 10.0, units='m/s')
 
@@ -302,7 +302,7 @@ class TestBetzLimit(unittest.TestCase):
         prob = om.Problem()
         indeps = prob.model.add_subsystem('indeps', om.IndepVarComp(), promotes=['*'])
         indeps.add_output('a', .5, tags="advanced")
-        indeps.add_output('Area', 10.0, units='m**2', tags="basic")
+        indeps.add_output('Area', 1.0, units='m**2', tags="basic")
         indeps.add_output('rho', 1.225, units='kg/m**3', tags="advanced")
         indeps.add_output('Vu', 10.0, units='m/s', tags="basic")
 

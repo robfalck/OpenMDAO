@@ -17,7 +17,7 @@ class TestEQConstraintComp(unittest.TestCase):
         prob.setup()
 
         # check derivatives
-        prob['y1'] = 100
+        prob['y1'] = 4
         prob['equal.rhs:y1'] = 1
 
         prob.run_model()
@@ -157,7 +157,7 @@ class TestEQConstraintComp(unittest.TestCase):
         diff = lhs - rhs
         assert_near_equal(prob['equal.y'], diff)
 
-        prob.driver = om.ScipyOptimizeDriver(disp=False)
+        prob.driver = om.ScipyOptimizeDriver(disp=False, invalid_desvar_behavior='ignore')
 
         prob.run_driver()
 
@@ -274,7 +274,7 @@ class TestEQConstraintComp(unittest.TestCase):
 
         prob.setup(mode='fwd')
 
-        prob.driver = om.ScipyOptimizeDriver(disp=False)
+        prob.driver = om.ScipyOptimizeDriver(disp=False, invalid_desvar_behavior='ignore')
 
         # verify that the output is not being normalized
         prob.run_model()
