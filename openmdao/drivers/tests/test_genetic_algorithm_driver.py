@@ -1447,6 +1447,7 @@ class MPITestSimpleGA4Procs(unittest.TestCase):
         driver.options['max_gen'] = 3
         driver.options['run_parallel'] = True
         driver.options['procs_per_model'] = 2
+        driver.options['invalid_desvar_behavior'] = 'ignore'
 
         # also check that parallel recording works
         driver.add_recorder(om.SqliteRecorder("cases.sql"))

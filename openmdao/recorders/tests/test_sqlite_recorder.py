@@ -1225,6 +1225,7 @@ class TestSqliteRecorder(unittest.TestCase):
         prob.driver = om.ScipyOptimizeDriver()
         prob.driver.options['optimizer'] = 'SLSQP'
         prob.driver.options['tol'] = 1e-8
+        prob.driver.options['invalid_desvar_behavior'] = 'ignore'
 
         prob.set_solver_print(level=0)
 
