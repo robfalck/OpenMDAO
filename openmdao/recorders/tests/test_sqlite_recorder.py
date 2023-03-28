@@ -1240,7 +1240,7 @@ class TestSqliteRecorder(unittest.TestCase):
         nl.add_recorder(self.recorder)
 
         prob['indeps.x'] = 2.
-        prob['indeps.z'] = [-1., -1.]
+        prob['indeps.z'] = [1., 1.]
 
         prob.run_driver()
 

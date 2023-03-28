@@ -1732,7 +1732,7 @@ class TestScipyOptimizeDriver(unittest.TestCase):
         prob = om.Problem()
         model = prob.model
 
-        model.add_subsystem('indeps', om.IndepVarComp('x', np.ones(2)), promotes=['*'])
+        model.add_subsystem('indeps', om.IndepVarComp('x', -np.ones(2)), promotes=['*'])
         model.add_subsystem('func2d', Func2d(), promotes=['*'])
 
         prob.driver = driver = om.ScipyOptimizeDriver()
@@ -1881,7 +1881,7 @@ class TestScipyOptimizeDriver(unittest.TestCase):
         prob = om.Problem()
         model = prob.model
 
-        model.add_subsystem('indeps', om.IndepVarComp('x', np.ones(size)), promotes=['*'])
+        model.add_subsystem('indeps', om.IndepVarComp('x', -np.ones(size)), promotes=['*'])
         model.add_subsystem('rastrigin', Rastrigin(), promotes=['*'])
 
         prob.driver = driver = om.ScipyOptimizeDriver()
