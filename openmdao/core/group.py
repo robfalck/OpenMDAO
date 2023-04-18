@@ -12,13 +12,13 @@ from difflib import get_close_matches
 import numpy as np
 import networkx as nx
 
-from openmdao.jacobians.dictionary_jacobian import DictionaryJacobian
 from openmdao.core.system import System, collect_errors
 from openmdao.core.component import Component, _DictValues
+from openmdao.core.constants import _UNDEFINED, INT_DTYPE, _SetupStatus
 from openmdao.vectors.vector import _full_slice
-from openmdao.core.constants import _UNDEFINED, INT_DTYPE
 from openmdao.proc_allocators.default_allocator import DefaultAllocator, ProcAllocationError
 from openmdao.jacobians.jacobian import SUBJAC_META_DEFAULTS
+from openmdao.jacobians.dictionary_jacobian import DictionaryJacobian
 from openmdao.recorders.recording_iteration_stack import Recording
 from openmdao.solvers.nonlinear.nonlinear_runonce import NonlinearRunOnce
 from openmdao.solvers.linear.linear_runonce import LinearRunOnce
@@ -33,7 +33,6 @@ import openmdao.utils.coloring as coloring_mod
 from openmdao.utils.indexer import indexer, Indexer
 from openmdao.utils.om_warnings import issue_warning, UnitsWarning, UnusedOptionWarning, \
     PromotionWarning, MPIWarning
-from openmdao.core.constants import _SetupStatus
 
 # regex to check for valid names.
 import re
@@ -1524,12 +1523,6 @@ class Group(System):
                                 continue
 
                         meta = abs2meta[abs_in]
-                        if meta['src_indices'] is not None:
-                            self._collect_error(
-                                f"{self.msginfo}: src_indices has been defined in both "
-                                f"connect('{prom_out}', '{prom_in}') and "
-                                f"add_input('{prom_in}', ...).")
-
                         meta['manual_connection'] = True
                         meta['src_indices'] = src_indices
                         meta['flat_src_indices'] = flat
@@ -2844,37 +2837,49 @@ class Group(System):
                     raise RuntimeError(msg.format(self.msginfo, iname))
 
     def _approx_subjac_keys_iter(self):
-        pro2abs = self._var_allprocs_prom2abs_list
-
         if self._owns_approx_wrt and not self.pathname:
             candidate_wrt = self._owns_approx_wrt
         else:
-            candidate_wrt = list(var[0] for var in pro2abs['input'].values())
+            pro2abs = self._var_allprocs_prom2abs_list
+            candidate_wrt = []
+            for abs_inps in pro2abs['input'].values():
+                for inp in abs_inps:
+                    candidate_wrt.append(inp)
+                    # If connection is inside of this Group, perturbation of all implicitly
+                    # connected inputs will be handled properly via internal transfers. Otherwise,
+                    # we need to add all implicitly connected inputs separately.
+                    if inp in self._conn_abs_in2out:
+                        break
 
-        from openmdao.core.indepvarcomp import IndepVarComp
         wrt = set()
         ivc = set()
         if self.pathname:  # get rid of any old stuff in here
             self._owns_approx_of = self._owns_approx_wrt = None
+            totals = False
+        else:
+            totals = True
 
+        all_abs2meta_out = self._var_allprocs_abs2meta['output']
+
+        # When computing totals, weed out inputs connected to anything inside our system unless
+        # the source is an indepvarcomp.
+        prefix = self.pathname + '.' if self.pathname else ''
         for var in candidate_wrt:
-
-            # Weed out inputs connected to anything inside our system unless the source is an
-            # indepvarcomp.
             if var in self._conn_abs_in2out:
-                src = self._conn_abs_in2out[var]
-                compname = src.rsplit('.', 1)[0]
-                comp = self._get_subsystem(compname)
-                if isinstance(comp, IndepVarComp):
-                    wrt.add(src)
-                    ivc.add(src)
+                if totals:
+                    src = self._conn_abs_in2out[var]
+                    if src.startswith(prefix):
+                        meta = all_abs2meta_out[src]
+                        if 'openmdao:indep_var' in meta['tags']:
+                            wrt.add(src)
+                            ivc.add(src)
             else:
                 wrt.add(var)
 
         if self._owns_approx_of:
             of = set(self._owns_approx_of)
         else:
-            of = set(var[0] for var in pro2abs['output'].values())
+            of = set(self._var_allprocs_abs2meta['output'])
             # Skip indepvarcomp res wrt other srcs
             of -= ivc
 
@@ -2884,11 +2889,12 @@ class Group(System):
                 yield key  # get all combos if we're doing total derivs
                 continue
 
+            _of, _wrt = key
             # Skip explicit res wrt outputs
-            if key[1] in of and key[1] not in ivc:
+            if _wrt in of and _wrt not in ivc:
 
                 # Support for specifying a desvar as an obj/con.
-                if key[1] not in wrt or key[0] == key[1]:
+                if _wrt not in wrt or _of == _wrt:
                     continue
 
             yield key
@@ -2988,17 +2994,19 @@ class Group(System):
 
             szname = 'global_size' if total else 'size'
 
+            seen = set()
             start = end = 0
             if self.pathname:  # doing semitotals, so include output columns
                 for of, _start, _end, _, dist_sizes in self._jac_of_iter():
                     if wrt_matches is None or of in wrt_matches:
+                        seen.add(of)
                         end += (_end - _start)
                         vec = self._outputs if of in local_outs else None
                         yield of, start, end, vec, _full_slice, dist_sizes
                         start = end
 
             for wrt in self._owns_approx_wrt:
-                if wrt_matches is None or wrt in wrt_matches:
+                if (wrt_matches is None or wrt in wrt_matches) and wrt not in seen:
                     io = 'input' if wrt in abs2meta['input'] else 'output'
                     meta = abs2meta[io][wrt]
                     if wrt in local_ins:
@@ -3326,8 +3334,6 @@ class Group(System):
                         newshape = src_indices.indexed_src_shape
 
             if src_indices is None:
-                # for an auto_ivc connection, src_indices here, if they exist, must be coming from
-                # an add_input call (this is a deprecated feature and will be removed eventually)
                 src_indices = meta['src_indices']
 
             if src_indices is not None:
