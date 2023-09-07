@@ -7,6 +7,8 @@ import re
 import json
 import numpy as np
 
+from openmdao.utils.om_warnings import issue_warning
+
 
 def create_local_meta(name):
     """
@@ -155,6 +157,9 @@ def check_path(path, includes, excludes, include_all_path=False):
     bool
         True if path should be recorded, False if it's been excluded.
     """
+    print('checking path', path)
+    print('includes', includes)
+
     for ex_pattern in excludes:
         if fnmatchcase(path, ex_pattern):
             return False
@@ -165,6 +170,33 @@ def check_path(path, includes, excludes, include_all_path=False):
                 return True
 
     return include_all_path
+
+
+def check_unmatched_patterns(patterns, matches, pattern_info, msginfo):
+    """
+    Warn if any of the given patterns match none of the given matches.
+
+    Parameters
+    ----------
+    patterns : iterable of str
+        The patters being sought in the list of matches.
+    matches : iterable of str
+        The matches to be searched for the given patterns.
+    pattern_info : str
+        A string description of the source of the patterns e.g. "recording_options['includes']".
+    msginfo : str
+        A string descriptor of the system/recorder for the warning message.
+
+    Warnings
+    --------
+    OpenMDAOWarning
+        Warning issued if one or more elements in patterns is not found in matches.
+    """
+    matched_patterns = {pattern for pattern in patterns for s in matches if fnmatchcase(s, pattern)}
+    unmatched_patterns = sorted(set(patterns) - matched_patterns)
+    if unmatched_patterns:
+        issue_warning(f"The following patterns for {pattern_info} on {msginfo} had "
+                      f"no matches: {unmatched_patterns}")
 
 
 def deserialize(json_data, abs2meta, prom2abs, conns):

@@ -23,7 +23,7 @@ from openmdao.recorders.recording_manager import RecordingManager
 from openmdao.vectors.vector import _full_slice
 from openmdao.utils.mpi import MPI, multi_proc_exception_check
 from openmdao.utils.options_dictionary import OptionsDictionary
-from openmdao.utils.record_util import create_local_meta, check_path
+from openmdao.utils.record_util import create_local_meta, check_path, check_unmatched_patterns
 from openmdao.utils.units import is_compatible, unit_conversion, simplify_unit
 from openmdao.utils.variable_table import write_var_table
 from openmdao.utils.array_utils import evenly_distrib_idxs, shape_to_len
@@ -1972,6 +1972,11 @@ class System(object):
                 abs2prom = self._var_abs2prom['output']
                 myresiduals = [n for n in self._residuals._abs_iter()
                                if check_path(abs2prom[n], incl, excl)]
+
+            # Warn if any entry in includes found no match
+            matches = myinputs + myoutputs + myresiduals
+            check_unmatched_patterns(self.recording_options['includes'], matches,
+                                     "recording_options['includes']", self.msginfo)
 
             self._filtered_vars_to_record = {
                 'input': myinputs,

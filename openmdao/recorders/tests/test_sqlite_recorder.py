@@ -78,7 +78,7 @@ class SellarMDAConnect(om.Group):
         self.connect('cycle.d2.y2', ['obj_cmp.y2', 'con_cmp2.y2'])
 
 
-@use_tempdirs
+# @use_tempdirs
 class TestSqliteRecorder(unittest.TestCase):
 
     def setUp(self):
@@ -1255,7 +1255,7 @@ class TestSqliteRecorder(unittest.TestCase):
         nl.add_recorder(self.recorder)
 
         prob['indeps.x'] = 2.
-        prob['indeps.z'] = [-1., -1.]
+        prob['indeps.z'] = [0., 0.]
 
         prob.run_driver()
 
@@ -1275,6 +1275,7 @@ class TestSqliteRecorder(unittest.TestCase):
         nl.recording_options['excludes'] = []
         prob.setup()
 
+        prob.final_setup()
 
         # Make sure default includes and excludes still works
         prob = om.Problem()
@@ -1318,6 +1319,43 @@ class TestSqliteRecorder(unittest.TestCase):
         self.assertEqual(sorted(last_case.inputs.keys()),
                          ['d1.x', 'd1.y2', 'd1.z', 'd2.y1', 'd2.z'])
         self.assertEqual(sorted(last_case.outputs.keys()), ['d1.y1', 'd2.y2'])
+
+    def test_record_solver_unmatched_includes(self):
+        # Make sure default includes and excludes still works
+        prob = om.Problem()
+
+        prob.model = SellarMDAConnect()
+
+        prob.driver = om.ScipyOptimizeDriver()
+        prob.driver.options['optimizer'] = 'SLSQP'
+        prob.driver.options['tol'] = 1e-8
+
+        prob.set_solver_print(level=0)
+
+        prob.model.add_design_var('indeps.x', lower=0, upper=10)
+        prob.model.add_design_var('indeps.z', lower=0, upper=10)
+        prob.model.add_objective('obj_cmp.obj')
+        prob.model.add_constraint('con_cmp1.con1', upper=0)
+        prob.model.add_constraint('con_cmp2.con2', upper=0)
+
+        prob.setup()
+
+        nl = prob.model._get_subsystem('cycle').nonlinear_solver
+        # Default includes and excludes
+        nl.recording_options['includes'] = ['*', 'a', 'b']
+        nl.recording_options['excludes'] = ['']
+
+        filename = "sqlite2"
+        recorder = om.SqliteRecorder(filename, record_viewer_data=False)
+        nl.add_recorder(recorder)
+
+        prob['indeps.x'] = 2.
+        prob['indeps.z'] = [0., 0.]
+
+        expected_msg = "The following patterns for recording_options['includes'] on " \
+                       "NonlinearBlockGS in 'cycle' <class Cycle> had no matches: ['a', 'b']"
+        with assert_warning(om.OpenMDAOWarning, expected_msg):
+            prob.final_setup()
 
     def test_record_line_search_armijo_goldstein(self):
         prob = om.Problem()

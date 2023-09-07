@@ -1,5 +1,5 @@
 """Define the base Solver, NonlinearSolver, and LinearSolver classes."""
-
+import fnmatch
 import os
 import pprint
 import sys
@@ -13,7 +13,7 @@ from openmdao.recorders.recording_iteration_stack import Recording
 from openmdao.recorders.recording_manager import RecordingManager
 from openmdao.utils.mpi import MPI
 from openmdao.utils.options_dictionary import OptionsDictionary
-from openmdao.utils.record_util import create_local_meta, check_path
+from openmdao.utils.record_util import create_local_meta, check_path, check_unmatched_patterns
 from openmdao.utils.om_warnings import issue_warning, SolverWarning
 
 
@@ -314,6 +314,12 @@ class Solver(object):
 
         if self.recording_options['record_inputs']:
             myinputs = [n for n in system._inputs._abs_iter() if check_path(n, incl, excl)]
+
+        # Warn if any entry in includes found no match
+        matches = myinputs + myoutputs + myresiduals if not system.pathname else \
+            [s.removeprefix(system.pathname + '.') for s in myinputs + myoutputs + myresiduals]
+        check_unmatched_patterns(self.recording_options['includes'], matches,
+                                 "recording_options['includes']", self.msginfo)
 
         self._filtered_vars_to_record = {
             'input': myinputs,
