@@ -316,18 +316,38 @@ class ResidNamingTestCase(unittest.TestCase):
 
 class _InputResidComp(om.ImplicitComponent):
 
+    def __init__(self, jac):
+        self._jac = jac
+        super().__init__()
+
     def add_residual_from_input(self, name, **kwargs):
         resid_name = 'resid_' + name
+        shape = kwargs['shape'] if 'shape' in kwargs else (1,)
+        size = np.prod(shape)
+        ar = np.arange(size, dtype=int)
 
         self.add_input(name, **kwargs)
         self.add_residual(resid_name, **kwargs)
-        self.declare_partials(of='*', wrt='*', method='fd')
+
+        if self._jac in ('fd', 'cs'):
+            self.declare_partials(of=resid_name, wrt=name, method=self._jac)
+        elif self._jac == 'dense':
+            self.declare_partials(of=resid_name, wrt=name, val=np.eye(size))
+        elif self._jac == 'sparse':
+            self.declare_partials(of=resid_name, wrt=name, rows=ar, cols=ar, val=1.0)
+        else:
+            raise ValueError('invalid value for jac use one of ', ['fd', 'cs', 'dense', 'sparse'])
+
 
     def apply_nonlinear(self, inputs, outputs, residuals):
         residuals.set_val(inputs.asarray())
 
 
 class _TestGroup(om.Group):
+
+    def __init__(self, jac='fd'):
+        self._jac = jac
+        super().__init__()
 
     def setup(self):
         self.add_subsystem('exec_com', om.ExecComp(['res_a = a - x[0]', 'res_b = b - x[1:]'],
@@ -338,7 +358,7 @@ class _TestGroup(om.Group):
                                                    x={'shape':3}),
                            promotes_inputs=['*'], promotes_outputs=['*'])
 
-        self.add_subsystem('resid_comp', _InputResidComp(),
+        self.add_subsystem('resid_comp', _InputResidComp(jac=self._jac),
                            promotes_inputs=['*'], promotes_outputs=['*'])
 
     def configure(self):
@@ -368,6 +388,27 @@ class TestAddResidualConfigure(unittest.TestCase):
 
         assert_near_equal(a, x[0], tolerance=1.0E-9)
         assert_near_equal(b, x[1:], tolerance=1.0E-9)
+
+    def test_add_residual_configure_with_jacs(self):
+
+        # for jac in ['fd', 'cs', 'dense', 'sparse']:
+        for jac in ['dense']:
+            with self.subTest(msg=jac):
+                p = om.Problem()
+                p.model.add_subsystem('test_group', _TestGroup(jac=jac))
+                p.setup()
+
+                p.set_val('test_group.a', 3.0)
+                p.set_val('test_group.b', [4.0, 5.0])
+
+                p.run_model()
+
+                a = p.get_val('test_group.a')
+                b = p.get_val('test_group.b')
+                x = p.get_val('test_group.x')
+
+                assert_near_equal(a, x[0], tolerance=1.0E-9)
+                assert_near_equal(b, x[1:], tolerance=1.0E-9)
 
 
 if __name__ == '__main__':

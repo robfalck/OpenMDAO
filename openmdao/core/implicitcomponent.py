@@ -1,10 +1,10 @@
 """Define the ImplicitComponent class."""
 
-from collections import defaultdict
 import numpy as np
 
 from openmdao.core.component import Component, _allowed_types
 from openmdao.core.constants import _UNDEFINED, _SetupStatus
+from openmdao.jacobians.sparse_partial_jacobian import SparsePartialJacobian
 from openmdao.recorders.recording_iteration_stack import Recording
 from openmdao.utils.class_util import overrides_method
 from openmdao.utils.array_utils import shape_to_len
@@ -510,7 +510,6 @@ class ImplicitComponent(Component):
         """
         if self._declared_residuals:
             # if we have renamed resids, remap them to use output naming
-
             resbundle = self._find_partial_matches(of, wrt, use_resname=True)[0]
 
             plen = len(self.pathname) + 1
@@ -533,6 +532,33 @@ class ImplicitComponent(Component):
                     super()._declare_partials(oname, wrt, dct)
         else:
             super()._declare_partials(of, wrt, dct)
+
+    def _setup_partials(self):
+        """
+        Process all partials and approximations that the user declared.
+        """
+        self._subjacs_info = {}
+        print('_setup_partials!')
+        if not self.matrix_free:
+            self._jacobian = SparsePartialJacobian(system=self)
+
+        self.setup_partials()  # hook for component writers to specify sparsity patterns
+
+        # check to make sure that if num_par_fd > 1 that this system is actually doing FD.
+        # Unfortunately we have to do this check after system setup has been called because that's
+        # when declare_partials generally happens, so we raise an exception here instead of just
+        # resetting the value of num_par_fd (because the comm has already been split and possibly
+        # used by the system setup).
+        orig_comm = self._full_comm if self._full_comm is not None else self.comm
+        if self._num_par_fd > 1 and orig_comm.size > 1 and not (self._owns_approx_jac or
+                                                                self._approx_schemes):
+            raise RuntimeError("%s: num_par_fd is > 1 but no FD is active." % self.msginfo)
+
+        for key, dct in self._declared_partials.items():
+            of, wrt = key
+            print(of, wrt)
+            print(dct)
+            self._declare_partials(of, wrt, dct)
 
     def _check_res_vs_out_meta(self, resid, output):
         """
