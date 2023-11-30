@@ -1,9 +1,11 @@
 """Define the ImplicitComponent class."""
 
 import numpy as np
+import scipy.sparse
 
 from openmdao.core.component import Component, _allowed_types
 from openmdao.core.constants import _UNDEFINED, _SetupStatus
+from openmdao.jacobians.dictionary_jacobian import DictionaryJacobian
 from openmdao.jacobians.sparse_partial_jacobian import SparsePartialJacobian
 from openmdao.recorders.recording_iteration_stack import Recording
 from openmdao.utils.class_util import overrides_method
@@ -538,9 +540,6 @@ class ImplicitComponent(Component):
         Process all partials and approximations that the user declared.
         """
         self._subjacs_info = {}
-        print('_setup_partials!')
-        if not self.matrix_free:
-            self._jacobian = SparsePartialJacobian(system=self)
 
         self.setup_partials()  # hook for component writers to specify sparsity patterns
 
@@ -554,10 +553,14 @@ class ImplicitComponent(Component):
                                                                 self._approx_schemes):
             raise RuntimeError("%s: num_par_fd is > 1 but no FD is active." % self.msginfo)
 
+        if not self.matrix_free:
+            if self._declared_residuals:
+                self._jacobian = SparsePartialJacobian(system=self)
+            else:
+                self._jacobian = DictionaryJacobian(system=self)
+
         for key, dct in self._declared_partials.items():
             of, wrt = key
-            print(of, wrt)
-            print(dct)
             self._declare_partials(of, wrt, dct)
 
     def _check_res_vs_out_meta(self, resid, output):

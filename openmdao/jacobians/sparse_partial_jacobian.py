@@ -1,19 +1,16 @@
 """Define the DictionaryJacobian class."""
 import numpy as np
+import scipy.sparse
 import scipy.sparse as sp
 
 from openmdao.jacobians.jacobian import Jacobian
 from openmdao.core.constants import INT_DTYPE
+from openmdao.utils.indexer import Slicer
 
 
 class SparsePartialJacobian(Jacobian):
     """
-    A class for component Jacobians that store all data within a single scipy sparse jacobian.
-
-    This Jacobian is used for components where add_residual is used. In the case of residual assignment,
-    `partials[of=resid_name, wrt=input_name]` assigns the jacobian using row indices associated with
-    the redidual name. When retrieving partials, `partials[of=output_name, wrt=input_name]` uses row
-    indices associated with the output names.
+    No global <Jacobian>; use dictionary of user-supplied sub-Jacobians.
 
     Parameters
     ----------
@@ -26,10 +23,6 @@ class SparsePartialJacobian(Jacobian):
     ----------
     _iter_keys : list of (vname, vname) tuples
         List of tuples of variable names that match subjacs in the this Jacobian.
-    _data : scipy.sparse.dok_array
-        A scipy.sparse matrix in dictionary-of-keys format. This stores the entire
-        jacobian of a component in a single data structure that allows us to request data using
-        a combination of input name and either output name or residual name.
     """
 
     def __init__(self, system, **kwargs):
@@ -37,82 +30,77 @@ class SparsePartialJacobian(Jacobian):
         Initialize all attributes.
         """
         super().__init__(system, **kwargs)
-        self._iter_keys = None
-        jac_shape = (np.sum(system._var_sizes['output']), np.sum(system._var_sizes['input']))
-        self._data = sp.dok_array(jac_shape)
 
-    def _get_residual_rows(self, of):
+        slicer = Slicer()
+
+        var_rel2meta = system._var_rel2meta
+        var_rel_names = system._var_rel_names
+        declared_resids = system._declared_residuals
+        declared_partials = system._declared_partials
+
+        size_outputs = 0
+
+        input_meta = {rel_name: {} for rel_name in var_rel_names['input']}
+        output_meta = {rel_name: {} for rel_name in var_rel_names['output']}
+        resid_meta = {resid_name: {} for resid_name in declared_resids.keys()}
+
+        size_inputs = 0
+        for rel_name in var_rel_names['input']:
+            input_meta[rel_name]['size'] = input_size = var_rel2meta[rel_name]['size']
+            input_meta[rel_name]['cols'] = size_inputs + np.arange(input_size, dtype=int)
+            size_inputs += input_size
+
+        for rel_name in var_rel_names['output']:
+            size_outputs += var_rel2meta[rel_name]['size']
+
+        start_row = 0
+        for resid_name, meta in declared_resids.items():
+            resid_size = np.prod(meta['shape'], dtype=int)
+            resid_meta[resid_name]['size'] = resid_size
+            resid_meta[resid_name]['rows'] = start_row + np.arange(resid_size, dtype=int)
+            start_row += resid_size
+
+        self._dok_matrix = scipy.sparse.dok_matrix((size_outputs, size_inputs), dtype=np.float64)
+
+        # Insert the declared partials into the total partial jacobian.
+        # The total partial jacobian is stored internally as a scipy.sparse.dok_matrix.
+        for (resid_name, input_name), meta in declared_partials.items():
+            cols = input_meta[input_name]['cols']
+            rows = resid_meta[resid_name]['rows']
+            input_size = input_meta[input_name]['size']
+            resid_size = resid_meta[resid_name]['size']
+
+            if 'rows' in meta and 'cols' in meta:
+                # provided as sparse
+                # r and c are given relative to the subjac, need to convert to the total jac
+                r = meta['rows']
+                c = meta['cols']
+            else:
+                # provided as dense
+                r, c = np.mgrid[:resid_size, :input_size]
+
+            self._dok_matrix[rows[r], cols[c]] = meta['val']
+
+    def __getitem__(self, key):
         """
-        Return the rows of the jacobian associated with the named residual or output specified by 'of'.
-
-        Parameters
-        ----------
-        of : str
-            A named residual or output of this system.
-
-        Returns
-        -------
-        rows : tuple of int
-            A tuple of ints providing the rows in the jacobian that belong to the specified residual or output.
-        """
-        system = self._system()
-        if of in system._declared_residuals:
-            # of is a residual
-
-        elif of in system._var_abs2meta['output']:
-            # of is an output
-
-        else:
-            raise KeyError(f'{system.msginfo}: {of} is not a named residual or output of this component')
-
-
-
-    def __setitem__(self, key, subjac):
-        """
-        Set sub-Jacobian.
+        Get sub-Jacobian.
 
         Parameters
         ----------
         key : (str, str)
-            Output/residual and input name pair of sub-Jacobian. The first string in this sequence
-            may be either a component's output name or residual name.
-        subjac : int or float or ndarray or sparse matrix
-            sub-Jacobian as a scalar, vector, array, or AIJ list or tuple.
+            Promoted or relative name pair of sub-Jacobian.
+
+        Returns
+        -------
+        ndarray or spmatrix or list[3]
+            sub-Jacobian as an array, sparse mtx, or AIJ/IJ list or tuple.
         """
         abs_key = self._get_abs_key(key)
-        if abs_key is None:
+        if abs_key in self._subjacs_info:
+            return self._subjacs_info[abs_key]['val']
+        else:
             msg = '{}: Variable name pair ("{}", "{}") not found.'
             raise KeyError(msg.format(self.msginfo, key[0], key[1]))
-
-        # You can only set declared subjacobians.
-        if abs_key not in self._subjacs_info:
-            msg = '{}: Variable name pair ("{}", "{}") must first be declared.'
-            raise KeyError(msg.format(self.msginfo, key[0], key[1]))
-
-        subjacs_info = self._subjacs_info[abs_key]
-
-        if issparse(subjac):
-            self._data['val'] = subjac
-        else:
-            rows = subjacs_info['rows']
-
-            if rows is None:
-                # Dense subjac
-                subjac = np.atleast_2d(subjac)
-                if subjac.shape != (1, 1):
-                    shape = self._abs_key2shape(abs_key)
-                    subjac = subjac.reshape(shape)
-
-                subjacs_info['val'][:] = subjac
-
-            else:
-                try:
-                    subjacs_info['val'][:] = subjac
-                except ValueError:
-                    subjac = np.atleast_1d(subjac)
-                    msg = '{}: Sub-jacobian for key {} has the wrong shape ({}), expected ({}).'
-                    raise ValueError(msg.format(self.msginfo, abs_key,
-                                                subjac.shape, rows.shape))
 
     def _iter_abs_keys(self, system):
         """
