@@ -46,18 +46,25 @@ class SparsePartialJacobian(Jacobian):
 
         size_inputs = 0
         for rel_name in var_rel_names['input']:
-            input_meta[rel_name]['size'] = input_size = var_rel2meta[rel_name]['size']
-            input_meta[rel_name]['cols'] = size_inputs + np.arange(input_size, dtype=int)
+            input_meta = var_rel2meta[rel_name]
+            input_size = input_meta['size']
+            input_meta['cols'] = size_inputs + np.arange(input_size, dtype=int)
             size_inputs += input_size
 
+        start_row = 0
         for rel_name in var_rel_names['output']:
-            size_outputs += var_rel2meta[rel_name]['size']
+            output_meta = var_rel2meta[rel_name]
+            output_size = output_meta['size']
+            size_outputs += output_size
+            output_meta['rows'] = start_row + np.arange(output_size, dtype=int)
+
+        print(list(var_rel2meta.keys()))
 
         start_row = 0
         for resid_name, meta in declared_resids.items():
             resid_size = np.prod(meta['shape'], dtype=int)
-            resid_meta[resid_name]['size'] = resid_size
-            resid_meta[resid_name]['rows'] = start_row + np.arange(resid_size, dtype=int)
+            meta['size'] = resid_size
+            meta['rows'] = start_row + np.arange(resid_size, dtype=int)
             start_row += resid_size
 
         self._dok_matrix = scipy.sparse.dok_matrix((size_outputs, size_inputs), dtype=np.float64)
@@ -65,10 +72,12 @@ class SparsePartialJacobian(Jacobian):
         # Insert the declared partials into the total partial jacobian.
         # The total partial jacobian is stored internally as a scipy.sparse.dok_matrix.
         for (resid_name, input_name), meta in declared_partials.items():
-            cols = input_meta[input_name]['cols']
-            rows = resid_meta[resid_name]['rows']
-            input_size = input_meta[input_name]['size']
-            resid_size = resid_meta[resid_name]['size']
+            resid_meta = declared_resids[resid_name]
+            input_meta = var_rel2meta[input_name]
+            cols = input_meta['cols']
+            rows = resid_meta['rows']
+            input_size = input_meta['size']
+            resid_size = resid_meta['size']
 
             if 'rows' in meta and 'cols' in meta:
                 # provided as sparse
@@ -80,6 +89,19 @@ class SparsePartialJacobian(Jacobian):
                 r, c = np.mgrid[:resid_size, :input_size]
 
             self._dok_matrix[rows[r], cols[c]] = meta['val']
+
+        print(self._dok_matrix.todense())
+        print(list(declared_resids.keys()))
+        print(list(var_rel2meta.keys()))
+
+        print(self['x', 'res_a'].todense())
+        print(self['x', 'res_b'].todense())
+        print(self['resid_res_a', 'res_a'].todense())
+        print(self['resid_res_a', 'res_b'].todense())
+        print(self['resid_res_b', 'res_a'].todense())
+        print(self['resid_res_b', 'res_b'].todense())
+
+        exit(0)
 
     def __getitem__(self, key):
         """
@@ -95,12 +117,24 @@ class SparsePartialJacobian(Jacobian):
         ndarray or spmatrix or list[3]
             sub-Jacobian as an array, sparse mtx, or AIJ/IJ list or tuple.
         """
-        abs_key = self._get_abs_key(key)
-        if abs_key in self._subjacs_info:
-            return self._subjacs_info[abs_key]['val']
+        declared_resids = self._system()._declared_residuals
+        var_rel2meta = self._system()._var_rel2meta
+        var_rel_names = self._system()._var_rel_names
+
+        if key[1] in var_rel_names['input']:
+            c = var_rel2meta[key[1]]['cols']
         else:
-            msg = '{}: Variable name pair ("{}", "{}") not found.'
-            raise KeyError(msg.format(self.msginfo, key[0], key[1]))
+            raise KeyError(f'{self.msginfo}: \'wrt\' variable \'{key[1]}\' not found.')
+
+        if key[0] in declared_resids:
+            r = declared_resids[key[0]]['rows']
+        elif key[0] in var_rel_names['output']:
+            r = var_rel2meta[key[0]]['rows']
+        else:
+            raise KeyError(f'{self.msginfo}: \'of\' variable \'{key[0]}\' not found.')
+
+        rows, cols = np.mgrid[r[0]:r[-1]+1, c[0]:c[-1]+1]
+        return self._dok_matrix[rows, cols]
 
     def _iter_abs_keys(self, system):
         """
