@@ -1,20 +1,17 @@
 """Define the ImplicitComponent class."""
 
 import numpy as np
-import scipy.sparse
 
 from openmdao.core.component import Component, _allowed_types
 from openmdao.core.constants import _UNDEFINED, _SetupStatus
 from openmdao.jacobians.dictionary_jacobian import DictionaryJacobian
 from openmdao.jacobians.sparse_partial_jacobian import SparsePartialJacobian
+from openmdao.vectors.vector import _full_slice
 from openmdao.recorders.recording_iteration_stack import Recording
 from openmdao.utils.class_util import overrides_method
 from openmdao.utils.array_utils import shape_to_len
 from openmdao.utils.general_utils import format_as_float_or_array
 from openmdao.utils.units import simplify_unit
-
-
-_full_slice = slice(None)
 
 
 def _get_slice_shape_dict(name_shape_iter):
