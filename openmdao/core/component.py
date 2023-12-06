@@ -15,7 +15,7 @@ from openmdao.core.system import System, _supported_methods, _DEFAULT_COLORING_M
     global_meta_names, collect_errors
 from openmdao.core.constants import INT_DTYPE
 from openmdao.jacobians.dictionary_jacobian import DictionaryJacobian
-from openmdao.jacobians.sparse_partial_jacobian import SparsePartialJacobian
+from openmdao.jacobians.sparse_partial_jacobian import DOKJacobian
 from openmdao.utils.array_utils import shape_to_len
 from openmdao.utils.units import simplify_unit
 from openmdao.utils.name_maps import abs_key_iter, abs_key2rel_key, rel_name2abs_name

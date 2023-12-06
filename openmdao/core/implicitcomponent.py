@@ -5,7 +5,7 @@ import numpy as np
 from openmdao.core.component import Component, _allowed_types
 from openmdao.core.constants import _UNDEFINED, _SetupStatus
 from openmdao.jacobians.dictionary_jacobian import DictionaryJacobian
-from openmdao.jacobians.sparse_partial_jacobian import SparsePartialJacobian
+from openmdao.jacobians.sparse_partial_jacobian import DOKJacobian
 from openmdao.vectors.vector import _full_slice
 from openmdao.recorders.recording_iteration_stack import Recording
 from openmdao.utils.class_util import overrides_method
@@ -552,7 +552,7 @@ class ImplicitComponent(Component):
 
         if not self.matrix_free:
             if self._declared_residuals:
-                self._jacobian = SparsePartialJacobian(system=self)
+                self._jacobian = DOKJacobian(system=self)
             else:
                 self._jacobian = DictionaryJacobian(system=self)
 

@@ -8,9 +8,9 @@ from openmdao.core.constants import INT_DTYPE
 from openmdao.utils.indexer import Slicer
 
 
-class SparsePartialJacobian(Jacobian):
+class DOKJacobian(Jacobian):
     """
-    No global <Jacobian>; use dictionary of user-supplied sub-Jacobians.
+    A "dictionary of keys" Jacobian that uses scipy.sparse.dok_matrix for its underlying storage.
 
     Parameters
     ----------
@@ -38,12 +38,6 @@ class SparsePartialJacobian(Jacobian):
         declared_resids = system._declared_residuals
         declared_partials = system._declared_partials
 
-        size_outputs = 0
-
-        input_meta = {rel_name: {} for rel_name in var_rel_names['input']}
-        output_meta = {rel_name: {} for rel_name in var_rel_names['output']}
-        resid_meta = {resid_name: {} for resid_name in declared_resids.keys()}
-
         size_inputs = 0
         for rel_name in var_rel_names['input']:
             input_meta = var_rel2meta[rel_name]
@@ -51,21 +45,19 @@ class SparsePartialJacobian(Jacobian):
             input_meta['cols'] = size_inputs + np.arange(input_size, dtype=int)
             size_inputs += input_size
 
-        start_row = 0
+        size_outputs = 0
         for rel_name in var_rel_names['output']:
             output_meta = var_rel2meta[rel_name]
             output_size = output_meta['size']
+            output_meta['rows'] = size_outputs + np.arange(output_size, dtype=int)
             size_outputs += output_size
-            output_meta['rows'] = start_row + np.arange(output_size, dtype=int)
 
-        print(list(var_rel2meta.keys()))
-
-        start_row = 0
+        size_resids = 0
         for resid_name, meta in declared_resids.items():
             resid_size = np.prod(meta['shape'], dtype=int)
             meta['size'] = resid_size
-            meta['rows'] = start_row + np.arange(resid_size, dtype=int)
-            start_row += resid_size
+            meta['rows'] = size_resids + np.arange(resid_size, dtype=int)
+            size_resids += resid_size
 
         self._dok_matrix = scipy.sparse.dok_matrix((size_outputs, size_inputs), dtype=np.float64)
 
@@ -89,19 +81,6 @@ class SparsePartialJacobian(Jacobian):
                 r, c = np.mgrid[:resid_size, :input_size]
 
             self._dok_matrix[rows[r], cols[c]] = meta['val']
-
-        print(self._dok_matrix.todense())
-        print(list(declared_resids.keys()))
-        print(list(var_rel2meta.keys()))
-
-        print(self['x', 'res_a'].todense())
-        print(self['x', 'res_b'].todense())
-        print(self['resid_res_a', 'res_a'].todense())
-        print(self['resid_res_a', 'res_b'].todense())
-        print(self['resid_res_b', 'res_a'].todense())
-        print(self['resid_res_b', 'res_b'].todense())
-
-        exit(0)
 
     def __getitem__(self, key):
         """
