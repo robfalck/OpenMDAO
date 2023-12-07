@@ -31,8 +31,6 @@ class DOKJacobian(Jacobian):
         """
         super().__init__(system, **kwargs)
 
-        slicer = Slicer()
-
         var_rel2meta = system._var_rel2meta
         var_rel_names = system._var_rel_names
         declared_resids = system._declared_residuals
