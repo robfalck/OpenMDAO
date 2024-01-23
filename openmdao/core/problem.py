@@ -15,6 +15,7 @@ from collections import defaultdict, namedtuple
 from itertools import product
 
 from io import StringIO, TextIOBase
+from typing import Type, Optional
 
 import numpy as np
 import scipy.sparse as sparse
@@ -54,6 +55,7 @@ from openmdao.utils.general_utils import _contains_all, pad_name, LocalRangeIter
 from openmdao.utils.om_warnings import issue_warning, DerivativesWarning, warn_deprecation, \
     OMInvalidCheckDerivativesOptionsWarning
 import openmdao.utils.coloring as coloring_mod
+from openmdao.utils.typing import SystemDerivedType
 from openmdao.visualization.tables.table_builder import generate_table
 
 try:
@@ -204,7 +206,7 @@ class Problem(object):
         Bool to check if `value` deprecation warning has occured yet
     """
 
-    def __init__(self, model=None, driver=None, comm=None, name=None, reports=_UNDEFINED,
+    def __init__(self, model: Optional[SystemDerivedType]=None, driver=None, comm=None, name=None, reports=_UNDEFINED,
                  **options):
         """
         Initialize attributes.
@@ -214,7 +216,8 @@ class Problem(object):
         # this function doesn't do anything after the first call
         _load_report_plugins()
 
-        self._driver = None
+        self._driver: Optional[Driver] = None
+        # self.model: Group
         self._reports = get_reports_to_activate(reports)
 
         self.cite = CITATION
@@ -400,6 +403,13 @@ class Problem(object):
         Get the Driver for this Problem.
         """
         return self._driver
+
+    @driver.setter
+    def driver(self, d):
+        """
+        Set the Driver for this Problem.
+        """
+        self._driver = d
 
     def _update_reports(self, driver):
         if self._driver is not None:

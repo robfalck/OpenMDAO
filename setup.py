@@ -183,7 +183,8 @@ setup(
             '*/*.py',
             'matrices/*.npz'
         ],
-        'openmdao': ['*/tests/*.py', '*/*/tests/*.py', '*/*/*/tests/*.py']
+        'openmdao': ['*/tests/*.py', '*/*/tests/*.py', '*/*/*/tests/*.py',
+                     'py.typed']
     },
     python_requires=">=3.7",
     install_requires=[

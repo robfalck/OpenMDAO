@@ -9,6 +9,7 @@ from contextlib import contextmanager
 from collections import defaultdict
 from itertools import chain
 from enum import IntEnum
+from typing import Optional
 
 from fnmatch import fnmatchcase
 
@@ -20,6 +21,7 @@ from openmdao.core.constants import _DEFAULT_OUT_STREAM, _UNDEFINED, INT_DTYPE, 
     _SetupStatus
 from openmdao.jacobians.assembled_jacobian import DenseJacobian, CSCJacobian
 from openmdao.recorders.recording_manager import RecordingManager
+from openmdao.solvers.solver import NonlinearSolver, LinearSolver
 from openmdao.vectors.vector import _full_slice
 from openmdao.utils.mpi import MPI, multi_proc_exception_check
 from openmdao.utils.options_dictionary import OptionsDictionary
@@ -2715,28 +2717,28 @@ class System(object):
         return (self._dinputs, self._doutputs, self._dresiduals)
 
     @property
-    def nonlinear_solver(self):
+    def nonlinear_solver(self) -> Optional[NonlinearSolver]:
         """
         Get the nonlinear solver for this system.
         """
         return self._nonlinear_solver
 
     @nonlinear_solver.setter
-    def nonlinear_solver(self, solver):
+    def nonlinear_solver(self, solver: Optional[NonlinearSolver]):
         """
         Set this system's nonlinear solver.
         """
         self._nonlinear_solver = solver
 
     @property
-    def linear_solver(self):
+    def linear_solver(self) -> Optional[LinearSolver]:
         """
         Get the linear solver for this system.
         """
         return self._linear_solver
 
     @linear_solver.setter
-    def linear_solver(self, solver):
+    def linear_solver(self, solver: Optional[LinearSolver]):
         """
         Set this system's linear solver.
         """

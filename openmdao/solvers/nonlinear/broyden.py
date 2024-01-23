@@ -3,10 +3,12 @@ Define the BroydenSolver class.
 
 Based on implementation in Scipy via OpenMDAO 0.8x with improvements based on NPSS solver.
 """
+from typing import Union
+
 import numpy as np
 
 from openmdao.recorders.recording_iteration_stack import Recording
-from openmdao.solvers.linesearch.backtracking import BoundsEnforceLS
+from openmdao.solvers.linesearch.backtracking import BoundsEnforceLS, LinesearchSolver
 from openmdao.solvers.solver import NonlinearSolver
 from openmdao.utils.class_util import overrides_method
 from openmdao.utils.om_warnings import issue_warning, SetupWarning
@@ -76,7 +78,7 @@ class BroydenSolver(NonlinearSolver):
         self.linear_solver = None
 
         # Slot for linesearch
-        self.linesearch = BoundsEnforceLS()
+        self.linesearch: Union[LinesearchSolver, None] = BoundsEnforceLS()
 
         self.cite = CITATION
 

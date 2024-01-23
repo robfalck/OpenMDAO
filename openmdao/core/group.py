@@ -2,6 +2,7 @@
 import sys
 from collections import Counter, defaultdict
 from collections.abc import Iterable
+from typing import Type, TypeVar, Generic
 
 from itertools import product, chain, repeat
 from numbers import Number
@@ -36,6 +37,8 @@ import openmdao.utils.coloring as coloring_mod
 from openmdao.utils.indexer import indexer, Indexer
 from openmdao.utils.om_warnings import issue_warning, UnitsWarning, UnusedOptionWarning, \
     PromotionWarning, MPIWarning, DerivativesWarning
+from openmdao.utils.typing import SystemDerivedType
+
 
 # regex to check for valid names.
 import re
@@ -3370,9 +3373,13 @@ class Group(System):
         if self._problem_meta is not None and self._problem_meta['config_info'] is not None:
             self._problem_meta['config_info']._prom_added(self.pathname)
 
-    def add_subsystem(self, name, subsys, promotes=None,
-                      promotes_inputs=None, promotes_outputs=None,
-                      min_procs=1, max_procs=None, proc_weight=1.0, proc_group=None):
+
+    T = TypeVar('T', bound=System)
+    def add_subsystem(self, name,
+                      subsys: T,
+                      promotes=None, promotes_inputs=None, promotes_outputs=None,
+                      min_procs=1, max_procs=None,
+                      proc_weight=1.0, proc_group=None) -> T:
         """
         Add a subsystem.
 

@@ -1,10 +1,11 @@
 """Define the NewtonSolver class."""
-
+from typing import Union
 
 import numpy as np
 
 from openmdao.solvers.linesearch.backtracking import BoundsEnforceLS
-from openmdao.solvers.solver import NonlinearSolver
+from openmdao.solvers.solver import NonlinearSolver, LinearSolver
+from openmdao.solvers.linesearch.backtracking import LinesearchSolver
 from openmdao.recorders.recording_iteration_stack import Recording
 from openmdao.utils.mpi import MPI
 
@@ -38,10 +39,10 @@ class NewtonSolver(NonlinearSolver):
         super().__init__(**kwargs)
 
         # Slot for linear solver
-        self.linear_solver = None
+        self.linear_solver: Union[LinearSolver, None] = None
 
         # Slot for linesearch
-        self.linesearch = BoundsEnforceLS()
+        self.linesearch: Union[LinesearchSolver, None] = BoundsEnforceLS()
 
     def _declare_options(self):
         """
