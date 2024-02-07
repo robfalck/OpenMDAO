@@ -321,7 +321,7 @@ class TestSemiTotalsNumCalls(unittest.TestCase):
 
     def test_check_relevlance_approx_totals(self):
 
-        for behavior in ['error']:
+        for behavior in ['ignore', 'warn', 'error']:
             with self.subTest(f'Checking relevance with approx_totals and singular_jac_behavior = {behavior}'):
                 size = 10
                 rho = 1.17573
