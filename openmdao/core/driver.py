@@ -948,7 +948,20 @@ class Driver(object):
         if not self.supports['gradients']:
             return
 
+        if self.options['singular_jac_behavior'] == 'ignore':
+            return
+
         problem = self._problem()
+
+        # This check will not work when user has omitted explicitly declared
+        # partials in favor of approx_partials or approx_totals at the group level.
+        for subsys in problem.model.system_iter(include_self=True, recurse=True):
+            if subsys._has_approx:
+                if self.options['singular_jac_behavior'] == 'warn':
+                    issue_warning(f'System {subsys} has approximated derivatives.'
+                                ' Relevance check skipped.', DriverWarning)
+                return
+
         relevant = problem.model._relevant
         fwd = problem._mode == 'fwd'
 
@@ -956,6 +969,8 @@ class Driver(object):
         constraints = self._cons
 
         indep_list = list(des_vars)
+
+        invalid_constraints = []
 
         for name, meta in constraints.items():
 
@@ -971,8 +986,16 @@ class Driver(object):
             #       implements bounds on design variables by adding them as constraints.
             #       These design variables as constraints will not appear in the wrt list.
             if not wrt and name not in indep_list:
-                raise RuntimeError(f"{self.msginfo}: Constraint '{name}' does not depend on any "
-                                   "design variables. Please check your problem formulation.")
+                invalid_constraints.append(name)
+
+        if invalid_constraints:
+            msg = (f"{self.msginfo}: Constraints {invalid_constraints} do "
+                   "not depend on any design variables. "
+                   "Please check your problem formulation.")
+            if self.options['singular_jac_behavior'] == 'warn':
+                om.issue_warning(msg, DriverWarning)
+            elif self.options['singular_jac_behavior'] == 'error':
+                raise RuntimeError(msg)
 
     def run(self):
         """
