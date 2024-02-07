@@ -959,7 +959,7 @@ class Driver(object):
             if subsys._has_approx:
                 if self.options['singular_jac_behavior'] == 'warn':
                     issue_warning(f'System {subsys} has approximated derivatives.'
-                                ' Relevance check skipped.', DriverWarning)
+                                  ' Relevance check skipped.', DriverWarning)
                 return
 
         relevant = problem.model._relevant
@@ -993,7 +993,7 @@ class Driver(object):
                    "not depend on any design variables. "
                    "Please check your problem formulation.")
             if self.options['singular_jac_behavior'] == 'warn':
-                om.issue_warning(msg, DriverWarning)
+                issue_warning(msg, DriverWarning)
             elif self.options['singular_jac_behavior'] == 'error':
                 raise RuntimeError(msg)
 
