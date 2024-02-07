@@ -725,10 +725,16 @@ class ScipyOptimizeDriver(Driver):
             self._grad_cache = grad
 
             # First time through, check for zero row/col.
+            singular_jac_behavior = self.options['singular_jac_behavior']
             if self._check_jac and self._total_jac is not None:
-                raise_error = self.options['singular_jac_behavior'] == 'error'
-                self._total_jac.check_total_jac(raise_error=raise_error,
-                                                tol=self.options['singular_jac_tol'])
+                if singular_jac_behavior != 'ignore':
+                    raise_error = singular_jac_behavior == 'error'
+                    for subsys in model.subsys_iter(include_self=True, recurse=True):
+                        if subsys._has_approx:
+                            break
+                    else:
+                        self._total_jac.check_total_jac(raise_error=raise_error,
+                                                        tol=self.options['singular_jac_tol'])
                 self._check_jac = False
 
         except Exception as msg:

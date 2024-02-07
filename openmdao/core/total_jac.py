@@ -1727,7 +1727,6 @@ class _TotalJacInfo(object):
         raise_error : bool
             If True, raise an exception if a zero row or column is found.
         """
-        return
         nzrows, nzcols = np.nonzero(np.abs(self.J) > tol)
 
         # Check for zero rows, which correspond to constraints unaffected by any design vars.
