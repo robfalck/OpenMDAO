@@ -841,7 +841,7 @@ class pyOptSparseDriver(Driver):
                 if self._check_jac and self._total_jac is not None:
                     if singular_jac_behavior != 'ignore':
                         raise_error = singular_jac_behavior == 'error'
-                        for subsys in model.subsys_iter(include_self=True, recurse=True):
+                        for subsys in model.system_iter(include_self=True, recurse=True):
                             if subsys._has_approx:
                                 break
                         else:

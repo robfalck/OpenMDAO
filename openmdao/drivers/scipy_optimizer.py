@@ -719,6 +719,8 @@ class ScipyOptimizeDriver(Driver):
         ndarray
             Gradient of objective with respect to input array.
         """
+        prob = self._problem()
+        model = prob.model
         try:
             grad = self._compute_totals(of=self._obj_and_nlcons, wrt=self._dvlist,
                                         return_format=self._total_jac_format)
@@ -729,9 +731,9 @@ class ScipyOptimizeDriver(Driver):
             if self._check_jac and self._total_jac is not None:
                 if singular_jac_behavior != 'ignore':
                     raise_error = singular_jac_behavior == 'error'
-                    for subsys in model.subsys_iter(include_self=True, recurse=True):
+                    for subsys in model.system_iter(include_self=True, recurse=True):
                         if subsys._has_approx:
-                            break
+                            pass
                     else:
                         self._total_jac.check_total_jac(raise_error=raise_error,
                                                         tol=self.options['singular_jac_tol'])
