@@ -22,13 +22,6 @@ class VectorizedSystem(Group):
         )
 
         self.options.declare(
-            'scalar_inputs', types=list, default=[],
-            desc='The inputs to the system which are to be vectorized. If additional metadata is specified, such '
-                 ' as shape or units, then the input should be specified as a two-element tuple where the first '
-                 ' element is the string variable name as the second is a dictionary of metadata.'
-        )
-
-        self.options.declare(
             'vec_outputs', types=list, allow_none=False,
             desc='The outputs of the system which are to be vectorized. If additional metadata is specified, such '
                  ' as shape or units, then the input should be specified as a two-element tuple where the first '
@@ -50,7 +43,6 @@ class VectorizedSystem(Group):
         system = self.options['system']
         vec_inputs = self.options['vec_inputs']
         vec_outputs = self.options['vec_outputs']
-        scalar_inputs = self.options['scalar_inputs']
         vec_fmt = self.options['vec_fmt']
 
         parallel = self.add_subsystem('parallel', ParallelGroup(), promotes_inputs=['*'])
@@ -62,7 +54,6 @@ class VectorizedSystem(Group):
     def configure(self):
         n = self.options['vec_size']
         vec_fmt = self.options['vec_fmt']
-        scalar_inputs = self.options['scalar_inputs']
 
         sys = self._get_subsystem('parallel.sys_0')
         parallel = self._get_subsystem('parallel')
@@ -93,8 +84,9 @@ class VectorizedSystem(Group):
             parallel.promotes(f'sys_{idx}', [inp for inp in inputs if inp not in vec_inputs])
 
         for oup, user_meta in vec_outputs.items():
-            meta = user_meta if user_meta else outputs[oup]
-            mux.add_var(oup, shape=meta['shape'], units=meta['units'], axis=1)
+            meta = outputs[oup]
+            meta.update(vec_outputs[oup])
+            mux.add_var(oup, shape=meta['shape'], units=meta['units'], axis=0)
             self.promotes('mux', outputs=[(oup, vec_fmt.format(oup))])
 
 
@@ -113,4 +105,4 @@ if __name__ == '__main__':
     prob.set_val('x_vec', np.array([1.25, 1.5, 1.75, 2.0]))
     prob.run_model()
     prob.model.list_inputs()
-    prob.model.list_outputs(units=True)
+    prob.model.list_outputs(units=True, shape=True)
