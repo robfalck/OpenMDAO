@@ -74,6 +74,7 @@ except ImportError:  # pragma: no cover
     PETScVector = None
 
 # Drivers
+from openmdao.drivers.ego_driver import EGODriver
 from openmdao.drivers.pyoptsparse_driver import pyOptSparseDriver
 from openmdao.drivers.scipy_optimizer import ScipyOptimizeDriver
 from openmdao.drivers.genetic_algorithm_driver import SimpleGADriver
