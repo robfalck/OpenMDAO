@@ -555,8 +555,8 @@ def run_driver(prob):
 
     Returns
     -------
-    bool
-        Failure flag; True if failed to converge, False is successful.
+    result : DriverResults
+        DriverResults object from the running of the driver.
     string
         Output from calling `run_driver` on the Problem, captured from stdout.
     """
@@ -565,11 +565,11 @@ def run_driver(prob):
 
     sys.stdout = strout
     try:
-        failed = prob.run_driver()
+        result = prob.run_driver()
     finally:
         sys.stdout = stdout
 
-    return failed, strout.getvalue()
+    return result, strout.getvalue()
 
 
 @contextmanager

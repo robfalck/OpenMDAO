@@ -1018,8 +1018,9 @@ class Driver(object):
             self._problem().model.run_solve_nonlinear()
 
         self.iter_count += 1
+        self.result.success = True
 
-        return False
+        return self.result
 
     @property
     def _recording_iter(self):

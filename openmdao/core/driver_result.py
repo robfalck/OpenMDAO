@@ -36,6 +36,15 @@ class DriverResult():
         self.exit_status = 'NOT_RUN'
         self.success = False
 
+    def __str__(self):
+        s = (f'runtime:     {self.runtime:-6.4f} s\n'
+             f'iter_count:  {self.iter_count}\n'
+             f'model_evals: {self.model_evals}\n'
+             f'deriv_evals: {self.deriv_evals}\n'
+             f'exit_status: {self.exit_status}\n'
+             f'success:     {self.success}')
+        return s
+
 class OptimizationResult(DriverResult):
 
     def update_from_scipy(self, scipy_results):
