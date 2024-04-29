@@ -669,14 +669,14 @@ class pyOptSparseDriver(Driver):
 
         try:
             exit_status = sol.optInform['value']
-            self.fail = False
+            self.result.success = True
 
             # These are various failed statuses.
             if optimizer == 'IPOPT':
                 if exit_status not in {0, 1}:
-                    self.fail = True
+                    self.result.success = False
             elif exit_status > 2:
-                self.fail = True
+                self.result.success = False
 
         except KeyError:
             # optimizers other than pySNOPT may not populate this dict
@@ -688,7 +688,7 @@ class pyOptSparseDriver(Driver):
             signal.signal(sigusr, self._signal_cache)
             self._signal_cache = None   # to prevent memory leak test from failing
 
-        return self.fail
+        return self.result
 
     def _objfunc(self, dv_dict):
         """
