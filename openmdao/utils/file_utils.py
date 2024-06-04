@@ -2,12 +2,14 @@
 Utilities for working with files.
 """
 
+from multiprocessing import Value
 import sys
 import os
 import importlib
 import types
 from fnmatch import fnmatch
 from os.path import join, basename, dirname, isfile, split, splitext, abspath
+import pathlib
 
 
 def get_module_path(fpath):
@@ -427,3 +429,36 @@ def image2html(imagefile, title='', alt=''):
 </body>
 </html>
 """
+
+def _get_outputs_dir(prob_or_sys=None, *subdirs, mkdir=True):
+    """
+    Return a pathlib.Path for the outputs directory related to the given problem or system.
+
+    This path is based on the "problem path" in a hierarchy of problems.
+    The resulting outputs directory will be nested where each problem's output directory
+    contains its own output files and subdirectories as well as any subproblems.
+
+    Parameters
+    ----------
+    prob_or_sys : Problem or System or None
+        The problem or system from which we are opening a file.
+    mkdir : bool
+        If True, force the creation of this directory.
+    subdirs : str
+        Additional subdirectories under the top level directory for the relevant problem.
+    """
+    from openmdao.core.problem import Problem
+    from openmdao.core.system import System
+    if isinstance(prob_or_sys, Problem):
+        prob_pathname = prob_or_sys._metadata['pathname']
+    elif isinstance(prob_or_sys, System):
+        prob_pathname = prob_or_sys._problem_meta['pathname']
+    else:
+        return pathlib.Path(os.getcwd())
+    
+    dirpath =  pathlib.Path(*[f'{p}_out' for p in prob_pathname.split('/')]) / pathlib.Path(*subdirs)
+    
+    if prob_or_sys.comm.rank == 0 and mkdir:
+        dirpath.mkdir(parents=True, exist_ok=True)
+    
+    return dirpath

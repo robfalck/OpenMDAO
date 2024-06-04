@@ -6,6 +6,7 @@ from io import BytesIO
 
 import os
 import gc
+import pathlib
 import sqlite3
 from itertools import chain
 
@@ -329,9 +330,6 @@ class SqliteRecorder(CaseRecorder):
 
         super().startup(recording_requester, comm)
 
-        if not self._database_initialized:
-            self._initialize_database(comm)
-
         # grab the system and driver
         if isinstance(recording_requester, Driver):
             system = recording_requester._problem().model
@@ -348,6 +346,14 @@ class SqliteRecorder(CaseRecorder):
         else:
             raise ValueError('Driver encountered a recording_requester it cannot handle'
                              ': {0}'.format(recording_requester))
+
+        if not self._database_initialized:
+            if '/' not in self._filepath:
+                # If the user only specified a filename, place the recording problem output dir.
+                recording_dir = system.get_outputs_dir()
+                self._filepath = recording_dir / self._filepath
+            
+            self._initialize_database(comm)
 
         states = system._list_states_allprocs()
 

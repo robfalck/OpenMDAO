@@ -1431,7 +1431,7 @@ class Driver(object):
         return coloring
 
     def _get_total_coloring_fname(self):
-        return os.path.join(self._problem().options['coloring_dir'], 'total_coloring.pkl')
+        return str(self._problem()._get_coloring_dir() / 'total_coloring.pkl')
 
     def scaling_report(self, outfile='driver_scaling_report.html', title=None, show_browser=True,
                        jac=True):

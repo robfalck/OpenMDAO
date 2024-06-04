@@ -37,6 +37,7 @@ from openmdao.error_checking.check_config import _default_checks, _all_checks, \
 from openmdao.recorders.recording_iteration_stack import _RecIteration
 from openmdao.recorders.recording_manager import RecordingManager, record_viewer_data, \
     record_model_options
+from openmdao.utils.file_utils import _get_outputs_dir
 from openmdao.utils.mpi import MPI, FakeComm, multi_proc_exception_check, check_mpi_env
 from openmdao.utils.name_maps import name2abs_names
 from openmdao.utils.options_dictionary import OptionsDictionary
@@ -150,6 +151,10 @@ class Problem(object):
         Since none is acceptable in the environment variable, a value of reports=None
         is equivalent to reports=False. Otherwise, reports may be a sequence of
         strings giving the names of the reports to run.
+    parent : None or Problem
+        A parent problem in which this problem exists. This generally occurs when a
+        a problem is used within a subproblem component. This is stored as a weakref
+        in _problem.
     **options : named args
         All remaining named args are converted to options.
 
@@ -208,7 +213,7 @@ class Problem(object):
     """
 
     def __init__(self, model=None, driver=None, comm=None, name=None, reports=_UNDEFINED,
-                 **options):
+                 parent=None, **options):
         """
         Initialize attributes.
         """
@@ -289,8 +294,10 @@ class Problem(object):
         # General options
         self.options = OptionsDictionary(parent_name=type(self).__name__)
         self.options.declare('coloring_dir', types=str,
-                             default=os.path.join(os.getcwd(), 'coloring_files'),
-                             desc='Directory containing coloring files (if any) for this Problem.')
+                             default='coloring_files',
+                             desc='Directory containing coloring files (if any) for this Problem.',
+                             deprecation='coloring_dir no longer has an effect. Coloring files will '
+                             'always be placed in `{problem.get_output_dir()}/coloring_files`')
         self.options.declare('group_by_pre_opt_post', types=bool,
                              default=False,
                              desc="If True, group subsystems of the top level model into "
@@ -879,7 +886,7 @@ class Problem(object):
 
     def setup(self, check=False, logger=None, mode='auto', force_alloc_complex=False,
               distributed_vector_class=PETScVector, local_vector_class=DefaultVector,
-              derivatives=True):
+              derivatives=True, parent=None):
         """
         Set up the model hierarchy.
 
@@ -918,6 +925,8 @@ class Problem(object):
             and associated transfers involved in intraprocess communication.
         derivatives : bool
             If True, perform any memory allocations necessary for derivative computation.
+        parent : System or Problem
+            The parent problem or system for this Problem object.
 
         Returns
         -------
@@ -956,7 +965,6 @@ class Problem(object):
             'name': self._name,  # the name of this Problem
             'pathname': None,  # the pathname of this Problem in the current tree of Problems
             'comm': comm,
-            'coloring_dir': self.options['coloring_dir'],  # directory for coloring files
             'recording_iter': _RecIteration(comm.rank),  # manager of recorder iterations
             'local_vector_class': local_vector_class,
             'distributed_vector_class': distributed_vector_class,
@@ -987,7 +995,6 @@ class Problem(object):
                                      # a, a.b, and a.b.c, with one of the Nones replaced
                                      # by promotes info.  Dict entries are only created if
                                      # src_indices are applied to the variable somewhere.
-            'reports_dir': self.get_reports_dir(),  # directory where reports will be written
             'saved_errors': [],  # store setup errors here until after final_setup
             'checking': False,  # True if check_totals or check_partials is running
             'model_options': self.model_options,  # A dict of options passed to all systems in tree
@@ -1006,11 +1013,12 @@ class Problem(object):
             'ncompute_totals': 0,  # number of times compute_totals has been called
         }
 
-        if _prob_setup_stack:
-            self._metadata['pathname'] = _prob_setup_stack[-1]._metadata['pathname'] + '/' + \
-                self._name
-        else:
+        if parent is None:
             self._metadata['pathname'] = self._name
+        elif isinstance(parent, Problem):
+            self._metadata['pathname'] = '/'.join([parent._metadata['pathname'], self._name])
+        elif isinstance(parent, System):
+            self._metadata['pathname'] = '/'.join([parent._problem_meta['pathname'], self._name])
 
         _prob_setup_stack.append(self)
         try:
@@ -2433,7 +2441,8 @@ class Problem(object):
             return
 
         if logger is None:
-            logger = get_logger('check_config', out_file=out_file, use_format=True)
+            check_file_path = str(self.get_outputs_dir() / out_file)
+            logger = get_logger('check_config', out_file=check_file_path, use_format=True)
 
         if checks == 'all':
             checks = sorted(_all_non_redundant_checks)
@@ -2468,6 +2477,44 @@ class Problem(object):
 
         self.model._set_complex_step_mode(active)
 
+    def get_outputs_dir(self, *subdirs, mkdir=True):
+        """
+        Get the path under which all output files associated with a run of this problem are to be placed.
+
+        Parameters
+        ----------
+        *subdirs : str
+            Subdirectories nested under the relevant problem output directory.
+            To create {prob_output_dir}/a/b one would pass `prob.get_outputs_dir('a', 'b')`.
+        mkdir : bool
+            If True, attempt to create this directory if it does not exist.
+
+        Returns
+        -------
+        pathlib.Path
+           The path of the outputs directory for the problem.
+        """
+        return _get_outputs_dir(self, *subdirs, mkdir=mkdir)
+
+    def _get_coloring_dir(self, force=False):
+        """
+        Get the path to the directory where the report files should go.
+
+        If it doesn't exist, it will be created.
+
+        Parameters
+        ----------
+        force : bool
+            If True, create the reports directory if it doesn't exist, even if this Problem does
+            not have any active reports. This can happen when running testflo.
+
+        Returns
+        -------
+        pathlib.Path
+            The path to the directory where reports should be written.
+        """
+        return self.get_outputs_dir('coloring_files', mkdir=force)
+
     def get_reports_dir(self, force=False):
         """
         Get the path to the directory where the report files should go.
@@ -2482,15 +2529,10 @@ class Problem(object):
 
         Returns
         -------
-        str
+        pathlib.Path
             The path to the directory where reports should be written.
         """
-        reports_dirpath = pathlib.Path(get_reports_dir()).joinpath(f'{self._name}')
-
-        if self.comm.rank == 0 and (force or self._reports):
-            pathlib.Path(reports_dirpath).mkdir(parents=True, exist_ok=True)
-
-        return reports_dirpath
+        return self.get_outputs_dir('reports', mkdir=force or self._reports)
 
     def list_indep_vars(self, include_design_vars=True, options=None,
                         print_arrays=False, out_stream=_DEFAULT_OUT_STREAM):

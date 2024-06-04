@@ -279,7 +279,7 @@ class pyOptSparseDriver(Driver):
         self.options.declare('output_dir', types=(str, _ReprClass), default=_DEFAULT_REPORTS_DIR,
                              allow_none=True,
                              desc='Directory location of pyopt_sparse output files.'
-                             'Default is ./reports_directory/problem_name.')
+                             'Default is ./{problem_name}_out/.')
 
     @property
     def hist_file(self):
@@ -537,9 +537,7 @@ class pyOptSparseDriver(Driver):
             output_dir = "."
         elif self.options['output_dir'] == _DEFAULT_REPORTS_DIR:
             problem = self._problem()
-            default_output_dir = pathlib.Path(get_reports_dir()).joinpath(problem._name)
-            pathlib.Path(default_output_dir).mkdir(parents=True, exist_ok=True)
-            output_dir = str(default_output_dir)
+            output_dir = str(problem.get_outputs_dir())
         else:
             output_dir = self.options['output_dir']
 
