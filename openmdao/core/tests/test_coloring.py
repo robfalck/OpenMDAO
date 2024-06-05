@@ -1404,6 +1404,7 @@ class SimulColoringConfigCheckTestCase(unittest.TestCase):
         if color == 'partial':
             comp.declare_coloring()
             if fixed:
+                p.options['coloring_dir'] = fixed
                 comp.use_fixed_coloring()
 
         for ofname, wrtname in zip(ofnames, wrtnames):
@@ -1430,7 +1431,7 @@ class SimulColoringConfigCheckTestCase(unittest.TestCase):
         p.run_driver()
 
         p = self._build_model(ofnames=['w', 'x', 'y'], wrtnames=['a', 'b', 'c'],
-                              sizes=[3, 4, 5], color='partial', fixed=True)
+                              sizes=[3, 4, 5], color='partial', fixed=p._get_coloring_dir())
         p.run_driver()
 
     def test_added_name_total(self):

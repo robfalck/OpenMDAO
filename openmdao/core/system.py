@@ -2,6 +2,7 @@
 import sys
 import os
 import hashlib
+import pathlib
 import time
 import functools
 
@@ -17,7 +18,7 @@ from numbers import Integral
 import numpy as np
 
 from openmdao.core.constants import _DEFAULT_OUT_STREAM, _UNDEFINED, INT_DTYPE, INF_BOUND, \
-    _SetupStatus
+    _SetupStatus, _DEFAULT_COLORING_DIR
 from openmdao.jacobians.jacobian import Jacobian
 from openmdao.jacobians.assembled_jacobian import DenseJacobian, CSCJacobian
 from openmdao.recorders.recording_manager import RecordingManager
@@ -1796,11 +1797,16 @@ class System(object):
         str
             Full pathname of the coloring file.
         """
-        directory = self.get_outputs_dir() / 'coloring_files'
+        coloring_dir = self._problem_meta['coloring_dir']
+
+        if self._problem_meta['coloring_dir'] is _DEFAULT_COLORING_DIR:
+            coloring_dir = self.get_outputs_dir() / 'coloring_files'
+        else:
+            coloring_dir = pathlib.Path(coloring_dir)
+            
         if not self.pathname:
             # total coloring
-            return os.path.join(directory, 'total_coloring.pkl')
-
+            return os.path.join(coloring_dir, 'total_coloring.pkl')
         if self._coloring_info.per_instance:
             # base the name on the instance pathname
             fname = 'coloring_' + self.pathname.replace('.', '_') + '.pkl'
@@ -1809,7 +1815,7 @@ class System(object):
             fname = 'coloring_' + '_'.join(
                 [self.__class__.__module__.replace('.', '_'), self.__class__.__name__]) + '.pkl'
 
-        return os.path.join(directory, fname)
+        return str(coloring_dir / fname)
 
     def _save_coloring(self, coloring):
         """
