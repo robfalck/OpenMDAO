@@ -1387,7 +1387,7 @@ class SimulColoringConfigCheckTestCase(unittest.TestCase):
             if fixed:
                 # NOTE: This call line is embedded in the 2.x->3.x api conversion guide. Do not
                 # modify without carefully checking the guide.
-                p.driver.use_fixed_coloring()
+                p.driver.use_fixed_coloring(fixed)
 
         indeps = model.add_subsystem('indeps', om.IndepVarComp())
         for name, sz in zip(wrtnames, sizes):
@@ -1420,7 +1420,8 @@ class SimulColoringConfigCheckTestCase(unittest.TestCase):
         p.run_driver()
 
         p = self._build_model(ofnames=['w', 'x', 'y'], wrtnames=['a', 'b', 'c'],
-                              sizes=[3, 4, 5], color='total', fixed=True)
+                              sizes=[3, 4, 5], color='total', fixed=p._get_coloring_dir())
+                              
         p.run_driver()
 
     def test_good_partial(self):

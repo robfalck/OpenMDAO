@@ -26,7 +26,7 @@ from openmdao.core.explicitcomponent import ExplicitComponent
 from openmdao.core.system import System, _OptStatus
 from openmdao.core.group import Group
 from openmdao.core.total_jac import _TotalJacInfo
-from openmdao.core.constants import _DEFAULT_OUT_STREAM, _UNDEFINED
+from openmdao.core.constants import _DEFAULT_OUT_STREAM, _UNDEFINED, _DEFAULT_COLORING_DIR
 from openmdao.jacobians.dictionary_jacobian import _CheckingJacobian
 from openmdao.approximation_schemes.complex_step import ComplexStep
 from openmdao.approximation_schemes.finite_difference import FiniteDifference
@@ -293,11 +293,9 @@ class Problem(object):
 
         # General options
         self.options = OptionsDictionary(parent_name=type(self).__name__)
-        self.options.declare('coloring_dir', types=str,
-                             default='coloring_files',
-                             desc='Directory containing coloring files (if any) for this Problem.',
-                             deprecation='coloring_dir no longer has an effect. Coloring files will '
-                             'always be placed in `{problem.get_output_dir()}/coloring_files`')
+        self.options.declare('coloring_dir', types=(str, pathlib.Path, type(_DEFAULT_COLORING_DIR)),
+                             default=_DEFAULT_COLORING_DIR,
+                             desc='Directory containing coloring files (if any) for this Problem.')
         self.options.declare('group_by_pre_opt_post', types=bool,
                              default=False,
                              desc="If True, group subsystems of the top level model into "
@@ -964,6 +962,7 @@ class Problem(object):
         self._metadata = {
             'name': self._name,  # the name of this Problem
             'pathname': None,  # the pathname of this Problem in the current tree of Problems
+            'coloring_dir': self.options['coloring_dir'],
             'comm': comm,
             'recording_iter': _RecIteration(comm.rank),  # manager of recorder iterations
             'local_vector_class': local_vector_class,
@@ -2513,8 +2512,15 @@ class Problem(object):
         pathlib.Path
             The path to the directory where reports should be written.
         """
-        return self.get_outputs_dir('coloring_files', mkdir=force)
-
+        color_dir = self.options['coloring_dir']
+        if color_dir is _DEFAULT_COLORING_DIR:
+            return self.get_outputs_dir('coloring_files', mkdir=force)
+        else:
+            color_dir_path = pathlib.Path(color_dir)
+            if prob_or_sys.comm.rank == 0 and force:
+                color_dir_path.mkdir(parents=True, exist_ok=True)
+            return color_dir_path
+            
     def get_reports_dir(self, force=False):
         """
         Get the path to the directory where the report files should go.

@@ -1796,7 +1796,7 @@ class System(object):
         str
             Full pathname of the coloring file.
         """
-        directory = self._problem_meta['coloring_dir']
+        directory = self.get_outputs_dir() / 'coloring_files'
         if not self.pathname:
             # total coloring
             return os.path.join(directory, 'total_coloring.pkl')
