@@ -120,11 +120,11 @@ def assertProblemDataRecorded(test, expected, tolerance):
                         assert_near_equal(actual[key], expected[key], tolerance)
 
 
-def assertDriverIterDataRecorded(test, expected, tolerance, prefix=None):
+def assertDriverIterDataRecorded(test, db_file, expected, tolerance, prefix=None):
     """
     Expected can be from multiple cases.
     """
-    with database_cursor(test.filename) as db_cur:
+    with database_cursor(db_file) as db_cur:
         f_version, abs2meta, prom2abs, conns = get_format_version_abs2meta(db_cur)
 
         # iterate through the cases
@@ -192,11 +192,11 @@ def assertDriverIterDataRecorded(test, expected, tolerance, prefix=None):
                         assert_near_equal(actual[src_key], expected[key], tolerance)
 
 
-def assertDriverDerivDataRecorded(test, expected, tolerance, prefix=None):
+def assertDriverDerivDataRecorded(test, db_file, expected, tolerance, prefix=None):
     """
     Expected can be from multiple cases.
     """
-    with database_cursor(test.filename) as db_cur:
+    with database_cursor(db_file) as db_cur:
 
         # iterate through the cases
         for coord, (t0, t1), totals_expected in expected:
@@ -253,11 +253,11 @@ def assertDriverDerivDataRecorded(test, expected, tolerance, prefix=None):
                     assert_near_equal(actual[key], totals_expected[key], tolerance)
 
 
-def assertProblemDerivDataRecorded(test, expected, tolerance, prefix=None):
+def assertProblemDerivDataRecorded(test, db_file, expected, tolerance, prefix=None):
     """
     Expected can be from multiple cases.
     """
-    with database_cursor(test.filename) as db_cur:
+    with database_cursor(db_file) as db_cur:
 
         # iterate through the cases
         for case_name, (t0, t1), totals_expected in expected:
@@ -299,11 +299,11 @@ def assertProblemDerivDataRecorded(test, expected, tolerance, prefix=None):
                     assert_near_equal(actual[key], totals_expected[key], tolerance)
 
 
-def assertSystemIterDataRecorded(test, expected, tolerance, prefix=None):
+def assertSystemIterDataRecorded(test, db_file, expected, tolerance, prefix=None):
     """
         Expected can be from multiple cases.
     """
-    with database_cursor(test.filename) as db_cur:
+    with database_cursor(db_file) as db_cur:
         f_version, abs2meta, prom2abs, conns = get_format_version_abs2meta(db_cur)
 
         # iterate through the cases
@@ -359,11 +359,11 @@ def assertSystemIterDataRecorded(test, expected, tolerance, prefix=None):
                         assert_near_equal(actual[0][key], expected[key], tolerance)
 
 
-def assertSolverIterDataRecorded(test, expected, tolerance, prefix=None):
+def assertSolverIterDataRecorded(test, db_file, expected, tolerance, prefix=None):
     """
         Expected can be from multiple cases.
     """
-    with database_cursor(test.filename) as db_cur:
+    with database_cursor(db_file) as db_cur:
         f_version, abs2meta, prom2abs, conns = get_format_version_abs2meta(db_cur)
 
         # iterate through the cases
@@ -425,9 +425,9 @@ def assertSolverIterDataRecorded(test, expected, tolerance, prefix=None):
                         assert_near_equal(actual[0][key], expected[key], tolerance)
 
 
-def assertMetadataRecorded(test, expected_prom2abs, expected_abs2prom):
+def assertMetadataRecorded(test, db_file, expected_prom2abs, expected_abs2prom):
 
-    with database_cursor(test.filename) as db_cur:
+    with database_cursor(db_file) as db_cur:
 
         db_cur.execute("SELECT format_version, prom2abs, abs2prom FROM metadata")
         row = db_cur.fetchone()
@@ -459,9 +459,9 @@ def assertMetadataRecorded(test, expected_prom2abs, expected_abs2prom):
         test.assertEqual(format_version_actual, format_version_expected)
 
 
-def assertViewerDataRecorded(test, expected):
+def assertViewerDataRecorded(test, db_file, expected):
 
-    with database_cursor(test.filename) as db_cur:
+    with database_cursor(db_file) as db_cur:
         db_cur.execute("SELECT format_version FROM metadata")
         f_version = db_cur.fetchone()[0]
         test.assertTrue(isinstance(f_version, int))
@@ -522,9 +522,9 @@ def assertViewerDataRecorded(test, expected):
 
         return model_viewer_data
 
-def assertSystemMetadataIdsRecorded(test, ids):
+def assertSystemMetadataIdsRecorded(test, db_file, ids):
 
-    with database_cursor(test.filename) as cur:
+    with database_cursor(db_file) as cur:
 
         for id in ids:
             cur.execute("SELECT * FROM system_metadata WHERE id=:id", {"id": id})
@@ -534,9 +534,9 @@ def assertSystemMetadataIdsRecorded(test, ids):
                             'requested id: "{}"'.format(id))
 
 
-def assertSystemIterCoordsRecorded(test, iteration_coordinates):
+def assertSystemIterCoordsRecorded(test, db_file, iteration_coordinates):
 
-    with database_cursor(test.filename) as cur:
+    with database_cursor(db_file) as cur:
 
         for iteration_coordinate in iteration_coordinates:
             cur.execute("SELECT * FROM system_iterations WHERE "
