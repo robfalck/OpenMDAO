@@ -1882,7 +1882,6 @@ class TestSqliteRecorder(unittest.TestCase):
 
     def test_record_system_recursively(self):
         # Test adding recorders to all Systems using the recurse option to add_recorder
-
         prob = SellarProblem(SellarDerivativesGrouped, nonlinear_solver=om.NonlinearRunOnce,
                                                        linear_solver=om.ScipyKrylov,
                                                        mda_linear_solver=om.ScipyKrylov,
@@ -1924,6 +1923,8 @@ class TestSqliteRecorder(unittest.TestCase):
             'rank0:root._solve_nonlinear|0|NLRunOnce|0|obj_cmp._solve_nonlinear|0',
             'rank0:root._solve_nonlinear|0|NLRunOnce|0|_auto_ivc._solve_nonlinear|0',
         ])
+
+        self.recorder = om.SqliteRecorder(self.filename, record_viewer_data=False)
 
         prob = SellarProblem(SellarDerivativesGrouped, nonlinear_solver=om.NonlinearRunOnce,
                                                        linear_solver=om.ScipyKrylov,
