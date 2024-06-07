@@ -1882,6 +1882,7 @@ class TestSqliteRecorder(unittest.TestCase):
 
     def test_record_system_recursively(self):
         # Test adding recorders to all Systems using the recurse option to add_recorder
+
         prob = SellarProblem(SellarDerivativesGrouped, nonlinear_solver=om.NonlinearRunOnce,
                                                        linear_solver=om.ScipyKrylov,
                                                        mda_linear_solver=om.ScipyKrylov,
@@ -1897,9 +1898,7 @@ class TestSqliteRecorder(unittest.TestCase):
         prob.cleanup()
 
         # Just make sure all Systems had some metadata recorded
-        assertSystemMetadataIdsRecorded(self,
-                                        prob.get_outputs_dir() / self.filename,
-                                        [
+        assertSystemMetadataIdsRecorded(self, prob.get_outputs_dir() / self.filename, [
             'root',
             '_auto_ivc',
             'mda',
@@ -1911,9 +1910,7 @@ class TestSqliteRecorder(unittest.TestCase):
         ])
 
         # Make sure all the Systems are recorded
-        assertSystemIterCoordsRecorded(self,
-                                       prob.get_outputs_dir() / self.filename,
-                                       [
+        assertSystemIterCoordsRecorded(self, prob.get_outputs_dir() / self.filename, [
             'rank0:root._solve_nonlinear|0',
             'rank0:root._solve_nonlinear|0|NLRunOnce|0|con_cmp1._solve_nonlinear|0',
             'rank0:root._solve_nonlinear|0|NLRunOnce|0|con_cmp2._solve_nonlinear|0',
@@ -1924,8 +1921,7 @@ class TestSqliteRecorder(unittest.TestCase):
             'rank0:root._solve_nonlinear|0|NLRunOnce|0|_auto_ivc._solve_nonlinear|0',
         ])
 
-        self.recorder = om.SqliteRecorder(self.filename, record_viewer_data=False)
-
+    def test_record_system_with_prefix(self):
         prob = SellarProblem(SellarDerivativesGrouped, nonlinear_solver=om.NonlinearRunOnce,
                                                        linear_solver=om.ScipyKrylov,
                                                        mda_linear_solver=om.ScipyKrylov,
@@ -1941,9 +1937,7 @@ class TestSqliteRecorder(unittest.TestCase):
         prob.cleanup()
 
         # Just make sure all Systems had some metadata recorded
-        assertSystemMetadataIdsRecorded(self,
-                                        prob.get_outputs_dir() / self.filename,
-                                        [
+        assertSystemMetadataIdsRecorded(self, prob.get_outputs_dir() / self.filename, [
             'root',
             '_auto_ivc',
             'mda',
@@ -1955,8 +1949,7 @@ class TestSqliteRecorder(unittest.TestCase):
         ])
 
         # Make sure all the Systems are recorded at least once
-        assertSystemIterCoordsRecorded(self,
-                                       prob.get_outputs_dir() / self.filename, [
+        assertSystemIterCoordsRecorded(self, prob.get_outputs_dir() / self.filename, [
             'Run1_rank0:root._solve_nonlinear|0',
             'Run1_rank0:root._solve_nonlinear|0|NLRunOnce|0|con_cmp1._solve_nonlinear|0',
             'Run1_rank0:root._solve_nonlinear|0|NLRunOnce|0|con_cmp2._solve_nonlinear|0',
