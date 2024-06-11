@@ -386,13 +386,14 @@ class TestReportsSystem(unittest.TestCase):
             with open(path, "w") as f:
                 f.write(f"Do some reporting on the Problem, {prob._name}\n")
 
-        register_report("User report", user_defined_report,
-                        "user report description",
-                        'Problem', 'setup', 'pre', report_filename=user_report_filename)
+        with self.assertRaises(ValueError) as e:
+            register_report("User report", user_defined_report,
+                            "user report description",
+                            'Problem', 'setup', 'pre', report_filename=user_report_filename)
 
-        with self.assertRaises(RuntimeError) as e:
-            prob = self.setup_and_run_simple_problem()
-        self.assertEqual('The problem output directory cannot be accessed before setup.', str(e.exception))
+        self.assertEqual('Reports require the problem to have started the setup method, '
+                         'therefore pre-setup reports are not supported.',
+                         str(e.exception))
 
     @hooks_active
     def test_report_generation_various_locations(self):

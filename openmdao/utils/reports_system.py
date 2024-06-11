@@ -166,6 +166,9 @@ def register_report(name, func, desc, class_name, method, pre_or_post, inst_id=N
     if pre_or_post not in ('pre', 'post'):
         raise ValueError("The argument 'pre_or_post' can only have values of 'pre' or 'post', "
                          f"but {pre_or_post} was given")
+    if (method, pre_or_post) == ('setup', 'pre'):
+        raise ValueError('Reports require the problem to have started the setup method, '
+                         'therefore pre-setup reports are not supported.')
 
     _reports_registry[name] = report = Report(name, desc)
 

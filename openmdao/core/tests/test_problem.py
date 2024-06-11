@@ -2112,6 +2112,27 @@ class TestProblem(unittest.TestCase):
         except RuntimeError:
             self.fail("'setup raised RuntimeError unexpectedly")
 
+    def test_get_outputs_dir(self):
+
+        prob = om.Problem(name='prob_name')
+        model = prob.model
+
+        model.add_subsystem('comp', Paraboloid())
+
+        model.set_input_defaults('comp.x', 3.0)
+        model.set_input_defaults('comp.y', -4.0)
+
+        with self.assertRaises(RuntimeError) as e:
+            prob.get_outputs_dir()
+        
+        self.assertEqual('The problem output directory cannot be accessed before setup.',
+                         str(e.exception))
+
+        prob.setup()
+        
+        d = prob.get_outputs_dir('subdir')
+        self.assertEqual('prob_name_out/subdir', str(d))
+
 
 @use_tempdirs
 class RelevanceTestCase(unittest.TestCase):
