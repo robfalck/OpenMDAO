@@ -20,7 +20,7 @@ from openmdao.visualization.tables.table_builder import generate_table
 _reports_registry = {}
 _default_reports = ['scaling', 'total_coloring', 'n2', 'optimizer', 'inputs']
 _active_reports = set()  # these reports will actually run (assuming their hook funcs are triggered)
-_reports_dir = os.environ.get('OPENMDAO_REPORTS_DIR', './reports')  # top dir for the reports
+_reports_dir = os.environ.get('OPENMDAO_REPORTS_DIR', None)  # top dir for the reports. If None, reports will exist under the problem's output directory.
 _plugins_loaded = False  # use this to ensure plugins only loaded once
 
 

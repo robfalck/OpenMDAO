@@ -49,7 +49,7 @@ from openmdao.utils.record_util import create_local_meta
 from openmdao.utils.array_utils import scatter_dist_to_local
 from openmdao.utils.class_util import overrides_method
 from openmdao.utils.reports_system import get_reports_to_activate, activate_reports, \
-    clear_reports, get_reports_dir, _load_report_plugins
+    clear_reports, _load_report_plugins
 from openmdao.utils.general_utils import pad_name, LocalRangeIterable, \
     _find_dict_meta, env_truthy, add_border, match_includes_excludes, inconsistent_across_procs
 from openmdao.utils.om_warnings import issue_warning, DerivativesWarning, warn_deprecation, \
@@ -355,13 +355,6 @@ class Problem(object):
         self.recording_options.declare('excludes', types=list, default=[],
                                        desc='Patterns for vars to exclude in recording '
                                             '(processed post-includes). Uses fnmatch wildcards')
-
-        # Start a run by deleting any existing reports so that the files
-        #   that are in that directory are all from this run and not a previous run
-        reports_dirpath = pathlib.Path(get_reports_dir()).joinpath(f'{self._name}')
-        if self.comm.rank == 0:
-            if os.path.isdir(reports_dirpath):
-                shutil.rmtree(reports_dirpath)
 
         # register hooks for any reports
         activate_reports(self._reports, self)
@@ -1016,8 +1009,19 @@ class Problem(object):
             self._metadata['pathname'] = self._name
         elif isinstance(parent, Problem):
             self._metadata['pathname'] = '/'.join([parent._metadata['pathname'], self._name])
-        elif isinstance(parent, System):
-            self._metadata['pathname'] = '/'.join([parent._problem_meta['pathname'], self._name])
+        else:
+            try:
+                self._metadata['pathname'] = '/'.join([parent._problem_meta['pathname'], self._name])
+            except AttributeError as f:
+                raise AttributeError(f'{self.msginfo}Expected an instance of Problem, System, or Solver '
+                                     'for `parent` but got {parent}.')
+
+        # Start setup by deleting any existing reports so that the files
+        # that are in that directory are all from this run and not a previous run
+        reports_dirpath = pathlib.Path(self.get_reports_dir())
+        if self.comm.rank == 0:
+            if os.path.isdir(reports_dirpath):
+                shutil.rmtree(reports_dirpath)
 
         _prob_setup_stack.append(self)
         try:
@@ -2493,6 +2497,8 @@ class Problem(object):
         pathlib.Path
            The path of the outputs directory for the problem.
         """
+        if self._metadata is None:
+            raise RuntimeError('The problem output directory cannot be accessed before setup.')
         return _get_outputs_dir(self, *subdirs, mkdir=mkdir)
 
     def _get_coloring_dir(self, force=False):

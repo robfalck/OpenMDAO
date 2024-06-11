@@ -17,7 +17,6 @@ from openmdao.test_suite.components.paraboloid_distributed import DistParab
 from openmdao.test_suite.components.sellar import SellarDerivativesGrouped
 from openmdao.utils.assert_utils import assert_near_equal, assert_warning, assert_check_totals
 from openmdao.utils.general_utils import set_pyoptsparse_opt, run_driver
-from openmdao.utils.reports_system import get_reports_dir
 from openmdao.utils.testing_utils import use_tempdirs, require_pyoptsparse
 from openmdao.utils.om_warnings import OMDeprecationWarning
 from openmdao.utils.mpi import MPI
@@ -3379,7 +3378,7 @@ class TestPyoptSparseOutputFiles(unittest.TestCase):
             prob.driver.opt_settings['fileout'] = 3 # need this to be 3 to get the output files
 
         prob.run_driver()
-        default_output_dir = pathlib.Path(get_reports_dir()).joinpath(prob._name)
+        default_output_dir = pathlib.Path(prob.get_reports_dir()).joinpath(prob._name)
         for opt_setting_name, output_file_name in output_file_names:
             output_file = default_output_dir.joinpath(output_file_name)
             self.assertTrue(output_file.is_file(),

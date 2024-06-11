@@ -12,8 +12,8 @@ from openmdao.core.problem import _default_prob_name
 import openmdao.core.problem as probmod
 from openmdao.core.constants import _UNDEFINED
 from openmdao.utils.general_utils import set_pyoptsparse_opt
-from openmdao.utils.reports_system import _reports_dir, register_report, \
-    list_reports, clear_reports, _reset_reports_dir, activate_report, _reports_registry
+from openmdao.utils.reports_system import register_report, _reports_dir, \
+    list_reports, clear_reports, activate_report, _reports_registry
 from openmdao.utils.testing_utils import use_tempdirs
 from openmdao.utils.assert_utils import assert_no_warning
 from openmdao.utils.mpi import MPI
@@ -130,7 +130,7 @@ class TestReportsSystem(unittest.TestCase):
                 subprob.model.add_subsystem('indep', om.IndepVarComp('x', 1.0))
                 subprob.model.add_subsystem('comp', om.ExecComp('y=2*x'))
                 subprob.model.connect('indep.x', 'comp.x')
-                subprob.setup()
+                subprob.setup(parent=self)
                 subprob.run_model()
 
                 return super().solve()
@@ -151,7 +151,7 @@ class TestReportsSystem(unittest.TestCase):
         prob = self.setup_and_run_simple_problem()
 
         # get the path to the problem subdirectory
-        problem_reports_dir = pathlib.Path(_reports_dir).joinpath(prob._name)
+        problem_reports_dir = prob.get_reports_dir()
 
         path = pathlib.Path(problem_reports_dir).joinpath(self.n2_filename)
         self.assertTrue(path.is_file(), f'The N2 report file, {str(path)} was not found')
@@ -167,9 +167,10 @@ class TestReportsSystem(unittest.TestCase):
             prob = self.setup_problem_w_errors(prob_name)
         except Exception as err:
             # get the path to the problem subdirectory
-            problem_reports_dir = pathlib.Path(_reports_dir).joinpath(prob_name)
+            problem_reports_dir = pathlib.Path(f'{prob_name}_out/reports')
 
             path = pathlib.Path(problem_reports_dir).joinpath(self.n2_filename)
+
             self.assertTrue(path.is_file(), f'The N2 report file, {str(path)} was not found')
 
             self.assertEqual(str(err),
@@ -186,7 +187,7 @@ class TestReportsSystem(unittest.TestCase):
         prob = self.setup_and_run_simple_problem(driver=pyOptSparseDriver(optimizer='SLSQP'))
 
         # get the path to the problem subdirectory
-        problem_reports_dir = pathlib.Path(_reports_dir).joinpath(prob._name)
+        problem_reports_dir = prob.get_reports_dir()
 
         path = pathlib.Path(problem_reports_dir).joinpath(self.n2_filename)
         self.assertTrue(path.is_file(), f'The N2 report file, {str(path)} was not found')
@@ -208,7 +209,7 @@ class TestReportsSystem(unittest.TestCase):
         # Test a driver that does not generate scaling report
         prob = self.setup_and_run_simple_problem(driver=om.DOEDriver(doe_list))
 
-        problem_reports_dir = pathlib.Path(_reports_dir).joinpath(prob._name)
+        problem_reports_dir = prob.get_reports_dir()
 
         path = pathlib.Path(problem_reports_dir).joinpath(self.n2_filename)
         self.assertTrue(path.is_file(), f'The N2 report file, {str(path)} was not found')
@@ -247,7 +248,7 @@ class TestReportsSystem(unittest.TestCase):
         prob = self.setup_and_run_simple_problem()
 
         # See if the report files exist and if they have the right names
-        problem_reports_dir = pathlib.Path(_reports_dir).joinpath(prob._name)
+        problem_reports_dir = prob.get_reports_dir()
 
         path = pathlib.Path(problem_reports_dir).joinpath(self.n2_filename)
         self.assertFalse(path.is_file(),
@@ -268,7 +269,7 @@ class TestReportsSystem(unittest.TestCase):
         prob = self.setup_and_run_simple_problem()
 
         # See if the report files exist and if they have the right names
-        problem_reports_dir = pathlib.Path(_reports_dir).joinpath(prob._name)
+        problem_reports_dir = prob.get_reports_dir()
 
         path = pathlib.Path(problem_reports_dir).joinpath(self.n2_filename)
         self.assertTrue(path.is_file(), f'The N2 report file, {str(path)} was not found')
@@ -288,7 +289,7 @@ class TestReportsSystem(unittest.TestCase):
         prob = self.setup_and_run_simple_problem(reports=['optimizer', 'scaling'])
 
         # See if the report files exist and if they have the right names
-        problem_reports_dir = pathlib.Path(_reports_dir).joinpath(prob._name)
+        problem_reports_dir = prob.get_reports_dir()
 
         path = pathlib.Path(problem_reports_dir).joinpath(self.n2_filename)
         self.assertFalse(path.is_file(),
@@ -307,7 +308,7 @@ class TestReportsSystem(unittest.TestCase):
         prob = self.setup_and_run_simple_problem(reports=False)
 
         # See if the report files exist and if they have the right names
-        problem_reports_dir = pathlib.Path(_reports_dir).joinpath(prob._name)
+        problem_reports_dir = prob.get_reports_dir()
 
         path = pathlib.Path(problem_reports_dir).joinpath(self.n2_filename)
         self.assertFalse(path.is_file(),
@@ -319,6 +320,7 @@ class TestReportsSystem(unittest.TestCase):
         self.assertFalse(path.is_file(),
                          f'The optimizer report file, {str(path)}, was found but should not exist.')
 
+    @unittest.skip('Reports directory can no longer be set using OPENMDAO_REPORTS_DIR')
     @hooks_active
     def test_report_generation_set_reports_dir_using_env_var(self):
         # test use of setting a custom reports directory other than the default of "."
@@ -344,6 +346,11 @@ class TestReportsSystem(unittest.TestCase):
         user_report_filename = 'user_report.txt'
         os.environ['OPENMDAO_REPORTS'] = 'User report'
 
+        """
+        Note pre-setup hook doesn't work because get_reports_dir() relies on the problem to be setup.
+        Therefore, the problem pathname HAS to be known at initialization time, not at setup time.
+        """
+
         def user_defined_report(prob, report_filename):
             path = pathlib.Path(prob.get_reports_dir()).joinpath(report_filename)
             with open(path, "w") as f:
@@ -351,11 +358,11 @@ class TestReportsSystem(unittest.TestCase):
 
         register_report("User report", user_defined_report,
                         "user report description",
-                        'Problem', 'setup', 'pre', report_filename=user_report_filename)
+                        'Problem', 'setup', 'post', report_filename=user_report_filename)
 
         prob = self.setup_and_run_simple_problem()
 
-        path = pathlib.Path(_reports_dir).joinpath(prob._name, user_report_filename)
+        path = prob.get_reports_dir() / user_report_filename
 
         self.assertTrue(path.is_file(), f'The user report file, {str(path)} was not found')
 
@@ -365,11 +372,35 @@ class TestReportsSystem(unittest.TestCase):
         self.assertFalse('User report' in _reports_registry, "'User report' found in registry.")
 
     @hooks_active
+    def test_pre_setup_hook_error(self):
+        user_report_filename = 'user_report.txt'
+        os.environ['OPENMDAO_REPORTS'] = 'User report'
+
+        """
+        Note pre-setup hook doesn't work because get_reports_dir() relies on the problem to be setup.
+        Therefore, the problem pathname HAS to be known at initialization time, not at setup time.
+        """
+
+        def user_defined_report(prob, report_filename):
+            path = pathlib.Path(prob.get_reports_dir()).joinpath(report_filename)
+            with open(path, "w") as f:
+                f.write(f"Do some reporting on the Problem, {prob._name}\n")
+
+        register_report("User report", user_defined_report,
+                        "user report description",
+                        'Problem', 'setup', 'pre', report_filename=user_report_filename)
+
+        with self.assertRaises(RuntimeError) as e:
+            prob = self.setup_and_run_simple_problem()
+        self.assertEqual('The problem output directory cannot be accessed before setup.', str(e.exception))
+
+    @hooks_active
     def test_report_generation_various_locations(self):
-        # the reports can be generated pre and post for setup, final_setup, and run_driver
+        # the reports can be generated post setup, or pre and post for final_setup, and run_driver
         # check those all work
 
         self.count = 0
+        expected_reports = []
 
         # A simple report
         user_report_filename = 'user_defined_{count}.txt'
@@ -379,9 +410,12 @@ class TestReportsSystem(unittest.TestCase):
             with open(report_filepath, "w") as f:
                 f.write(f"Do some reporting on the Problem, {prob._name}\n")
             self.count += 1
+            expected_reports.append(self.count)
 
         for method in ['setup', 'final_setup', 'run_driver']:
             for pre_or_post in ['pre', 'post']:
+                if (method, pre_or_post) == ('setup', 'pre'):
+                    continue
                 repname = f"User defined report {method} {pre_or_post}"
                 register_report(repname, user_defined_report,
                                 "user defined report", 'Problem', method, pre_or_post,
@@ -393,6 +427,8 @@ class TestReportsSystem(unittest.TestCase):
         self.count = 0
         for _ in ['setup', 'final_setup', 'run_driver']:
             for _ in ['pre', 'post']:
+                if self.count not in expected_reports:
+                    continue
                 user_report_filename = f"user_defined_{self.count}.txt"
                 path = pathlib.Path(prob.get_reports_dir()).joinpath(user_report_filename)
                 self.assertTrue(path.is_file(),
@@ -405,7 +441,7 @@ class TestReportsSystem(unittest.TestCase):
 
         # The multiple problem code only runs model so no scaling or optimizer reports to look for
         for problem_name in [probname, subprobname]:
-            problem_reports_dir = pathlib.Path(_reports_dir).joinpath(f'{problem_name}')
+            problem_reports_dir = f'{probname}_out/reports'
             path = pathlib.Path(problem_reports_dir).joinpath(self.n2_filename)
             self.assertTrue(path.is_file(), f'N2 report file, {str(path)} was not found')
 
@@ -426,16 +462,17 @@ class TestReportsSystem(unittest.TestCase):
         self.assertEqual(_default_prob_name(), probname)
 
         # The multiple problem code only runs model so no scaling reports to look for
-        problem_reports_dir = pathlib.Path(_reports_dir).joinpath(f'{subprobname}')
+        problem_reports_dir = f'{probname}_out/reports'
         path = pathlib.Path(problem_reports_dir).joinpath(self.n2_filename)
         # for the subproblem named problem2, there should be a report but not for problem1 since
         #    we specifically asked for just the instance of problem2
-        self.assertTrue(path.is_file(), f'The n2 report file, {str(path)} was not found')
-
-        problem_reports_dir = pathlib.Path(_reports_dir).joinpath(f'{probname}')
-        path = pathlib.Path(problem_reports_dir).joinpath(self.n2_filename)
         self.assertFalse(path.is_file(),
-                         f'The N2 report file, {str(path)} was found but should not exist.')
+                         f'The n2 report file, {str(path)} was found but should not exist.')
+
+        subproblem_reports_dir = f'{probname}_out/{subprobname}_out/reports'
+        path = pathlib.Path(subproblem_reports_dir).joinpath(self.n2_filename)
+        self.assertTrue(path.is_file(),
+                         f'The N2 report file, {str(path)} does not exist.')
 
     @hooks_active
     def test_report_generation_test_TESTFLO_RUNNING(self):
@@ -446,7 +483,7 @@ class TestReportsSystem(unittest.TestCase):
 
         prob = self.setup_and_run_simple_problem()
 
-        problem_reports_dir = pathlib.Path(_reports_dir).joinpath(prob._name)
+        problem_reports_dir = prob.get_reports_dir()
 
         path = pathlib.Path(problem_reports_dir).joinpath(self.n2_filename)
         self.assertFalse(path.is_file(),
@@ -463,7 +500,7 @@ class TestReportsSystem(unittest.TestCase):
         prob = self.setup_and_run_simple_problem(reports=False)
 
         # get the path to the problem subdirectory
-        problem_reports_dir = pathlib.Path(_reports_dir).joinpath(prob._name)
+        problem_reports_dir = prob.get_reports_dir()
         path = pathlib.Path(problem_reports_dir).joinpath(self.n2_filename)
         self.assertFalse(path.is_file(),
                          f'The N2 report file, {str(path)} was found but should not exist.')
@@ -479,7 +516,7 @@ class TestReportsSystem(unittest.TestCase):
         prob = self.setup_and_run_simple_problem(reports=None)
 
         # get the path to the problem subdirectory
-        problem_reports_dir = pathlib.Path(_reports_dir).joinpath(prob._name)
+        problem_reports_dir = prob.get_reports_dir()
 
         path = pathlib.Path(problem_reports_dir).joinpath(self.n2_filename)
         self.assertFalse(path.is_file(),
@@ -496,7 +533,7 @@ class TestReportsSystem(unittest.TestCase):
         prob = self.setup_and_run_simple_problem(reports='n2')
 
         # get the path to the problem subdirectory
-        problem_reports_dir = pathlib.Path(_reports_dir).joinpath(prob._name)
+        problem_reports_dir = prob.get_reports_dir()
 
         path = pathlib.Path(problem_reports_dir).joinpath(self.n2_filename)
         self.assertTrue(path.is_file(), f'The N2 report file, {str(path)} was not found')
@@ -512,7 +549,7 @@ class TestReportsSystem(unittest.TestCase):
         prob = self.setup_and_run_simple_problem(reports=['n2','scaling'])
 
         # get the path to the problem subdirectory
-        problem_reports_dir = pathlib.Path(_reports_dir).joinpath(prob._name)
+        problem_reports_dir = prob.get_reports_dir()
 
         path = pathlib.Path(problem_reports_dir).joinpath(self.n2_filename)
         self.assertTrue(path.is_file(), f'The N2 report file, {str(path)} was not found')
@@ -530,15 +567,15 @@ class TestReportsSystem(unittest.TestCase):
 
         # The multiple problem code only runs model so no scaling reports to look for
         problem_name = _default_prob_name()
-        problem_reports_dir = pathlib.Path(_reports_dir).joinpath(f'{problem_name}')
+        problem_reports_dir = f'{problem_name}_out/reports'
         path = pathlib.Path(problem_reports_dir).joinpath(self.n2_filename)
         self.assertTrue(path.is_file(), f'The problem1 N2 report file, {str(path)} was not found')
 
-        problem_name = problem_name + '2'
-        problem_reports_dir = pathlib.Path(_reports_dir).joinpath(f'{problem_name}')
-        self.assertFalse(problem_reports_dir.is_dir(),
+        problem2_name = problem_name + '2'
+        problem2_reports_dir = f'{problem_name}_out/{problem2_name}_out/reports'
+        self.assertFalse(pathlib.Path(problem2_reports_dir).is_dir(),
                          f'The problem2 report dir was found but should not exist.')
-        path = pathlib.Path(problem_reports_dir).joinpath(self.n2_filename)
+        path = pathlib.Path(problem2_reports_dir).joinpath(self.n2_filename)
         self.assertFalse(path.is_file(),
                          f'The problem2 n2 report file, {str(path)}, was found but should not exist.')
 
@@ -604,7 +641,7 @@ class TestReportsSystemMPI(unittest.TestCase):
         prob.run_driver()
 
         if prob.comm.rank == 0:
-            problem_reports_dir = pathlib.Path(_reports_dir).joinpath(prob._name)
+            problem_reports_dir = prob.get_reports_dir()
 
             path = pathlib.Path(problem_reports_dir).joinpath(self.n2_filename)
             self.assertTrue(path.is_file(), f'The N2 report file, {str(path)} was not found')
