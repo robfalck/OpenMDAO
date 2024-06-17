@@ -20,7 +20,7 @@ from openmdao.visualization.tables.table_builder import generate_table
 _reports_registry = {}
 _default_reports = ['scaling', 'total_coloring', 'n2', 'optimizer', 'inputs']
 _active_reports = set()  # these reports will actually run (assuming their hook funcs are triggered)
-_reports_dir = os.environ.get('OPENMDAO_REPORTS_DIR', None)  # top dir for the reports. If None, reports will exist under the problem's output directory.
+_reports_dir = os.environ.get('OPENMDAO_REPORTS_DIR', None)  # top dir for the reports. #TODO delete
 _plugins_loaded = False  # use this to ensure plugins only loaded once
 
 
@@ -267,12 +267,9 @@ def activate_report(name, instance=None):
         elif inst_id != _inst_id:  # registered inst_id doesn't match current instance
             return
 
-    if (name, inst_id) in _active_reports:
-        raise ValueError(f"A report with the name '{name}' for instance '{inst_id}' is already "
-                         "active.")
-
-    report.register_hooks(instance)
-    _active_reports.add((name, inst_id))
+    if (name, inst_id) not in _active_reports:
+        report.register_hooks(instance)
+        _active_reports.add((name, inst_id))
 
 
 def activate_reports(reports, instance):

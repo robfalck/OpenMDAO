@@ -186,7 +186,7 @@ class DistributedRecorderTest(unittest.TestCase):
             expected_outputs.update(expected_objectives)
 
             expected_data = ((coordinate, (t0, t1), expected_outputs, None, None),)
-            assertDriverIterDataRecorded(self, expected_data, self.eps)
+            assertDriverIterDataRecorded(self, prob.get_outputs_dir() / self.filename, expected_data, self.eps)
 
     def test_recording_remote_voi(self):
         # Create a parallel model
@@ -272,10 +272,10 @@ class DistributedRecorderTest(unittest.TestCase):
             coordinate = [0, 'ScipyOptimize_SLSQP', (driver.iter_count-1,)]
 
             expected_data = ((coordinate, (t0, t1), expected_outputs, None, None),)
-            assertDriverIterDataRecorded(self, expected_data, self.eps)
+            assertDriverIterDataRecorded(self, prob.get_outputs_dir() / self.filename, expected_data, self.eps)
 
             expected_data = (('final', (t1, t2), expected_outputs),)
-            assertProblemDataRecorded(self, expected_data, self.eps)
+            assertProblemDataRecorded(self, prob.get_outputs_dir() / self.filename, expected_data, self.eps)
 
     def test_input_desvar(self):
         # this failed with a KeyError before the fix
@@ -318,7 +318,7 @@ class DistributedRecorderTest(unittest.TestCase):
     def test_sql_meta_file_exists(self):
         # Check that an existing sql_meta file will be deleted/overwritten
         # if it already exists before a run. (see Issue #2062)
-        prob = om.Problem()
+        prob = om.Problem(name='test_sql_meta_file_exists_prob')
 
         prob.model.add_subsystem('comp', Paraboloid(), promotes=['x', 'y', 'f_xy'])
         prob.model.add_design_var('x', lower=0.0, upper=1.0)
@@ -335,8 +335,8 @@ class DistributedRecorderTest(unittest.TestCase):
         prob.run_driver()
         prob.cleanup()
 
-        # Run this again. It should NOT throw an exception.
-        prob = om.Problem()
+        # Run this again with the same name. It should NOT throw an exception.
+        prob = om.Problem(name='test_sql_meta_file_exists_prob')
 
         prob.model.add_subsystem('comp', Paraboloid(), promotes=['x', 'y', 'f_xy'])
         prob.model.add_design_var('x', lower=0.0, upper=1.0)
@@ -354,16 +354,16 @@ class DistributedRecorderTest(unittest.TestCase):
         if prob.comm.rank == 0:
             expected_warnings = [
                 (UserWarning,
-                'The existing case recorder metadata file, cases.sql_meta, '
+                'The existing case recorder metadata file, test_sql_meta_file_exists_prob_out/cases.sql_meta, '
                 'is being overwritten.'),
                 (UserWarning,
-                'The existing case recorder file, cases.sql_0, is being '
+                'The existing case recorder file, test_sql_meta_file_exists_prob_out/cases.sql_0, is being '
                 'overwritten.'),
             ]
         else:
             expected_warnings = [
                 (UserWarning,
-                    'The existing case recorder file, cases.sql_1, is being '
+                    'The existing case recorder file, test_sql_meta_file_exists_prob_out/cases.sql_1, is being '
                     'overwritten.'),
             ]
         with assert_warnings(expected_warnings):
@@ -382,7 +382,8 @@ class DistributedRecorderTest(unittest.TestCase):
 
         def run_sequential():
             # problem will run in the single proc comm for this rank
-            prob = om.Problem(comm=my_comm)
+            # Name the problem so that we can easily know its output dir even on the other procs.
+            prob = om.Problem(comm=my_comm, name='single_rank_prob')
 
             prob.model.add_subsystem('comp', Paraboloid(), promotes=['x', 'y', 'f_xy'])
             prob.model.add_design_var('x', lower=0.0, upper=1.0)
@@ -398,9 +399,11 @@ class DistributedRecorderTest(unittest.TestCase):
             prob.run_driver()
             prob.cleanup()
 
-        def run_parallel():
+            return prob.get_outputs_dir()
+
+        def run_parallel(db_file):
             # process cases.sql in parallel
-            cr = om.CaseReader("cases.sql")
+            cr = om.CaseReader(db_file)
 
             cases = cr.list_cases()
             self.assertEqual(len(cases), 9)
@@ -432,7 +435,7 @@ class DistributedRecorderTest(unittest.TestCase):
         MPI.COMM_WORLD.barrier()
 
         # Run by all procs
-        run_parallel()
+        run_parallel('single_rank_prob_out/cases.sql')
 
 
 if __name__ == "__main__":

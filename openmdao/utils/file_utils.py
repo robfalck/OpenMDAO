@@ -430,6 +430,7 @@ def image2html(imagefile, title='', alt=''):
 </html>
 """
 
+
 def _get_outputs_dir(prob_or_sys=None, *subdirs, mkdir=True):
     """
     Return a pathlib.Path for the outputs directory related to the given problem or system.
@@ -455,10 +456,11 @@ def _get_outputs_dir(prob_or_sys=None, *subdirs, mkdir=True):
         prob_pathname = prob_or_sys._problem_meta['pathname']
     else:
         return pathlib.Path(os.getcwd())
-    
-    dirpath =  pathlib.Path(*[f'{p}_out' for p in prob_pathname.split('/')]) / pathlib.Path(*subdirs)
-    
+
+    dirpath = pathlib.Path(*[f'{p}_out'
+                             for p in prob_pathname.split('/')]) / pathlib.Path(*subdirs)
+
     if prob_or_sys.comm.rank == 0 and mkdir:
         dirpath.mkdir(parents=True, exist_ok=True)
-    
+
     return dirpath

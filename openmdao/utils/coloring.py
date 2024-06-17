@@ -962,7 +962,7 @@ class Coloring(object):
         fname : str
             File to save to.
         """
-        if isinstance(fname, str):
+        if isinstance(fname, str) or isinstance(fname, pathlib.Path):
             color_dir = os.path.dirname(os.path.abspath(fname))
             if not os.path.exists(color_dir):
                 try:
@@ -2890,7 +2890,7 @@ def _total_coloring_cmd(options, user_args):
             if options.outfile:
                 outfile = os.path.abspath(options.outfile)
             else:
-                outfile = os.path.join(prob.options['coloring_dir'], 'total_coloring.pkl')
+                outfile = prob._get_coloring_dir() / 'total_coloring.pkl'
 
             coloring_info = prob.driver._coloring_info.copy()
             if options.tolerance is not None:

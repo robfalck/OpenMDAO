@@ -233,6 +233,8 @@ class SqliteRecorder(CaseRecorder):
             if self._record_metadata and self.metadata_connection is None:
                 self.metadata_connection = self.connection
 
+            print(comm.rank, filepath)
+
             with self.connection as c:
                 # used to keep track of the order of the case records across all case tables
                 c.execute("CREATE TABLE global_iterations(id INTEGER PRIMARY KEY, "
@@ -350,9 +352,7 @@ class SqliteRecorder(CaseRecorder):
         if not self._database_initialized:
             if '/' not in self._filepath:
                 # If the user only specified a filename, place the recording problem output dir.
-                recording_dir = system.get_outputs_dir()
-                self._filepath = recording_dir / self._filepath
-            
+                self._filepath = system.get_outputs_dir() / self._filepath
             self._initialize_database(comm)
 
         states = system._list_states_allprocs()

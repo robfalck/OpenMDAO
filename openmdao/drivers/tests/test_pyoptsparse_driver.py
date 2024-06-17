@@ -3378,7 +3378,7 @@ class TestPyoptSparseOutputFiles(unittest.TestCase):
             prob.driver.opt_settings['fileout'] = 3 # need this to be 3 to get the output files
 
         prob.run_driver()
-        default_output_dir = pathlib.Path(prob.get_reports_dir()).joinpath(prob._name)
+        default_output_dir = prob.get_outputs_dir()
         for opt_setting_name, output_file_name in output_file_names:
             output_file = default_output_dir.joinpath(output_file_name)
             self.assertTrue(output_file.is_file(),

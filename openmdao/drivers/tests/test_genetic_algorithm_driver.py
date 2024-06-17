@@ -18,7 +18,7 @@ from openmdao.test_suite.components.sellar_feature import SellarMDA
 from openmdao.test_suite.components.three_bar_truss import ThreeBarTruss
 
 from openmdao.utils.general_utils import run_driver
-from openmdao.utils.testing_utils import use_tempdirs, set_env_vars_context
+from openmdao.utils.testing_utils import use_tempdirs
 from openmdao.utils.assert_utils import assert_near_equal, assert_warning
 try:
     from parameterized import parameterized
@@ -1460,10 +1460,10 @@ class MPITestSimpleGA4Procs(unittest.TestCase):
         # a separate case file should have been written by rank 0 of each parallel model
         # (the top two global ranks)
         rank = prob.comm.rank
-        filename = "cases.sql_%d" % rank
+        filename = str(prob.get_outputs_dir() / f'cases.sql_{rank}')
 
         if rank < num_models:
-            expect_msg = "Cases from rank %d are being written to %s." % (rank, filename)
+            expect_msg = f"Cases from rank {rank} are being written to {filename}."
             self.assertTrue(expect_msg in output)
 
             cr = om.CaseReader(filename)
@@ -1474,7 +1474,7 @@ class MPITestSimpleGA4Procs(unittest.TestCase):
             self.assertTrue(num_cases > 0)
         else:
             self.assertFalse("Cases from rank %d are being written" % rank in output)
-            self.assertFalse(os.path.exists(filename))
+            self.assertFalse(os.path.exists(prob.get_outputs_dir() / filename))
 
     def test_distributed_obj(self):
         size = 3

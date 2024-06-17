@@ -1803,7 +1803,7 @@ class System(object):
             coloring_dir = self.get_outputs_dir() / 'coloring_files'
         else:
             coloring_dir = pathlib.Path(coloring_dir)
-            
+
         if not self.pathname:
             # total coloring
             return os.path.join(coloring_dir, 'total_coloring.pkl')
@@ -3529,7 +3529,6 @@ class System(object):
                     raise ValueError(f"{self.msginfo}: When adding {typename} '{name}',"
                                      f" {mname} should have size {size} but instead has size "
                                      f"{val.size}.")
-
 
     def get_design_vars(self, recurse=True, get_sizes=True, use_prom_ivc=True):
         """
@@ -6542,7 +6541,7 @@ class System(object):
 
     def get_outputs_dir(self, *subdirs, mkdir=True):
         """
-        Get the path under which all output files associated with a run of this system are to be placed.
+        Get the path under which all output files associated with this system are to be placed.
 
         Parameters
         ----------

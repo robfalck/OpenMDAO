@@ -151,10 +151,6 @@ class Problem(object):
         Since none is acceptable in the environment variable, a value of reports=None
         is equivalent to reports=False. Otherwise, reports may be a sequence of
         strings giving the names of the reports to run.
-    parent : None or Problem
-        A parent problem in which this problem exists. This generally occurs when a
-        a problem is used within a subproblem component. This is stored as a weakref
-        in _problem.
     **options : named args
         All remaining named args are converted to options.
 
@@ -213,7 +209,7 @@ class Problem(object):
     """
 
     def __init__(self, model=None, driver=None, comm=None, name=None, reports=_UNDEFINED,
-                 parent=None, **options):
+                 **options):
         """
         Initialize attributes.
         """
@@ -232,11 +228,8 @@ class Problem(object):
         # Set the Problem name so that it can be referenced from command line tools (e.g. check)
         # that accept a Problem argument, and to name the corresponding reports subdirectory.
 
-        if name:  # if name hasn't been used yet, use it. Otherwise, error
-            if name not in _problem_names:
-                self._name = name
-            else:
-                raise ValueError(f"The problem name '{name}' already exists")
+        if name:
+            self._name = name
         else:  # No name given: look for a name, of the form, 'problemN', that hasn't been used
             problem_counter = len(_problem_names) + 1 if _problem_names else ''
             base = _default_prob_name()
@@ -249,7 +242,10 @@ class Problem(object):
                         break
                     i += 1
             self._name = _name
-        _problem_names.append(self._name)
+        if self._name in _problem_names:
+            issue_warning(f'The problem name {name} already exists.')
+        else:
+            _problem_names.append(self._name)
 
         if comm is None:
             use_mpi = check_mpi_env()
@@ -1008,13 +1004,15 @@ class Problem(object):
         if parent is None:
             self._metadata['pathname'] = self._name
         elif isinstance(parent, Problem):
-            self._metadata['pathname'] = '/'.join([parent._metadata['pathname'], self._name])
+            self._metadata['pathname'] = '/'.join([parent._metadata['pathname'],
+                                                   self._name])
         else:
             try:
-                self._metadata['pathname'] = '/'.join([parent._problem_meta['pathname'], self._name])
+                self._metadata['pathname'] = '/'.join([parent._problem_meta['pathname'],
+                                                       self._name])
             except AttributeError as f:
-                raise AttributeError(f'{self.msginfo}Expected an instance of Problem, System, or Solver '
-                                     'for `parent` but got {parent}.')
+                raise AttributeError(f'{self.msginfo}Expected an instance of Problem, System, '
+                                     'or Solver for `parent` but got {parent}.')
 
         # Start setup by deleting any existing reports so that the files
         # that are in that directory are all from this run and not a previous run
@@ -2444,7 +2442,7 @@ class Problem(object):
             return
 
         if logger is None:
-            check_file_path = str(self.get_outputs_dir() / out_file)
+            check_file_path = None if out_file is None else str(self.get_outputs_dir() / out_file)
             logger = get_logger('check_config', out_file=check_file_path, use_format=True)
 
         if checks == 'all':
@@ -2482,7 +2480,7 @@ class Problem(object):
 
     def get_outputs_dir(self, *subdirs, mkdir=True):
         """
-        Get the path under which all output files associated with a run of this problem are to be placed.
+        Get the path under which all output files of this problem are to be placed.
 
         Parameters
         ----------
@@ -2523,10 +2521,10 @@ class Problem(object):
             return self.get_outputs_dir('coloring_files', mkdir=force)
         else:
             color_dir_path = pathlib.Path(color_dir)
-            if prob_or_sys.comm.rank == 0 and force:
+            if self.comm.rank == 0 and force:
                 color_dir_path.mkdir(parents=True, exist_ok=True)
             return color_dir_path
-            
+
     def get_reports_dir(self, force=False):
         """
         Get the path to the directory where the report files should go.

@@ -1,5 +1,6 @@
 """ Unit tests for the problem interface."""
 
+import pathlib
 import sys
 import unittest
 import itertools
@@ -2131,7 +2132,7 @@ class TestProblem(unittest.TestCase):
         prob.setup()
         
         d = prob.get_outputs_dir('subdir')
-        self.assertEqual('prob_name_out/subdir', str(d))
+        self.assertEqual(str(pathlib.Path('prob_name_out', 'subdir')), str(d))
 
 
 @use_tempdirs
@@ -2472,10 +2473,6 @@ class NestedProblemTestCase(unittest.TestCase):
         G.nonlinear_solver = _ProblemSolver(prob_name=defname)
         p.model.connect('indep.x', 'G.comp.x')
         p.setup()
-
-        with self.assertRaises(Exception) as context:
-            p.run_model()
-        self.assertEqual(str(context.exception), f"The problem name '{defname}' already exists")
 
         # If the first Problem uses the default name of 'problem2'
         openmdao.core.problem._clear_problem_names()  # need to reset these to simulate separate runs
