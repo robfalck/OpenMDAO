@@ -1019,7 +1019,7 @@ class Problem(object):
         reports_dirpath = pathlib.Path(self.get_reports_dir())
         if self.comm.rank == 0:
             if os.path.isdir(reports_dirpath):
-                shutil.rmtree(reports_dirpath)
+                shutil.rmtree(reports_dirpath, ignore_errors=True)
 
         _prob_setup_stack.append(self)
         try:
