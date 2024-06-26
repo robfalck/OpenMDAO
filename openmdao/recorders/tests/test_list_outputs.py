@@ -17,7 +17,7 @@ class ListOutputsTest(unittest.TestCase):
         prob.setup()
         prob.run_model()
 
-        case = om.CaseReader('test_list_outputs.db').get_case(-1)
+        case = om.CaseReader(prob.get_outputs_dir() / 'test_list_outputs.db').get_case(-1)
 
         with self.assertRaises(ValueError) as cm:
             case.list_inputs(return_format=dict)
@@ -48,7 +48,7 @@ class ListOutputsTest(unittest.TestCase):
         prob.setup()
         prob.run_model()
 
-        read_p = om.CaseReader('test_list_outputs.db').get_case(-1)
+        read_p = om.CaseReader(prob.get_outputs_dir() / 'test_list_outputs.db').get_case(-1)
 
         prob_out = io.StringIO()
         rec_out = io.StringIO()
@@ -126,7 +126,7 @@ class ListOutputsTest(unittest.TestCase):
         p.run_driver()
         p.cleanup()
 
-        cr = om.CaseReader("driver_cases.db")
+        cr = om.CaseReader(p.get_outputs_dir() / "driver_cases.db")
         case = cr.get_case(-1)
 
         prob_out = io.StringIO()

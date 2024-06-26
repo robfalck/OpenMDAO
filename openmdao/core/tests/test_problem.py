@@ -1,5 +1,6 @@
 """ Unit tests for the problem interface."""
 
+import pathlib
 import sys
 import unittest
 import itertools
@@ -2113,6 +2114,27 @@ class TestProblem(unittest.TestCase):
         except RuntimeError:
             self.fail("'setup raised RuntimeError unexpectedly")
 
+    def test_get_outputs_dir(self):
+
+        prob = om.Problem(name='prob_name')
+        model = prob.model
+
+        model.add_subsystem('comp', Paraboloid())
+
+        model.set_input_defaults('comp.x', 3.0)
+        model.set_input_defaults('comp.y', -4.0)
+
+        with self.assertRaises(RuntimeError) as e:
+            prob.get_outputs_dir()
+        
+        self.assertEqual('The problem output directory cannot be accessed before setup.',
+                         str(e.exception))
+
+        prob.setup()
+        
+        d = prob.get_outputs_dir('subdir')
+        self.assertEqual(str(pathlib.Path('prob_name_out', 'subdir')), str(d))
+
 
 @use_tempdirs
 class RelevanceTestCase(unittest.TestCase):
@@ -2452,10 +2474,6 @@ class NestedProblemTestCase(unittest.TestCase):
         G.nonlinear_solver = _ProblemSolver(prob_name=defname)
         p.model.connect('indep.x', 'G.comp.x')
         p.setup()
-
-        with self.assertRaises(Exception) as context:
-            p.run_model()
-        self.assertEqual(str(context.exception), f"The problem name '{defname}' already exists")
 
         # If the first Problem uses the default name of 'problem2'
         openmdao.core.problem._clear_problem_names()  # need to reset these to simulate separate runs

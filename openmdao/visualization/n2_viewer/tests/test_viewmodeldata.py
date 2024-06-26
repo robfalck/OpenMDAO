@@ -306,7 +306,7 @@ class TestViewerData(unittest.TestCase):
         self.check_viewer_data(_get_viewer_data(p), 'sellar_initial_values.json')
 
         # recorded viewer data should match
-        self.check_viewer_data(_get_viewer_data(filename), 'sellar_initial_values.json')
+        self.check_viewer_data(_get_viewer_data(p.get_outputs_dir() / filename), 'sellar_initial_values.json')
 
         # there should be final values when data is generated after run_model
         p.run_model()
@@ -368,7 +368,7 @@ class TestViewerData(unittest.TestCase):
         Test error message when asking for viewer data for an invalid source.
         """
         msg = "Viewer data is not available for 'None'." + \
-              "The source must be a Problem, model or the filename of a recording."
+              "The source must be a Problem, model or the filename or Path of a recording."
 
         with self.assertRaises(TypeError) as cm:
             _get_viewer_data(None)
@@ -459,7 +459,7 @@ class TestViewerData(unittest.TestCase):
             subprob_data = extract_compressed_model('N2subprob.html')
 
             # check problem data generated from recording against data generated from problem
-            check_call(f"openmdao n2 {sql_filename} -o N2recording.html"
+            check_call(f"openmdao n2 {p.get_outputs_dir() / sql_filename} -o N2recording.html"
                        f"{' --no_browser' if not DEBUG_BROWSER else ''}")
             recording_data = extract_compressed_model('N2recording.html')
 
@@ -590,10 +590,10 @@ class TestN2(unittest.TestCase):
 
                 if values is not None:
                     n2(p, outfile=n2_from_prob_html, show_browser=DEBUG_BROWSER, values=values)
-                    n2(sql_filename, outfile=n2_from_file_html, show_browser=DEBUG_BROWSER, values=values)
+                    n2(p.get_outputs_dir() / sql_filename, outfile=n2_from_file_html, show_browser=DEBUG_BROWSER, values=values)
                 else:
                     n2(p, outfile=n2_from_prob_html, show_browser=DEBUG_BROWSER)
-                    n2(sql_filename, outfile=n2_from_file_html, show_browser=DEBUG_BROWSER)
+                    n2(p.get_outputs_dir() / sql_filename, outfile=n2_from_file_html, show_browser=DEBUG_BROWSER)
 
                 # Compare models from the files generated from the Problem and the recording
                 model_data_from_prob = extract_compressed_model(n2_from_prob_html)
@@ -603,10 +603,11 @@ class TestN2(unittest.TestCase):
 
                 # also check data generated using n2 command
                 n2_from_cmd_html = f"n2_from_cmd_{values}.html"
+                sql_path = str(p.get_outputs_dir() / sql_filename)
                 if values is not False:
-                    cmd = f"openmdao n2 --no_browser -o {n2_from_cmd_html} {sql_filename}"
+                    cmd = f"openmdao n2 --no_browser -o {n2_from_cmd_html} {sql_path}"
                 else:
-                    cmd = f"openmdao n2 --no_values --no_browser  -o {n2_from_cmd_html} {sql_filename}"
+                    cmd = f"openmdao n2 --no_values --no_browser  -o {n2_from_cmd_html} {sql_path}"
                 check_call(cmd)
 
                 model_data_from_cmd = extract_compressed_model(n2_from_cmd_html)

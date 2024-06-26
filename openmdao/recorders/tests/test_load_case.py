@@ -44,7 +44,7 @@ class TestLoadCase(unittest.TestCase):
         prob.run_driver()
         prob.cleanup()
 
-        cr = om.CaseReader(self.filename)
+        cr = om.CaseReader(prob.get_outputs_dir() / self.filename)
 
         system_cases = cr.list_cases('root', out_stream=None)
         case = cr.get_case(system_cases[0])
@@ -75,7 +75,7 @@ class TestLoadCase(unittest.TestCase):
         prob.run_driver()
         prob.cleanup()
 
-        cr = om.CaseReader(self.filename)
+        cr = om.CaseReader(prob.get_outputs_dir() / self.filename)
 
         system_cases = cr.list_cases('root', out_stream=None)
         case = cr.get_case(system_cases[0])
@@ -112,7 +112,7 @@ class TestLoadCase(unittest.TestCase):
         prob.run_driver()
         prob.cleanup()
 
-        cr = om.CaseReader(self.filename)
+        cr = om.CaseReader(prob.get_outputs_dir() / self.filename)
 
         system_cases = cr.list_cases('root', out_stream=None)
         case = cr.get_case(system_cases[0])
@@ -146,7 +146,7 @@ class TestLoadCase(unittest.TestCase):
         prob.run_driver()
         prob.cleanup()
 
-        cr = om.CaseReader(self.filename)
+        cr = om.CaseReader(prob.get_outputs_dir() / self.filename)
 
         system_cases = cr.list_cases('root.d2', out_stream=None)
         case = cr.get_case(system_cases[0])
@@ -182,7 +182,7 @@ class TestLoadCase(unittest.TestCase):
         prob.setup()
         prob.run_model()
 
-        cr = om.CaseReader(self.filename)
+        cr = om.CaseReader(prob.get_outputs_dir() / self.filename)
 
         system_cases = cr.list_cases('root', out_stream=None)
         case = cr.get_case(system_cases[0])
@@ -236,7 +236,7 @@ class TestLoadCase(unittest.TestCase):
         inputs_before = prob.model.list_inputs(val=True, units=True, out_stream=None)
         outputs_before = prob.model.list_outputs(val=True, units=True, out_stream=None)
 
-        cr = om.CaseReader(self.filename)
+        cr = om.CaseReader(prob.get_outputs_dir() / self.filename)
 
         # get third case
         system_cases = cr.list_cases('root', out_stream=None)
@@ -285,7 +285,7 @@ class TestLoadCase(unittest.TestCase):
 
         self.assertFalse(fail, 'Problem failed to converge')
 
-        cr = om.CaseReader(self.filename)
+        cr = om.CaseReader(prob.get_outputs_dir() / self.filename)
 
         solver_cases = cr.list_cases('root.nonlinear_solver', out_stream=None)
         case = cr.get_case(solver_cases[0])
@@ -328,7 +328,7 @@ class TestLoadCase(unittest.TestCase):
 
         self.assertFalse(fail, 'Problem failed to converge')
 
-        cr = om.CaseReader(self.filename)
+        cr = om.CaseReader(prob.get_outputs_dir() / self.filename)
 
         driver_cases = cr.list_cases('driver', out_stream=None)
         case = cr.get_case(driver_cases[0])
@@ -419,7 +419,7 @@ class TestLoadCase(unittest.TestCase):
         prob.cleanup()
 
         # get the case we recorded
-        cr = om.CaseReader(self.filename)
+        cr = om.CaseReader(prob.get_outputs_dir() / self.filename)
         case = cr.get_case(0)
 
         # check 'use_indices' option, default is to use indices
@@ -475,7 +475,7 @@ class TestLoadCase(unittest.TestCase):
             model._outputs[name] += 1.0
 
         # Now load in the case we recorded
-        cr = om.CaseReader(self.filename)
+        cr = om.CaseReader(prob.get_outputs_dir() / self.filename)
 
         driver_cases = cr.list_cases('driver', out_stream=None)
         case = cr.get_case(driver_cases[0])
@@ -524,7 +524,7 @@ class TestLoadCaseMPI(unittest.TestCase):
         prob.setup()
         prob.run_driver()
 
-        reader = om.CaseReader(recorder_file)
+        reader = om.CaseReader(prob.get_outputs_dir() / recorder_file)
         prob.load_case(reader.get_case(-1))
 
         with multi_proc_exception_check(prob.comm):

@@ -322,7 +322,7 @@ def _get_viewer_data(data_source, values=_UNDEFINED, case_id=None):
 
     Parameters
     ----------
-    data_source : <Problem> or <Group> or str
+    data_source : <Problem> or <Group> or str or pathlib.Path
         A Problem or Group or case recorder filename containing the model or model data.
         If the case recorder file from a parallel run has separate metadata, the
         filenames can be specified with a comma, e.g.: case.sql_0,case.sql_meta
@@ -381,8 +381,8 @@ def _get_viewer_data(data_source, values=_UNDEFINED, case_id=None):
             values = (data_source._problem_meta is not None and
                       data_source._problem_meta['setup_status'] >= _SetupStatus.POST_FINAL_SETUP)
 
-    elif isinstance(data_source, str):
-        if ',' in data_source:
+    elif isinstance(data_source, str) or isinstance(data_source, pathlib.Path):
+        if isinstance(data_source, str) and ',' in data_source:
             filenames = data_source.split(',')
             cr = CaseReader(filenames[0], metadata_filename=filenames[1])
         else:
@@ -449,7 +449,8 @@ def _get_viewer_data(data_source, values=_UNDEFINED, case_id=None):
 
     else:
         raise TypeError(f"Viewer data is not available for '{data_source}'."
-                        "The source must be a Problem, model or the filename of a recording.")
+                        "The source must be a Problem, model or the "
+                        "filename or Path of a recording.")
 
     data_dict = {}
     data_dict['tree'] = _get_tree_dict(root_group, values=values)
@@ -552,7 +553,7 @@ def n2(data_source, outfile=_default_n2_filename, path=None, values=_UNDEFINED, 
 
     Parameters
     ----------
-    data_source : <Problem> or str
+    data_source : <Problem> or str or Path
         The Problem or case recorder database containing the model or model data.
     outfile : str, optional
         The name of the final output file.

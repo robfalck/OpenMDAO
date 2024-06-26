@@ -1,11 +1,10 @@
 """
 Definition of the SqliteCaseReader.
 """
-import importlib
+import pathlib
 import sqlite3
 from collections import OrderedDict
 
-import os
 import sys
 import numpy as np
 import io
@@ -86,7 +85,7 @@ class SqliteCaseReader(BaseCaseReader):
 
     Parameters
     ----------
-    filename : str
+    filename : str or pathlib.Path
         The path to the filename containing the recorded data.
     pre_load : bool
         If True, load all the data into memory during initialization.
@@ -130,15 +129,19 @@ class SqliteCaseReader(BaseCaseReader):
 
     def __init__(self, filename, pre_load=False, metadata_filename=None):
         """Initialize."""
-        super().__init__(filename, pre_load)
+        _filename = str(filename) if isinstance(filename, pathlib.Path) else filename
+        _metadata_filename = str(metadata_filename) \
+            if isinstance(metadata_filename, pathlib.Path) else metadata_filename
 
-        check_valid_sqlite3_db(filename)
+        super().__init__(_filename, pre_load)
+
+        check_valid_sqlite3_db(_filename)
 
         if metadata_filename:
-            check_valid_sqlite3_db(metadata_filename)
+            check_valid_sqlite3_db(_metadata_filename)
 
         # initialize private attributes
-        self._filename = filename
+        self._filename = _filename
         self._abs2prom = None
         self._prom2abs = None
         self._abs2meta = None
@@ -146,7 +149,7 @@ class SqliteCaseReader(BaseCaseReader):
         self._auto_ivc_map = {}
         self._global_iterations = None
 
-        with sqlite3.connect(filename) as con:
+        with sqlite3.connect(_filename) as con:
             con.row_factory = sqlite3.Row
             cur = con.cursor()
 
@@ -155,21 +158,21 @@ class SqliteCaseReader(BaseCaseReader):
 
             # If separate metadata not specified, check the current db
             # to make sure it's there
-            if metadata_filename is None:
+            if _metadata_filename is None:
                 cur.execute("SELECT count(name) FROM sqlite_master "
                             "WHERE type='table' AND name='metadata'")
 
                 # If not, take a guess at the filename:
                 if cur.fetchone()[0] == 0:
-                    metadata_filename = re.sub(r'^(.*)_(\d+)', r'\1_meta', filename)
-                    check_valid_sqlite3_db(metadata_filename)
+                    _metadata_filename = re.sub(r'^(.*)_(\d+)', r'\1_meta', _filename)
+                    check_valid_sqlite3_db(_metadata_filename)
                 else:
-                    metadata_filename = filename
+                    _metadata_filename = _filename
 
         con.close()
 
         # collect metadata from database
-        with sqlite3.connect(metadata_filename) as con:
+        with sqlite3.connect(_metadata_filename) as con:
             con.row_factory = sqlite3.Row
             cur = con.cursor()
 

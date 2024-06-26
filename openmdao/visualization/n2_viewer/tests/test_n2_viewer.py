@@ -49,7 +49,7 @@ class TestN2Viewer(unittest.TestCase):
         prob.run_driver()
         prob.cleanup()
 
-        data_dict = _get_viewer_data(self.filename, case_id=self.driver_case)
+        data_dict = _get_viewer_data(prob.get_outputs_dir() / self.filename, case_id=self.driver_case)
 
         vals = data_dict['tree']['children'][2]['children']
         x_val = vals[0]['val']
@@ -79,7 +79,7 @@ class TestN2Viewer(unittest.TestCase):
         prob.run_driver()
         prob.cleanup()
 
-        data_dict = _get_viewer_data(self.filename, case_id=self.driver_case)
+        data_dict = _get_viewer_data(prob.get_outputs_dir() / self.filename, case_id=self.driver_case)
 
         vals = data_dict['tree']['children'][2]['children']
         x_val = vals[0]['val']
@@ -109,7 +109,7 @@ class TestN2Viewer(unittest.TestCase):
         prob.run_driver()
         prob.cleanup()
 
-        data_dict = _get_viewer_data(self.filename, case_id=3)
+        data_dict = _get_viewer_data(prob.get_outputs_dir() / self.filename, case_id=3)
 
         vals = data_dict['tree']['children'][2]['children']
         x_val = vals[0]['val']
@@ -132,7 +132,7 @@ class TestN2Viewer(unittest.TestCase):
         model.add_design_var('y', lower=0.0, upper=1.0)
         model.add_objective('f_xy')
 
-        recorder = om.SqliteRecorder("cases.sql")
+        recorder = om.SqliteRecorder(self.filename)
         prob.driver = om.DOEDriver(self.doe_list)
         prob.driver.add_recorder(recorder)
         prob.model.add_recorder(recorder)
@@ -141,7 +141,7 @@ class TestN2Viewer(unittest.TestCase):
         prob.run_driver()
         prob.cleanup()
 
-        data_dict = _get_viewer_data("cases.sql", case_id=self.problem_case)
+        data_dict = _get_viewer_data(prob.get_outputs_dir() / self.filename, case_id=self.problem_case)
 
         vals = data_dict['tree']['children'][2]['children']
         x_val = vals[0]['val']
@@ -152,7 +152,6 @@ class TestN2Viewer(unittest.TestCase):
         self.assertEqual(y_val, np.array([1.]))
         self.assertEqual(f_xy_val, np.array([27.]))
 
-    def test_driver_root_index_case(self):
         prob = om.Problem()
         model = prob.model
 
@@ -164,7 +163,7 @@ class TestN2Viewer(unittest.TestCase):
         model.add_design_var('y', lower=0.0, upper=1.0)
         model.add_objective('f_xy')
 
-        recorder = om.SqliteRecorder("cases.sql")
+        recorder = om.SqliteRecorder(self.filename)
         prob.driver = om.DOEDriver(self.doe_list)
         prob.driver.add_recorder(recorder)
         prob.model.add_recorder(recorder)
@@ -173,7 +172,7 @@ class TestN2Viewer(unittest.TestCase):
         prob.run_driver()
         prob.cleanup()
 
-        data_dict = _get_viewer_data("cases.sql", case_id=6)
+        data_dict = _get_viewer_data(prob.get_outputs_dir() / self.filename, case_id=6)
 
         vals = data_dict['tree']['children'][2]['children']
         x_val = vals[0]['val']
@@ -196,7 +195,7 @@ class TestN2Viewer(unittest.TestCase):
         model.add_design_var('y', lower=0.0, upper=1.0)
         model.add_objective('f_xy')
 
-        recorder = om.SqliteRecorder("cases.sql")
+        recorder = om.SqliteRecorder(self.filename)
         prob.driver = om.DOEDriver(self.doe_list)
         prob.model.add_recorder(recorder)
 
@@ -204,7 +203,7 @@ class TestN2Viewer(unittest.TestCase):
         prob.run_driver()
         prob.cleanup()
 
-        data_dict = _get_viewer_data("cases.sql", case_id=3)
+        data_dict = _get_viewer_data(prob.get_outputs_dir() / self.filename, case_id=3)
 
         vals = data_dict['tree']['children'][2]['children']
         x_val = vals[0]['val']
@@ -225,10 +224,10 @@ class TestN2Viewer(unittest.TestCase):
         prob.run_driver()
         prob.cleanup()
 
-        cr = om.CaseReader(self.filename)
+        cr = om.CaseReader(prob.get_outputs_dir() / self.filename)
         first_case = cr.list_cases(out_stream=None)[0]
 
-        data_dict = _get_viewer_data(self.filename, case_id=first_case)
+        data_dict = _get_viewer_data(prob.get_outputs_dir() / self.filename, case_id=first_case)
 
         vals = data_dict['tree']['children'][0]['children']
         ivc_0_val = vals[0]['val']
@@ -259,7 +258,7 @@ class TestN2Viewer(unittest.TestCase):
         prob.record('final')
         prob.cleanup()
 
-        data_dict = _get_viewer_data(self.filename, case_id='final')
+        data_dict = _get_viewer_data(prob.get_outputs_dir() / self.filename, case_id='final')
 
         vals = data_dict['tree']['children'][2]['children']
         x_val = vals[0]['val']

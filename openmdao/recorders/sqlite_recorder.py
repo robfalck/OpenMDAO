@@ -6,6 +6,7 @@ from io import BytesIO
 
 import os
 import gc
+import pathlib
 import sqlite3
 from itertools import chain
 
@@ -190,11 +191,14 @@ class SqliteRecorder(CaseRecorder):
         """
         filepath = None
 
+        print('in initialize_database', f'{comm.rank=}', {comm.size})
+
         if MPI and comm and comm.size > 1:
             if self._record_on_proc:
                 if not self._parallel:
                     # recording only on this proc
                     filepath = self._filepath
+                    print('NOT PARALLEL. Filepath =', filepath)
                 else:
                     # recording on multiple procs, so a separate file for each recording proc
                     # plus a file for the common metadata, written by the lowest recording rank
@@ -207,7 +211,7 @@ class SqliteRecorder(CaseRecorder):
                         print("Note: Metadata is being recorded separately as "
                               f"{metadata_filepath}.")
                         try:
-                            rc = os.remove(metadata_filepath)
+                            os.remove(metadata_filepath)
                             issue_warning("The existing case recorder metadata file, "
                                           f"{metadata_filepath}, is being overwritten.",
                                           category=UserWarning)
@@ -324,13 +328,12 @@ class SqliteRecorder(CaseRecorder):
             The MPI communicator for the recorder (should be the comm for the Problem).
         """
         # we only want to set up recording once for each recording_requester
+        print('in startup', f'{comm.rank=}', {comm.size})
+
         if recording_requester in self._started:
             return
 
         super().startup(recording_requester, comm)
-
-        if not self._database_initialized:
-            self._initialize_database(comm)
 
         # grab the system and driver
         if isinstance(recording_requester, Driver):
@@ -348,6 +351,12 @@ class SqliteRecorder(CaseRecorder):
         else:
             raise ValueError('Driver encountered a recording_requester it cannot handle'
                              ': {0}'.format(recording_requester))
+
+        if not self._database_initialized:
+            if '/' not in self._filepath:
+                # If the user only specified a filename, place the recording problem output dir.
+                self._filepath = system.get_outputs_dir() / self._filepath
+            self._initialize_database(comm)
 
         states = system._list_states_allprocs()
 

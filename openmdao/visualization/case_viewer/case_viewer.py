@@ -5,6 +5,7 @@ import re
 import numpy as np
 
 from openmdao.recorders.case_reader import CaseReader
+from openmdao.recorders.sqlite_reader import SqliteCaseReader
 
 # Enable _DEBUG to prevent the debug_output display from clearing itself.
 _DEBUG = False
@@ -312,7 +313,7 @@ class CaseViewer(object):
 
         get_ipython().run_line_magic('matplotlib', 'widget')
 
-        self._case_reader = CaseReader(f) if isinstance(f, str) else f
+        self._case_reader = f if isinstance(f, SqliteCaseReader) else CaseReader(f)
 
         self._cmap = cm.viridis
 
