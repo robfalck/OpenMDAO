@@ -141,8 +141,8 @@ def create_xdsm(problem_or_group, recurse=True, recurse_exceptions=None, use_ful
             label = _detokenize(label)
             kind = FUNC
         elif isinstance(item, Solver):
-            name = str(item)
-            label = name
+            name = _make_legal_node_name(f'{item._system().pathname}_{str(item)}')
+            label = [str(item), item._system().pathname]
             kind = SOLVER
         elif isinstance(item, Driver):
             # TODO: Check if opt driver
