@@ -669,6 +669,42 @@ class System(object, metaclass=SystemMetaclass):
             else:
                 yield from self._var_allprocs_discrete[iotype]
 
+    def abs_meta_iter(self, iotype, local=True, cont=True, discrete=False):
+        """
+        Iterate over absolute variable names and their metadata for this System.
+
+        By setting appropriate values for 'cont' and 'discrete', yielded variable
+        names can be continuous only, discrete only, or both.
+
+        Parameters
+        ----------
+        iotype : str
+            Either 'input' or 'output'.
+        local : bool
+            If True, include only names of local variables. Default is True.
+        cont : bool
+            If True, include names of continuous variables.  Default is True.
+        discrete : bool
+            If True, include names of discrete variables.  Default is False.
+
+        Yields
+        ------
+        str, dict
+        """
+        if cont:
+            if local:
+                yield from self._var_abs2meta[iotype].items()
+            else:
+                yield from self._var_allprocs_abs2meta[iotype].items()
+
+        if discrete:
+            if local:
+                prefix = self.pathname + '.' if self.pathname else ''
+                for name, meta in self._var_discrete[iotype].items():
+                    yield prefix + name, meta
+            else:
+                yield from self._var_allprocs_discrete[iotype].items()
+
     def _jac_of_iter(self):
         """
         Iterate over (name, offset, end, slice, dist_sizes) for each 'of' (row) var in the jacobian.
@@ -2021,7 +2057,7 @@ class System(object, metaclass=SystemMetaclass):
         """
         Set up case recording.
         """
-        if self._rec_mgr._recorders:
+        if self._rec_mgr.has_recorders():
             myinputs = myoutputs = myresiduals = []
 
             options = self.recording_options
@@ -2031,7 +2067,6 @@ class System(object, metaclass=SystemMetaclass):
             # includes and excludes for outputs are specified using promoted names
             # includes and excludes for inputs are specified using _absolute_ names
             abs2prom_output = self._var_allprocs_abs2prom['output']
-            abs2prom_inputs = self._var_allprocs_abs2prom['input']
 
             # set of promoted output names and absolute input and residual names
             # used for matching includes/excludes
@@ -2040,9 +2075,9 @@ class System(object, metaclass=SystemMetaclass):
             # includes and excludes for inputs are specified using _absolute_ names
             # vectors are keyed on absolute name, discretes on relative/promoted name
             if options['record_inputs']:
-                match_names.update(abs2prom_inputs.keys())
-                myinputs = sorted([n for n in abs2prom_inputs
-                                   if check_path(n, incl, excl)])
+                abs2prom_inputs = self._var_allprocs_abs2prom['input']
+                match_names.update(abs2prom_inputs)
+                myinputs = sorted([n for n in abs2prom_inputs if check_path(n, incl, excl)])
 
             # includes and excludes for outputs are specified using _promoted_ names
             # vectors are keyed on absolute name, discretes on relative/promoted name
@@ -2060,7 +2095,7 @@ class System(object, metaclass=SystemMetaclass):
                     myresiduals = myoutputs
 
             elif options['record_residuals']:
-                match_names.update(self._residuals.keys())
+                match_names.update(self._residuals)
                 myresiduals = [n for n in self._residuals._abs_iter()
                                if check_path(abs2prom_output[n], incl, excl)]
 
@@ -4192,6 +4227,11 @@ class System(object, metaclass=SystemMetaclass):
         if scaling:
             keys.extend(('ref', 'ref0', 'res_ref'))
 
+        if all_procs:
+            local = True
+        else:
+            local = False
+
         outputs = self.get_io_metadata(('output',), keys, includes, excludes,
                                        is_indep_var, is_design_var, tags,
                                        get_remote=True,
@@ -4260,10 +4300,6 @@ class System(object, metaclass=SystemMetaclass):
                     if print_max:
                         meta['max'] = np.round(np.max(meta['val']), np_precision)
 
-        # NOTE: calls to _abs_get_val() above are collective calls and must be done on all procs
-        if not (outputs or inputs) or (not all_procs and self.comm.rank != 0):
-            return {} if return_format == 'dict' else []
-
         # remove metadata we don't want to show/return
         to_remove = ['discrete']
         if not print_tags:
@@ -4282,7 +4318,7 @@ class System(object, metaclass=SystemMetaclass):
         var_dict = {}
 
         var_list = self._get_vars_exec_order(inputs=True, outputs=True,
-                                             variables=variables, local=True)
+                                             variables=variables, local=local)
         for var_name in var_list:
             if var_name in outputs:
                 var_dict[var_name] = outputs[var_name]
@@ -4291,9 +4327,13 @@ class System(object, metaclass=SystemMetaclass):
                 var_dict[var_name] = inputs[var_name]
                 var_dict[var_name]['io'] = 'input'
 
-        if all_procs or self.comm.rank == 0:
-            write_var_table(self.pathname, var_list, 'all', var_dict,
-                            True, print_arrays, out_stream)
+        if not (all_procs or self.comm.rank == 0):
+            out_stream = None
+        write_var_table(self.pathname, var_list, 'all', var_dict,
+                        True, print_arrays, out_stream)
+
+        if not (outputs or inputs) or (not all_procs and self.comm.rank != 0):
+            return {} if return_format == 'dict' else []
 
         return var_dict if return_format == 'dict' else list(var_dict.items())
 
@@ -4419,10 +4459,6 @@ class System(object, metaclass=SystemMetaclass):
                     if print_max:
                         meta['max'] = np.round(np.max(meta['val']), np_precision)
 
-        # NOTE: calls to _abs_get_val() above are collective calls and must be done on all procs
-        if not inputs or (not all_procs and self.comm.rank != 0):
-            return {} if return_format == 'dict' else []
-
         to_remove = ['discrete']
         if not print_tags:
             to_remove.append('tags')
@@ -4435,9 +4471,12 @@ class System(object, metaclass=SystemMetaclass):
                 except KeyError:
                     pass
 
-        if out_stream:
-            self._write_table('input', inputs, hierarchical, print_arrays, all_procs,
-                              out_stream)
+        if not (all_procs or self.comm.rank == 0):
+            out_stream = None
+        self._write_table('input', inputs, hierarchical, print_arrays, all_procs, out_stream)
+
+        if not inputs or (not all_procs and self.comm.rank != 0):
+            return {} if return_format == 'dict' else []
 
         if self.pathname:
             # convert to relative names
@@ -4611,10 +4650,6 @@ class System(object, metaclass=SystemMetaclass):
             for name in to_remove:
                 del outputs[name]
 
-        # NOTE: calls to _abs_get_val() above are collective calls and must be done on all procs
-        if not outputs or (not all_procs and self.comm.rank != 0):
-            return {} if return_format == 'dict' else []
-
         # remove metadata we don't want to show/return
         to_remove = ['discrete']
         if not print_tags:
@@ -4629,13 +4664,14 @@ class System(object, metaclass=SystemMetaclass):
                     pass
 
         rel_idx = len(self.pathname) + 1 if self.pathname else 0
+        if not (all_procs or self.comm.rank == 0):
+            out_stream = None
 
         states = set(self._list_states())
         if explicit:
             expl_outputs = {n: m for n, m in outputs.items() if n not in states}
-            if out_stream:
-                self._write_table('explicit', expl_outputs, hierarchical, print_arrays,
-                                  all_procs, out_stream)
+            self._write_table('explicit', expl_outputs, hierarchical, print_arrays,
+                              all_procs, out_stream)
 
             if self.name:  # convert to relative name
                 expl_outputs = [(n[rel_idx:], meta) for n, meta in expl_outputs.items()]
@@ -4654,13 +4690,17 @@ class System(object, metaclass=SystemMetaclass):
                             impl_outputs[n] = m
             else:
                 impl_outputs = {n: m for n, m in outputs.items() if n in states}
-            if out_stream:
-                self._write_table('implicit', impl_outputs, hierarchical, print_arrays,
-                                  all_procs, out_stream)
+            if not (all_procs or self.comm.rank == 0):
+                out_stream = None
+            self._write_table('implicit', impl_outputs, hierarchical, print_arrays,
+                              all_procs, out_stream)
             if self.name:  # convert to relative name
                 impl_outputs = [(n[rel_idx:], meta) for n, meta in impl_outputs.items()]
             else:
                 impl_outputs = list(impl_outputs.items())
+
+        if not outputs or (not all_procs and self.comm.rank != 0):
+            return {} if return_format == 'dict' else []
 
         if explicit and implicit:
             outputs = expl_outputs + impl_outputs
@@ -4697,9 +4737,6 @@ class System(object, metaclass=SystemMetaclass):
             Where to send human readable output.
             Set to None to suppress.
         """
-        if out_stream is None:
-            return
-
         if self._outputs is None:
             var_list = var_data.keys()
         else:
@@ -4707,9 +4744,8 @@ class System(object, metaclass=SystemMetaclass):
             outputs = not inputs
             var_list = self._get_vars_exec_order(inputs=inputs, outputs=outputs, variables=var_data)
 
-        if all_procs or self.comm.rank == 0:
-            write_var_table(self.pathname, var_list, var_type, var_data,
-                            hierarchical, print_arrays, out_stream)
+        write_var_table(self.pathname, var_list, var_type, var_data,
+                        hierarchical, print_arrays, out_stream)
 
     def _get_vars_exec_order(self, inputs=False, outputs=False, variables=None, local=False):
         """
@@ -4743,23 +4779,23 @@ class System(object, metaclass=SystemMetaclass):
             var_dicts.append(real_vars['input'])
         if outputs:
             var_dicts.append(real_vars['output'])
-        if inputs:
+        if inputs and disc_vars['input']:
             var_dicts.append(disc_vars['input'])
-        if outputs:
+        if outputs and disc_vars['output']:
             var_dicts.append(disc_vars['output'])
 
-        # For components with no children, self._subsystems_allprocs is empty.
+        # For components, self._subsystems_allprocs is empty.
         if self._subsystems_allprocs:
             if local:
                 from openmdao.core.component import Component
-                it = self.system_iter(recurse=True, typ=Component)
+                it = [s.pathname for s in self.system_iter(recurse=True, typ=Component)]
             else:
-                it = iter(subsys for subsys, _ in self._subsystems_allprocs.values())
+                it = self._allprocs_exec_order()
 
-            for subsys in it:
-                prefix = subsys.pathname + '.'
+            for path in it:
+                prefix = path + '.'
                 for var_name in chain(*var_dicts):
-                    if not variables or var_name in variables:
+                    if variables is None or var_name in variables:
                         if var_name.startswith(prefix):
                             var_list.append(var_name)
         else:
@@ -4971,6 +5007,8 @@ class System(object, metaclass=SystemMetaclass):
 
         if self._rec_mgr._recorders:
             parallel = self._rec_mgr._check_parallel() if self.comm.size > 1 else False
+            do_gather = self._rec_mgr._check_gather()
+            local = parallel and not do_gather
             options = self.recording_options
             metadata = create_local_meta(self.pathname)
 
@@ -5000,13 +5038,13 @@ class System(object, metaclass=SystemMetaclass):
 
             data = {'input': {}, 'output': {}, 'residual': {}}
             if options['record_inputs'] and (inputs._names or len(discrete_inputs) > 0):
-                data['input'] = self._retrieve_data_of_kind(filt, 'input', vec_name, parallel)
+                data['input'] = self._retrieve_data_of_kind(filt, 'input', vec_name, local)
 
             if options['record_outputs'] and (outputs._names or len(discrete_outputs) > 0):
-                data['output'] = self._retrieve_data_of_kind(filt, 'output', vec_name, parallel)
+                data['output'] = self._retrieve_data_of_kind(filt, 'output', vec_name, local)
 
             if options['record_residuals'] and residuals._names:
-                data['residual'] = self._retrieve_data_of_kind(filt, 'residual', vec_name, parallel)
+                data['residual'] = self._retrieve_data_of_kind(filt, 'residual', vec_name, local)
 
             self._rec_mgr.record_iteration(self, data, metadata)
 
@@ -5377,7 +5415,7 @@ class System(object, metaclass=SystemMetaclass):
                 caller = self._problem_meta['model_ref']()
             return caller._get_input_from_src(name, abs_names, conns, units=simp_units,
                                               indices=indices, get_remote=get_remote, rank=rank,
-                                              vec_name='nonlinear', flat=flat, scope_sys=self)
+                                              vec_name=vec_name, flat=flat, scope_sys=self)
         else:
             val = self._abs_get_val(abs_names[0], get_remote, rank, vec_name, kind, flat)
 
@@ -5883,7 +5921,7 @@ class System(object, metaclass=SystemMetaclass):
 
         return val
 
-    def _retrieve_data_of_kind(self, filtered_vars, kind, vec_name, parallel=False):
+    def _retrieve_data_of_kind(self, filtered_vars, kind, vec_name, local=False):
         """
         Retrieve variables, either local or remote, in the filtered_vars list.
 
@@ -5895,8 +5933,8 @@ class System(object, metaclass=SystemMetaclass):
             Either 'input', 'output', or 'residual'.
         vec_name : str
             Either 'nonlinear' or 'linear'.
-        parallel : bool
-            If True, recorders are parallel, so only local values should be saved in each proc.
+        local : bool
+            If True, only local values should be saved in each proc.
 
         Returns
         -------
@@ -5938,7 +5976,7 @@ class System(object, metaclass=SystemMetaclass):
                         else:
                             ivc_path = conns[prom2abs_in[name][0]]
                             vdict[ivc_path] = srcget(ivc_path, False)
-            elif parallel:
+            elif local:
                 get = self._abs_get_val
                 vdict = {}
                 if discrete_vec:
@@ -5955,25 +5993,14 @@ class System(object, metaclass=SystemMetaclass):
                         if vec._contains_abs(name):
                             vdict[name] = get(name, get_remote=True, rank=0,
                                               vec_name=vec_name, kind=kind)
-                        else:
+                        elif name in prom2abs_in:
                             ivc_path = conns[prom2abs_in[name][0]]
                             vdict[name] = get(ivc_path, get_remote=True, rank=0,
                                               vec_name=vec_name, kind='output')
             else:
-                io = 'input' if kind == 'input' else 'output'
-                meta = self._var_allprocs_abs2meta[io]
                 for name in variables:
-                    if self._owning_rank[name] == 0 and not meta[name]['distributed']:
-                        # if using a serial recorder and rank 0 owns the variable,
-                        # use local value on rank 0 and do nothing on other ranks.
-                        if rank == 0:
-                            if vec._contains_abs(name):
-                                vdict[name] = vec._abs_get_val(name, flat=False)
-                            elif name[offset:] in discrete_vec:
-                                vdict[name] = discrete_vec[name[offset:]]['val']
-                    else:
-                        vdict[name] = self.get_val(name, get_remote=True, rank=0,
-                                                   vec_name=vec_name, kind=kind, from_src=False)
+                    vdict[name] = self.get_val(name, get_remote=True, rank=0,
+                                               vec_name=vec_name, kind=kind, from_src=False)
 
         return vdict
 
@@ -6726,3 +6753,21 @@ class System(object, metaclass=SystemMetaclass):
                         res = func(s, *args, **kwargs)
                         if res is not None:
                             yield res
+
+    def _allprocs_exec_order(self):
+        """
+        Return a list of system pathnames in order of execution across all processes.
+
+        Returns
+        -------
+        list of str
+            List of system pathnames in order of execution
+        """
+        from openmdao.core.component import Component
+
+        seen = set()
+        for path in self._sys_tree_visitor(lambda s: s.pathname,
+                                           predicate=lambda s: isinstance(s, Component)):
+            if path not in seen:
+                seen.add(path)
+                yield path

@@ -689,9 +689,7 @@ def make_serializable(o):
     if isinstance(o, _container_classes):
         return [make_serializable(item) for item in o]
     elif isinstance(o, dict):
-        s_key = [make_serializable_key(item) for item in o.keys()]
-        s_val = [make_serializable(item) for item in o.values()]
-        return dict(zip(s_key, s_val))
+        return {make_serializable_key(k): make_serializable(v) for k, v in o.items()}
     elif isinstance(o, np.ndarray):
         return o.tolist()
     elif isinstance(o, np.number):
@@ -757,9 +755,7 @@ def default_noraise(o):
     if isinstance(o, _container_classes):
         return [default_noraise(item) for item in o]
     elif isinstance(o, dict):
-        s_key = [make_serializable_key(item) for item in o.keys()]
-        s_val = [default_noraise(item) for item in o.values()]
-        return dict(zip(s_key, s_val))
+        return {make_serializable_key(k): default_noraise(v) for k, v in o.items()}
     elif isinstance(o, np.ndarray):
         return o.tolist()
     elif isinstance(o, np.number):
@@ -1489,7 +1485,7 @@ def _default_predicate(name, obj):
     """
     if isfunction(obj) or ismethod(obj):
         for n in ['solve', 'apply', 'compute', 'setup', 'coloring', 'linearize', 'get_outputs_dir',
-                  'approx', 'static']:
+                  'approx', 'static', 'get_vars', 'abs_get']:
             if n in name:
                 return True
     return False
@@ -1543,6 +1539,8 @@ if env_truthy('OPENMDAO_DUMP'):
     _om_dump = True
 
     parts = [s.strip() for s in os.environ['OPENMDAO_DUMP'].split(',')]
+    notrace = 'notrace' in parts
+
     if 'stdout' in parts:
         _dump_stream = sys.stdout
     elif 'stderr' in parts:
@@ -1557,6 +1555,8 @@ if env_truthy('OPENMDAO_DUMP'):
             pidstr = f"_{os.getpid()}"
 
         _dump_stream = open(f'om_dump{rankstr}{pidstr}.out', 'w')
+
+    _show_args = 'args' in parts
 
     def om_dump(*args, **kwargs):
         """
@@ -1596,7 +1596,11 @@ if env_truthy('OPENMDAO_DUMP'):
                 except Exception:
                     path = ''
                 indent = call_depth2indent()
-                om_dump(f"{indent}--> {cname}:{path}{funct.__name__}")
+                if _show_args:
+                    argstr = f"(args={args}, kwargs={kwargs})"
+                else:
+                    argstr = ''
+                om_dump(f"{indent}--> {cname}:{path}{funct.__name__}{argstr}")
                 ret = funct(*args, **kwargs)
                 om_dump(f"{indent}<-- {cname}:{path}{funct.__name__}")
                 return ret
@@ -1644,16 +1648,27 @@ if env_truthy('OPENMDAO_DUMP'):
             _decorate_functs(attrs, _trace_predicate, dbg(name))
             return super().__new__(metaclass, name, bases, attrs)
 
-    SystemMetaclass = DebugMeta
-    ProblemMetaclass = DebugMeta
-    SolverMetaclass = DebugMeta
-    DriverMetaclass = DebugMeta
+    if notrace:
+        SystemMetaclass = type
+        ProblemMetaclass = type
+        SolverMetaclass = type
+        DriverMetaclass = type
+        DebugMeta = type
+    else:
+        SystemMetaclass = DebugMeta
+        ProblemMetaclass = DebugMeta
+        SolverMetaclass = DebugMeta
+        DriverMetaclass = DebugMeta
 
     def _comm_debug_decorator(fn, scope):  # pragma no cover
         def _wrap(*args, **kwargs):
             sc = '' if scope is None else f"{scope}."
             indent = call_depth2indent()
-            om_dump(f"{indent}--> {sc}{fn.__name__}")
+            if _show_args:
+                argstr = f"(args={args}, kwargs={kwargs})"
+            else:
+                argstr = ''
+            om_dump(f"{indent}--> {sc}{fn.__name__}{argstr}")
             ret = fn(*args, **kwargs)
             om_dump(f"{indent}<-- {sc}{fn.__name__}")
             return ret
@@ -1671,7 +1686,7 @@ if env_truthy('OPENMDAO_DUMP'):
                 self.__dict__['_comm'] = comm
             self.__dict__['_scope'] = scope
             for name in ['bcast', 'Bcast', 'gather', 'Gather', 'scatter', 'Scatter',
-                         'allgather', 'Allgather', 'allreduce', 'Allreduce',
+                         'allgather', 'Allgather', 'Allgatherv', 'allreduce', 'Allreduce',
                          'send', 'Send', 'recv', 'Recv', 'sendrecv', 'Sendrecv']:
                 self.__dict__[name] = _comm_debug_decorator(getattr(self._comm, name), scope)
 

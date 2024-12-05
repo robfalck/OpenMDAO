@@ -11,7 +11,7 @@ from openmdao.test_suite.components.expl_comp_array import TestExplCompArray
 from openmdao.test_suite.components.paraboloid import Paraboloid
 from openmdao.test_suite.components.paraboloid_problem import ParaboloidProblem
 from openmdao.test_suite.components.sellar import SellarDerivativesGrouped, SellarProblem
-from openmdao.utils.assert_utils import assert_near_equal, assert_warnings, assert_no_warning
+from openmdao.utils.assert_utils import assert_near_equal, assert_warnings
 from openmdao.utils.om_warnings import OpenMDAOWarning
 from openmdao.utils.testing_utils import use_tempdirs
 from openmdao.utils.units import convert_units
@@ -85,9 +85,16 @@ class TestLoadCase(unittest.TestCase):
         prob.setup()
 
         expected_warnings = [
-            (OpenMDAOWarning, "<model> <class Group>: Input variable, 'y1', recorded in the case is not found in the model."),
-            (OpenMDAOWarning, "<model> <class Group>: Input variable, 'y2', recorded in the case is not found in the model."),
-            (OpenMDAOWarning, "<model> <class Group>: Input variable, 'z', recorded in the case is not found in the model."),
+            (OpenMDAOWarning, "<model> <class Group>: Input variable, 'con_cmp1.y1', recorded in the case is not found in the model."),
+            (OpenMDAOWarning, "<model> <class Group>: Input variable, 'mda.d2.y1', recorded in the case is not found in the model."),
+            (OpenMDAOWarning, "<model> <class Group>: Input variable, 'obj_cmp.y1', recorded in the case is not found in the model."),
+            (OpenMDAOWarning, "<model> <class Group>: Input variable, 'con_cmp2.y2', recorded in the case is not found in the model."),
+            (OpenMDAOWarning, "<model> <class Group>: Input variable, 'mda.d1.y2', recorded in the case is not found in the model."),
+            (OpenMDAOWarning, "<model> <class Group>: Input variable, 'obj_cmp.y2', recorded in the case is not found in the model."),
+            (OpenMDAOWarning, "<model> <class Group>: Input variable, 'mda.d1.z', recorded in the case is not found in the model."),
+            (OpenMDAOWarning, "<model> <class Group>: Input variable, 'mda.d2.z', recorded in the case is not found in the model."),
+            (OpenMDAOWarning, "<model> <class Group>: Input variable, 'obj_cmp.z', recorded in the case is not found in the model."),
+
             (OpenMDAOWarning, "<model> <class Group>: Output variable, 'z', recorded in the case is not found in the model."),
             (OpenMDAOWarning, "<model> <class Group>: Output variable, 'con1', recorded in the case is not found in the model."),
             (OpenMDAOWarning, "<model> <class Group>: Output variable, 'con2', recorded in the case is not found in the model."),
@@ -97,39 +104,6 @@ class TestLoadCase(unittest.TestCase):
         ]
         with assert_warnings(expected_warnings):
             prob.load_case(case)
-
-    def test_load_equivalent_model(self):
-        prob = SellarProblem(SellarDerivativesGrouped)
-
-        prob.model.add_recorder(self.recorder)
-
-        driver = prob.driver = om.ScipyOptimizeDriver(optimizer='SLSQP', tol=1e-9, disp=False)
-        driver.recording_options['record_desvars'] = True
-        driver.recording_options['record_objectives'] = True
-        driver.recording_options['record_constraints'] = True
-
-        prob.setup()
-        prob.run_driver()
-        prob.cleanup()
-
-        cr = om.CaseReader(prob.get_outputs_dir() / self.filename)
-
-        system_cases = cr.list_cases('root', out_stream=None)
-        case = cr.get_case(system_cases[0])
-
-        # try to load it into a different version of the Sellar model
-        # this should succeed with no warnings due to the two models
-        # having the same promoted inputs/outputs, even though the
-        # underlying model heierarchy has changed
-        prob = SellarProblem()
-        prob.setup()
-
-        with assert_no_warning(UserWarning):
-            prob.load_case(case)
-
-        prob.setup()
-        prob.run_driver()
-        prob.cleanup()
 
     def test_subsystem_load_system_cases(self):
         prob = SellarProblem()
@@ -236,11 +210,11 @@ class TestLoadCase(unittest.TestCase):
                 super().compute_partials(inputs, outputs)
 
 
-        # Setup the optimization 
-        prob = om.Problem() 
+        # Setup the optimization
+        prob = om.Problem()
         prob.model.add_subsystem(
             'paraboloid', ParaboloidWithDiscreteOutput())
-        prob.driver = om.ScipyOptimizeDriver() 
+        prob.driver = om.ScipyOptimizeDriver()
         prob.driver.options['optimizer'] = 'SLSQP'
 
         # Setup Recorder

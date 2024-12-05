@@ -329,20 +329,9 @@ class SqliteCaseReader(BaseCaseReader):
                 self._auto_ivc_map = auto_ivc_map = {}
                 abs2prom_in = self._abs2prom['input']
                 for target, src in self._conns.items():
-                    if src.startswith('_auto_ivc.'):
-                        if src not in auto_ivc_map:
-                            auto_ivc_map[src] = []
-                        auto_ivc_map[src].append(target)
-                for output, input_list in auto_ivc_map.items():
-                    if len(input_list) > 1:
-                        for input_name in input_list:
-                            # If this recorder is on a component, we might have only a subset of
-                            # the metadata dictionary, but one of them will be in there.
-                            if input_name in abs2prom_in:
-                                auto_ivc_map[output] = abs2prom_in[input_name]
-                                break
-                    else:
-                        auto_ivc_map[output] = abs2prom_in[input_list[0]]
+                    if src.startswith('_auto_ivc.') and src not in auto_ivc_map:
+                        if target in abs2prom_in:
+                            auto_ivc_map[src] = abs2prom_in[target]
 
         elif version in (1, 2):
             abs2prom = row['abs2prom']
@@ -1406,7 +1395,7 @@ class CaseTable(object):
         str
             The source of the case.
         """
-        table = self._table_name.split('_')[0]  # remove "_iterations" from table name
+        table = self._table_name.partition('_')[0]  # remove "_iterations" from table name
 
         for global_iter in self._global_iterations:
             record_type, row, source = global_iter[1], global_iter[2], global_iter[3]
@@ -1473,7 +1462,6 @@ class DriverCases(CaseTable):
                          'driver_iterations', 'iteration_coordinate', giter,
                          prom2abs, abs2prom, abs2meta, conns, auto_ivc_map,
                          var_info)
-        self._var_info = var_info
 
     def cases(self, cache=False):
         """
@@ -1716,11 +1704,11 @@ class SolverCases(CaseTable):
         system_solve = source_system.split('.')[-1] + '._solve_nonlinear'
         system_coord_len = iteration_coordinate.index(system_solve) + len(system_solve)
         system_coord_nodes = len(iteration_coordinate[:system_coord_len].split('|')) + 1
-        iter_coord_nodes = len(iteration_coordinate.split('|'))
+        num_coord_nodes = iteration_coordinate.count('|') + 1
 
-        if iter_coord_nodes == system_coord_nodes + 2:
+        if num_coord_nodes == system_coord_nodes + 2:
             return source_system + '.nonlinear_solver'
-        elif iter_coord_nodes == system_coord_nodes + 4:
+        elif num_coord_nodes == system_coord_nodes + 4:
             return source_system + '.nonlinear_solver.linesearch'
         else:
             raise RuntimeError("Can't parse solver iteration coordinate: %s" % iteration_coordinate)
