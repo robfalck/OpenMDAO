@@ -327,20 +327,18 @@ class TestAnalysisDriverParallel(unittest.TestCase):
         # two instances of the model at a time, each using 2 of our 4 procs
         procs_per_model = 2
         prob.driver = om.AnalysisDriver(om.ProductGenerator({'x1': {'val': np.linspace(0.0, 1.0, 10)},
-                                                            'x2': {'val': np.linspace(0.0, 1.0, 10)}}),
+                                                             'x2': {'val': np.linspace(0.0, 1.0, 10)}}),
                                         run_parallel=True,
                                         procs_per_model=procs_per_model)
         # prob.driver.add_response('c3.y')
         prob.driver.add_recorder(om.SqliteRecorder("cases.sql"))
-        prob.driver.recording_options['includes'].append('sub.c1.x')
-        prob.driver.recording_options['includes'].append('sub.c2.x')
-
+        prob.driver.recording_options['includes'].append('sub.c1.*')
+        prob.driver.recording_options['includes'].append('sub.c2.*')
 
         prob.setup()
         prob.final_setup()
         prob.run_driver()
         prob.cleanup()
-
 
         num_models = prob.comm.size // procs_per_model
         rank = prob.comm.rank
@@ -356,11 +354,17 @@ class TestAnalysisDriverParallel(unittest.TestCase):
             self.assertSetEqual(case_nums, {i for i in range(rank, 100, 2)})
 
             last_case = cr.get_cases(source='driver')[-1]
-            print(last_case)
-            print('inputs')
-            print(last_case.list_inputs())
-            print('outputs')
-            print(last_case.list_outputs())
+            # print(last_case)
+            # print('inputs')
+            # print(last_case.inputs)
+            # print('outputs')
+            # print(last_case.outputs)
+            if rank == 0:
+                last_case.list_inputs()
+                print(100*'*')
+                last_case.list_outputs(list_autoivcs=True)
+                print(100*'*')
+                last_case.list_vars(list_autoivcs=True)
 
     # def test_beam_np4(self):
 
@@ -546,9 +550,9 @@ class TestAnalysisDriver(unittest.TestCase):
         self.assertEqual(len(cases), len(expected))
 
         for case, expected_case in zip(cases, expected):
-            inputs = cr.get_case(case).inputs
-            self.assertEqual(inputs['x'][0], expected_case['x'][0])
-            self.assertEqual(inputs['y'][0], expected_case['y'][0])
+            outputs = cr.get_case(case).outputs
+            self.assertEqual(outputs['x'][0], expected_case['x'][0])
+            self.assertEqual(outputs['y'][0], expected_case['y'][0])
 
 
 
