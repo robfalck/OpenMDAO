@@ -2130,7 +2130,7 @@ class Group(System):
         parent_conns : dict
             Dictionary of connections passed down from parent group.
         """
-        global_abs_in2out = self._conn_global_abs_in2out = {}
+        global_abs_in2out = defaultdict(set)
 
         allprocs_prom2abs_list_in = self._var_allprocs_prom2abs_list['input']
         allprocs_prom2abs_list_out = self._var_allprocs_prom2abs_list['output']
@@ -2151,7 +2151,7 @@ class Group(System):
         if parent_conns is not None:
             for abs_in, abs_out in parent_conns.items():
                 if abs_in.startswith(prefix) and abs_out.startswith(prefix):
-                    global_abs_in2out[abs_in] = abs_out
+                    global_abs_in2out[abs_in].add(abs_out)
 
                     in_subsys, _, _ = abs_in[path_len:].partition('.')
                     out_subsys, _, _ = abs_out[path_len:].partition('.')
@@ -2171,7 +2171,7 @@ class Group(System):
                 out_subsys, _, _ = abs_out[path_len:].partition('.')
                 for abs_in in allprocs_prom2abs_list_in[prom_name]:
                     in_subsys, _, _ = abs_in[path_len:].partition('.')
-                    global_abs_in2out[abs_in] = abs_out
+                    global_abs_in2out[abs_in].add(abs_out)
                     if out_subsys == in_subsys:
                         in_subsys, _, _ = abs_in[path_len:].partition('.')
                         out_subsys, _, _ = abs_out[path_len:].partition('.')
@@ -2296,31 +2296,23 @@ class Group(System):
 
         # Compute global_abs_in2out by first adding this group's contributions,
         # then adding contributions from systems above/below, then allgathering.
-        conn_list = list(global_abs_in2out.items())
-        conn_list.extend(abs_in2out.items())
-        global_abs_in2out.update(abs_in2out)
+        for tgt, src in abs_in2out.items():
+            global_abs_in2out[tgt].add(src)
 
         for subgroup in self._subgroups_myproc:
             if subgroup.name in new_conns:
                 subgroup._setup_global_connections(parent_conns=new_conns[subgroup.name])
             else:
                 subgroup._setup_global_connections()
-            global_abs_in2out.update(subgroup._conn_global_abs_in2out)
-            conn_list.extend(subgroup._conn_global_abs_in2out.items())
+            for tgt, src in subgroup._conn_global_abs_in2out.items():
+                global_abs_in2out[tgt].add(src)
 
-        if len(conn_list) > len(global_abs_in2out):
-            dupes = [n for n, val in Counter(tgt for tgt, _ in conn_list).items() if val > 1]
-            dup_info = defaultdict(set)
-            for tgt, src in conn_list:
-                for dup in dupes:
-                    if tgt == dup:
-                        dup_info[tgt].add(src)
-            dup_info = [(n, srcs) for n, srcs in dup_info.items() if len(srcs) > 1]
-            if dup_info:
-                dup = ["%s from %s" % (tgt, sorted(srcs)) for tgt, srcs in dup_info]
-                dupstr = ', '.join(dup)
-                self._collect_error(f"{self.msginfo}: The following inputs have multiple "
-                                    f"connections: {dupstr}.", ident=dupstr)
+        dup_info = [(n, srcs) for n, srcs in global_abs_in2out.items() if len(srcs) > 1]
+        if dup_info:
+            dup = ["%s from %s" % (tgt, sorted(srcs)) for tgt, srcs in dup_info]
+            dupstr = ', '.join(dup)
+            self._collect_error(f"{self.msginfo}: The following inputs have multiple "
+                                f"connections: {dupstr}.", ident=dupstr)
 
         if self.comm.size > 1 and self._mpi_proc_allocator.parallel:
             # If running in parallel, allgather
@@ -2332,12 +2324,16 @@ class Group(System):
 
             all_src_ind_ins = set()
             for myproc_global_abs_in2out, src_ind_ins in gathered:
-                global_abs_in2out.update(myproc_global_abs_in2out)
+                for tgt, srcs in myproc_global_abs_in2out.items():
+                    global_abs_in2out[tgt].update(srcs)
                 all_src_ind_ins.update(src_ind_ins)
             src_ind_inputs = all_src_ind_ins
 
         for inp in src_ind_inputs:
             allprocs_abs2meta_in[inp]['has_src_indices'] = True
+
+        self._conn_global_abs_in2out = {name: srcs.pop()
+                                        for name, srcs in global_abs_in2out.items()}
 
     def get_indep_vars(self, local):
         """
@@ -4704,10 +4700,10 @@ class Group(System):
                     auto_ivc.add_discrete_output(loc_out_name, val=val)
 
                 src = conns[abs_in]
-                if src in auto_ivc.auto2tgt:
-                    auto_ivc.auto2tgt[src].append(abs_in)
+                if src in auto2tgt:
+                    auto2tgt[src].append(abs_in)
                 else:
-                    auto_ivc.auto2tgt[src] = [abs_in]
+                    auto2tgt[src] = [abs_in]
 
         if not prom2auto:
             return auto_ivc
@@ -4735,10 +4731,16 @@ class Group(System):
         p2abs.update(old)
         self._var_allprocs_prom2abs_list[io] = p2abs
 
-        # auto_ivc never promotes anything
-        self._var_abs2prom[io].update({n: n for n in auto_ivc._var_abs2prom[io]})
-        self._var_allprocs_abs2prom[io].update({n: n for n in
-                                                auto_ivc._var_allprocs_abs2prom[io]})
+        # set up auto_ivc abs2prom such that promoted name of the auto_ivc output is the same
+        # as the promoted name of the input that it is connected to
+        abs2prom = self._var_abs2prom[io]
+        abs2prom_in = self._var_allprocs_abs2prom['input']
+        for n in auto_ivc._var_abs2prom[io]:
+            abs2prom[n] = abs2prom_in[auto2tgt[n][0]]
+
+        all_abs2prom = self._var_allprocs_abs2prom[io]
+        for n in auto_ivc._var_allprocs_abs2prom[io]:
+            all_abs2prom[n] = abs2prom_in[auto2tgt[n][0]]
 
         self._var_discrete[io].update({'_auto_ivc.' + k: v for k, v in
                                        auto_ivc._var_discrete[io].items()})
