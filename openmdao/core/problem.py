@@ -37,8 +37,7 @@ from openmdao.error_checking.check_config import _default_checks, _all_checks, \
 from openmdao.recorders.recording_iteration_stack import _RecIteration
 from openmdao.recorders.recording_manager import RecordingManager, record_viewer_data, \
     record_model_options
-from openmdao.utils.deriv_display import _print_deriv_table, _deriv_display, \
-    _deriv_display_compact
+from openmdao.utils.deriv_display import _print_deriv_table, _deriv_display, _deriv_display_compact
 from openmdao.utils.mpi import MPI, FakeComm, multi_proc_exception_check, check_mpi_env
 from openmdao.utils.name_maps import name2abs_names
 from openmdao.utils.options_dictionary import OptionsDictionary
