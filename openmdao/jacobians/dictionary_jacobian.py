@@ -302,7 +302,7 @@ class _CheckingJacobian(DictionaryJacobian):
         The column is assumed to be the same size as a column of the jacobian.
 
         If the column has any nonzero values that are outside of specified sparsity patterns for
-        any of the subjacs, an exception will be raised.
+        any of the subjacs, this error will be saved for display in the derivative check.
 
         Parameters
         ----------

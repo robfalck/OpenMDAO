@@ -1,4 +1,5 @@
 """ Testing for group finite differencing."""
+import re
 import time
 import unittest
 from io import StringIO
@@ -39,6 +40,19 @@ OPT, OPTIMIZER = set_pyoptsparse_opt('SNOPT')
 
 if OPTIMIZER:
     from openmdao.drivers.pyoptsparse_driver import pyOptSparseDriver
+
+
+def _remove_ansi(text):
+    """
+    Remove ANSI escape codes from a given string.
+    
+    Parameters
+    ----------
+    text : str
+        A string from which ansi escape codes are to be removed.
+    """
+    ansi_escape = re.compile(r'\033\[.*?m')
+    return ansi_escape.sub('', text)
 
 
 @use_tempdirs
@@ -2004,8 +2018,7 @@ class TestComponentComplexStep(unittest.TestCase):
                         "      Rows: [1]\n"
                         "      Cols: [3]\n"
                     )
-                
-                self.assertIn(expected, ss.getvalue())
+                self.assertIn(expected, _remove_ansi(ss.getvalue()))
 
 
 class ApproxTotalsFeature(unittest.TestCase):
