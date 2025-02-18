@@ -294,7 +294,7 @@ def _deriv_display(system, err_iter, derivatives, rel_error_tol, abs_error_tol, 
             uncovered_threshold = derivative_info['uncovered_threshold']
             rs = np.array([r for r, _ in uncovered_nz], dtype=int)
             cs = np.array([c for _, c in uncovered_nz])
-            msg = (f'    Sparsity excludes {len(uncovered_nz)} entries which'
+            msg = (f'Sparsity excludes {len(uncovered_nz)} entries which'
                    f' appear to be non-zero. (Magnitudes exceed {uncovered_threshold}) *')
             msg = _rich_wrap(msg, _Style.ABS_ERR)
             parts.append(textwrap.indent(msg, '    '))
