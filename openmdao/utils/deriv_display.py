@@ -1,7 +1,7 @@
 """
 Functions used for the display of derivatives matrices.
 """
-
+from enum import Enum
 import textwrap
 from io import StringIO
 
@@ -12,11 +12,24 @@ try:
     from rich.console import Console
 except ImportError:
     rich is None
-    Console = None
 
-from openmdao.utils.general_utils import add_border
+from openmdao.utils.array_utils import get_errors
+from openmdao.utils.general_utils import add_border, _UNDEFINED
 from openmdao.utils.mpi import MPI
 from openmdao.visualization.tables.table_builder import generate_table
+
+
+class _Style(Enum):
+    """
+    Styles tags used in formatting output with rich.
+    """
+    ABS_ERR = 'bright_red'
+    REL_ERR = 'orange1'
+    OUT_SPARSITY = 'dim'
+    IN_SPARSITY = 'bold'
+    WARN = 'orange1'
+    SYSTEM = 'bold'
+    VAR = 'bold'
 
 
 def _rich_wrap(s, *tags):
@@ -29,23 +42,24 @@ def _rich_wrap(s, *tags):
     s : str
         The string to be wrapped in rich tags.
     *tags : str
-        The rich tags to be wrapped around s.
-    
+        The rich tags to be wrapped around s. These can either be
+        strings or elements of the _Style enumeration.
+
     Returns
     -------
     str
         The given string wrapped in the provided rich tags.
     """
-    if rich is None or not tags:
+    if rich is None or not tags or not tags[0]:
         return s
-    cmds = sorted(tags)
+    cmds = sorted([t if isinstance(t, str) else t.value for t in tags])
     on = ' '.join(cmds)
     off = '/' + ' '.join(reversed(cmds))
     return f'[{on}]{s}[{off}]'
 
 
 def _deriv_display(system, err_iter, derivatives, rel_error_tol, abs_error_tol, out_stream,
-                   fd_opts, totals=False, show_only_incorrect=False, lcons=None, use_rich=True):
+                   fd_opts, totals=False, show_only_incorrect=False, lcons=None, console=None):
     """
     Print derivative error info to out_stream.
 
@@ -75,6 +89,11 @@ def _deriv_display(system, err_iter, derivatives, rel_error_tol, abs_error_tol, 
         For total derivatives only, list of outputs that are actually linear constraints.
     sort : bool
         If True, sort subjacobian keys alphabetically.
+    console : Console
+        The rich.console.Console to which derivative information is
+        displayed, if available. If None, _deriv_display will instantiate
+        a new Console (if rich is available) and also save it as an html report.
+        If provided, assume the caller will save the report.
     """
     from openmdao.core.component import Component
 
@@ -146,9 +165,9 @@ def _deriv_display(system, err_iter, derivatives, rel_error_tol, abs_error_tol, 
             stepstrs = [""]
 
         fd_desc = f"{fd_opts['method']}:{fd_opts['form']}"
-        parts.append(f"  {_rich_wrap(sys_name, 'bold')}:"
-                     f" {_rich_wrap(of, 'bold')} "
-                     f"wrt {_rich_wrap(wrt, 'bold')}")
+        parts.append(f"  {_rich_wrap(sys_name, _Style.SYSTEM)}:"
+                     f" {_rich_wrap(of, _Style.VAR)} "
+                     f"wrt {_rich_wrap(wrt, _Style.VAR)}")
         if not isinstance(of, tuple) and lcons and of.strip("'") in lcons:
             parts[-1] += " (Linear constraint)"
         parts.append('')
@@ -263,7 +282,8 @@ def _deriv_display(system, err_iter, derivatives, rel_error_tol, abs_error_tol, 
                 parts.append(f'      fwd value: {rel_vals[0].fwd_rev[1]:.6e}\n')
 
         if inconsistent:
-            parts.append('\n    * Inconsistent value across ranks *\n')
+            msg = '* Inconsistent value across ranks *'
+            parts.append(f'\n    {_rich_wrap(msg, _Style.ABS_ERR)}\n')
 
         comm = system._problem_meta['comm']
         if MPI and comm.size > 1:
@@ -275,26 +295,38 @@ def _deriv_display(system, err_iter, derivatives, rel_error_tol, abs_error_tol, 
             cs = np.array([c for _, c in uncovered_nz])
             msg = (f'Sparsity excludes {len(uncovered_nz)} entries '
                    'which appear to be non-zero!')
-            msg = _rich_wrap(msg, 'bright_red')
+            msg = _rich_wrap(msg, _Style.ABS_ERR)
             parts.append(textwrap.indent(msg, '    '))
             parts.append(textwrap.indent(f'Rows: {rs}', '      '))
             parts.append(textwrap.indent(f'Cols: {cs}\n', '      '))
 
-        with np.printoptions(linewidth=240):
+        try:
+            fds = derivative_info['J_fd']
+        except KeyError:
+            fds = [0.]
+
+        jac_fmt = _JacFormatter(Jfwd.shape,
+                                nzrows=derivative_info['rows'],
+                                nzcols=derivative_info['cols'],
+                                uncovered=uncovered_nz,
+                                Jref=fds[0],
+                                abs_err_tol=abs_error_tol,
+                                rel_err_tol=rel_error_tol)
+
+        with np.printoptions(linewidth=max(np.get_printoptions()['linewidth'], 10000),
+                             formatter={'all': jac_fmt}):
             # Raw Derivatives
+
             if abs_errs[0].forward is not None:
                 if directional:
                     parts.append('    Directional Derivative (Jfwd)')
                 else:
                     parts.append('    Raw Forward Derivative (Jfwd)')
-                with np.printoptions(formatter={'all': _JacFormatter(Jfwd.shape,
-                                                                     nzrows=derivative_info['rows'],
-                                                                     nzcols=derivative_info['cols'],
-                                                                     uncovered=uncovered_nz)}):
                     ss = StringIO()
                     print(Jfwd, file=ss)
                     Jstr = textwrap.indent(ss.getvalue(), '    ')
-                parts.append(f"{Jstr}\n")
+                    parts.append(f"{Jstr}\n")
+                    jac_fmt.reset()
 
             fdtype = fd_opts['method'].upper()
 
@@ -306,30 +338,14 @@ def _deriv_display(system, err_iter, derivatives, rel_error_tol, abs_error_tol, 
                         parts.append('    Directional Derivative (Jrev)')
                 else:
                     parts.append('    Raw Reverse Derivative (Jrev)')
-                with np.printoptions(formatter={'all': _JacFormatter(Jfwd.shape,
-                                                                     nzrows=derivative_info['rows'],
-                                                                     nzcols=derivative_info['cols'],
-                                                                     uncovered=uncovered_nz)}):
                     ss = StringIO()
                     print(Jrev, file=ss)
                     Jstr = textwrap.indent(ss.getvalue(), '    ')
-                parts.append(f"{Jstr}\n")
-
-            try:
-                fds = derivative_info['J_fd']
-            except KeyError:
-                fds = [0.]
+                    jac_fmt.reset()
+                    parts.append(f"{Jstr}\n")
 
             for i in range(len(abs_errs)):
                 fd = fds[i]
-
-                with np.printoptions(formatter={'all': _JacFormatter(fd.shape,
-                                                                     nzrows=derivative_info['rows'],
-                                                                     nzcols=derivative_info['cols'],
-                                                                     uncovered=uncovered_nz)}):
-                    ss = StringIO()
-                    print(fd, file=ss)
-                    Jstr = textwrap.indent(ss.getvalue(), '    ')
 
                 if directional:
                     if totals and abs_errs[i].reverse is not None:
@@ -340,6 +356,9 @@ def _deriv_display(system, err_iter, derivatives, rel_error_tol, abs_error_tol, 
                                      f"{stepstrs[i]}\n{Jstr}\n")
                 else:
                     parts.append(f"    Raw {fdtype} Derivative (Jfd){stepstrs[i]}")
+                    ss = StringIO()
+                    print(fd, file=ss)
+                    Jstr = textwrap.indent(ss.getvalue(), '    ')
                     parts.append(f"{Jstr}\n")
 
         parts.append(' -' * 30)
@@ -350,11 +369,11 @@ def _deriv_display(system, err_iter, derivatives, rel_error_tol, abs_error_tol, 
     if not show_only_incorrect or num_bad_jacs > 0:
 
         if rich is not None:
-            console = Console(file=out_stream, force_terminal=True, record=True)
-            for line in parts:
-                console.print(line, highlight=False)
-            report = system.get_reports_dir() / f'{system.pathname}_derivs.html'
-            console.save_html(report)
+            c = console or Console(file=out_stream, force_terminal=True, record=True)
+            c.print('\n'.join(parts), highlight=False)
+            if console and system.get_reports_dir().is_dir():
+                report = system.get_reports_dir() / f'{system.pathname}_derivs.html'
+                c.save_html(report)
         else:
             out_stream.write(sys_buffer.getvalue())
 
@@ -575,9 +594,16 @@ def _format_error(error, tol):
     str
         Formatted and possibly flagged error.
     """
-    if np.isnan(error) or error < tol:
-        return f'{error:.6e}'
-    return f'{error:.6e} *'
+    s = f'{error:.6e}'
+    if rich is None:
+        if np.isnan(error) or error < tol:
+            return s
+        return f'{s} *'
+    else:
+        if error > tol:
+            s = f'{s} *'
+        wrap = 'bright_red' if error > tol else ''
+        return _rich_wrap(s, wrap)
 
 
 def _print_deriv_table(table_data, headers, out_stream, tablefmt='grid'):
@@ -624,7 +650,7 @@ class _JacFormatter:
     rel_err_tol : float
         The relative error tolerance to signify errors in the element being printed.
     show_uncovered : bool
-        If True, highlight nonzero elements outside of the given sparsity pattern 
+        If True, highlight nonzero elements outside of the given sparsity pattern
         as erroneous.
 
     Attributes
@@ -640,21 +666,24 @@ class _JacFormatter:
     _rel_err_tol : float
         The relative error tolerance to signify errors in the element being printed.
     _show_uncovered : bool
-        If True, highlight nonzero elements outside of the given sparsity pattern 
+        If True, highlight nonzero elements outside of the given sparsity pattern
         as erroneous.
     _uncovered_nz : list or None
         If given, the coordinates of the uncovered nonzeros in the sparsity pattern.
-    
+    _i : int
+        An internal counter used to track the current row being printed.
+    _j : int
+        An internal counter used to track the current column being printed.
     """
     def __init__(self, shape, nzrows=None, nzcols=None, Jref=None,
-                 abs_err_tol=None, rel_err_tol=None, uncovered=None):
+                 abs_err_tol=1.0E-8, rel_err_tol=1.0E-8, uncovered=None):
         self._shape = shape
 
         if nzrows is not None and nzcols is not None:
             self._nonzero = list(zip(nzrows, nzcols))
         else:
             self._nonzero = None
-        
+
         self._Jref = Jref
 
         self._abs_err_tol = abs_err_tol
@@ -666,6 +695,21 @@ class _JacFormatter:
         self._i = 0
         self._j = 0
 
+    def reset(self, Jref=_UNDEFINED):
+        """
+        Reset the row/column counters, and optionally provide
+        a new reference jacobian for error calculation.
+
+        Parameters
+        ----------
+        Jref : array-like
+            A reference jacobian against any values are checked for error.
+        """
+        self._i = 0
+        self._j = 0
+        if Jref != _UNDEFINED:
+            self._Jref = Jref
+
     def __call__(self, x):
         i, j = self._i, self._j
         Jref = self._Jref
@@ -675,23 +719,32 @@ class _JacFormatter:
         has_sparsity = self._nonzero is not None
 
         # Default output, no format.
-        s = f'{x:.6e}'
+        s = f'{x: .6e}'
 
         if rich is not None:
             rich_fmt = set()
             if (Jref is not None and  atol is not None and  rtol is not None):
-                abs_err = np.abs(x - Jref[i, j])
-                if abs_err > atol:
-                    rich_fmt |= {'bright_red'}
-                else:
-                    # TODO: Handle relative error here with yellow text.
-                    pass
+                abs_err, _, rel_err, _, _ = get_errors(x, Jref[i, j])
+            else:
+                abs_err = 0.0
+                rel_err = 0.0
 
             if has_sparsity:
-                if (i, j) not in self._nonzero:
-                    rich_fmt |= {'dim'}
-                    if self._uncovered and (i, j) in self._uncovered:
-                        rich_fmt |= {'bright_red'}
+                if (i, j) in self._nonzero:
+                    rich_fmt |= {_Style.IN_SPARSITY}
+                    if abs_err > atol:
+                        rich_fmt |= {_Style.ABS_ERR}
+                    elif np.abs(x) == 0:
+                        rich_fmt |= {_Style.WARN}
+                else:
+                    rich_fmt |= {_Style.OUT_SPARSITY}
+                    if abs_err > atol or np.abs(x) != 0:
+                        rich_fmt |= {_Style.ABS_ERR}
+            else:
+                if abs_err > atol:
+                    rich_fmt |= {_Style.ABS_ERR}
+                elif rel_err > rtol:
+                    rich_fmt |= {_Style.REL_ERR}
 
             s = _rich_wrap(s, *rich_fmt)
 
