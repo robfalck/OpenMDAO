@@ -740,8 +740,10 @@ class _JacFormatter:
                         rich_fmt |= {_Style.WARN}
                 else:
                     rich_fmt |= {_Style.OUT_SPARSITY}
-                    if abs_err > atol or np.abs(x) != 0:
+                    if abs_err > atol:
                         rich_fmt |= {_Style.ABS_ERR}
+                    elif self._uncovered is not None and (i, j) in self._uncovered:
+                        rich_fmt |= {_Style.WARN}
             else:
                 if abs_err > atol:
                     rich_fmt |= {_Style.ABS_ERR}
