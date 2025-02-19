@@ -5,6 +5,7 @@ Table building classes.
 import sys
 import os
 import json
+import re
 import textwrap
 from itertools import zip_longest, chain
 from html import escape
@@ -13,6 +14,12 @@ from numbers import Number, Integral
 from openmdao.utils.notebook_utils import notebook, display, HTML, IFrame, colab
 from openmdao.utils.om_warnings import issue_warning
 
+
+# Regex pattern to match Rich markup tags
+_RICH_TAG_PATTERN = re.compile(r'\[/?[a-zA-Z0-9#=_ ,.-]+\]')
+
+# Regex pattern to match ANSI escape codes
+_ANSI_ESCAPE_PATTERN = re.compile(r'\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])')
 
 _align2symbol = {
     'center': '^',
@@ -40,6 +47,24 @@ def _num_cols(rows):
         if ncols is None or ncols < i:
             ncols = i
     return 0 if ncols is None else ncols
+
+
+def _strip_formatting(s):
+    """
+    Remove rich formatting tags and ANSI escape codes from a string.
+
+    Parameters
+    ----------
+    s : str
+        The string to have its tags removed.
+
+    Returns
+    -------
+    str
+        The string with rich and ANSI tags removed.
+    """
+    s = _RICH_TAG_PATTERN.sub('', s)  # Remove Rich markup tags
+    return _ANSI_ESCAPE_PATTERN.sub('', s)  # Remove ANSI escape codes
 
 
 class TableBuilder(object):
@@ -279,12 +304,14 @@ class TableBuilder(object):
         """
         Return the width of the cell.
 
+        Any formatting with rich or ANSI codes is ignored.
+
         Returns
         -------
         int
             The width of the cell.
         """
-        return len(cell)
+        return len(_strip_formatting(cell))
 
     def _get_cell_types(self):
         """

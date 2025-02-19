@@ -4,6 +4,7 @@ Functions used for the display of derivatives matrices.
 from enum import Enum
 import textwrap
 from io import StringIO
+from itertools import chain
 
 import numpy as np
 
@@ -23,13 +24,12 @@ class _Style(Enum):
     """
     Styles tags used in formatting output with rich.
     """
-    ABS_ERR = 'bright_red'
-    REL_ERR = 'orange1'
+    ERR = 'bright_red'
     OUT_SPARSITY = 'dim'
     IN_SPARSITY = 'bold'
     WARN = 'orange1'
-    SYSTEM = 'bold'
-    VAR = 'bold'
+    SYSTEM = {'bold', 'blue'}
+    VAR = {'bold', 'green'}
 
 
 def _rich_wrap(s, *tags):
@@ -43,7 +43,7 @@ def _rich_wrap(s, *tags):
         The string to be wrapped in rich tags.
     *tags : str
         The rich tags to be wrapped around s. These can either be
-        strings or elements of the _Style enumeration.
+        strings, elements of the _Style enumeration, or sets/lists/tuples thereof.
 
     Returns
     -------
@@ -52,7 +52,13 @@ def _rich_wrap(s, *tags):
     """
     if rich is None or not tags or not tags[0]:
         return s
-    cmds = sorted([t if isinstance(t, str) else t.value for t in tags])
+
+    def flatten(lst):
+        seq = list(chain.from_iterable(x if isinstance(x, (list, set, tuple))
+                                       else [x] for x in lst))
+        return seq
+
+    cmds = sorted(flatten([t if isinstance(t, str) else t.value for t in tags]))
     on = ' '.join(cmds)
     off = '/' + ' '.join(reversed(cmds))
     return f'[{on}]{s}[{off}]'
@@ -283,7 +289,7 @@ def _deriv_display(system, err_iter, derivatives, rel_error_tol, abs_error_tol, 
 
         if inconsistent:
             msg = '* Inconsistent value across ranks *'
-            parts.append(f'\n    {_rich_wrap(msg, _Style.ABS_ERR)}\n')
+            parts.append(f'\n    {_rich_wrap(msg, _Style.ERR)}\n')
 
         comm = system._problem_meta['comm']
         if MPI and comm.size > 1:
@@ -296,7 +302,7 @@ def _deriv_display(system, err_iter, derivatives, rel_error_tol, abs_error_tol, 
             cs = np.array([c for _, c in uncovered_nz])
             msg = (f'Sparsity excludes {len(uncovered_nz)} entries which'
                    f' appear to be non-zero. (Magnitudes exceed {uncovered_threshold}) *')
-            msg = _rich_wrap(msg, _Style.ABS_ERR)
+            msg = _rich_wrap(msg, _Style.ERR)
             parts.append(textwrap.indent(msg, '    '))
             with np.printoptions(linewidth=1000, formatter={'int': lambda i: f'{i:>4d}'}):
                 parts.append(textwrap.indent(f'Rows: {rs}', '      '))
@@ -366,8 +372,6 @@ def _deriv_display(system, err_iter, derivatives, rel_error_tol, abs_error_tol, 
         parts.append(' -' * 30)
         parts.append('')
 
-    sys_buffer.write('\n'.join(parts))
-
     if not show_only_incorrect or num_bad_jacs > 0:
 
         if rich is not None:
@@ -377,11 +381,13 @@ def _deriv_display(system, err_iter, derivatives, rel_error_tol, abs_error_tol, 
                 report = system.get_reports_dir() / f'{system.pathname}_derivs.html'
                 c.save_html(report)
         else:
+            sys_buffer.write('\n'.join(parts))
             out_stream.write(sys_buffer.getvalue())
 
 
-def _deriv_display_compact(system, err_iter, derivatives, out_stream, totals=False,
-                           show_only_incorrect=False, show_worst=False):
+def _deriv_display_compact(system, err_iter, derivatives, abs_error_tol,
+                           rel_error_tol, out_stream, totals=False,
+                           show_only_incorrect=False, show_worst=False, console=None):
     """
     Print derivative error info to out_stream in a compact tabular format.
 
@@ -394,6 +400,10 @@ def _deriv_display_compact(system, err_iter, derivatives, out_stream, totals=Fal
         above_rel, inconsistent) for each subjac.
     derivatives : dict
         Dictionary containing derivative information keyed by (of, wrt).
+    abs_error_tol : float
+        Threshold for absolute error that will result in errors being highlighted as errors.
+    rel_error_tol : float
+        Threshold for relative error that will result in errors being highlighted as errors.
     out_stream : file-like object
             Where to send human readable output.
             Set to None to suppress.
@@ -403,6 +413,11 @@ def _deriv_display_compact(system, err_iter, derivatives, out_stream, totals=Fal
         Set to True if output should print only the subjacs found to be incorrect.
     show_worst : bool
         Set to True to show the worst subjac.
+    console : Console
+        The rich.console.Console to which derivative information is
+        displayed, if available. If None, _deriv_display will instantiate
+        a new Console (if rich is available) and also save it as an html report.
+        If provided, assume the caller will save the report.
 
     Returns
     -------
@@ -437,7 +452,9 @@ def _deriv_display_compact(system, err_iter, derivatives, out_stream, totals=Fal
     if totals:
         title = "Total Derivatives"
     else:
-        title = f"{sys_type}: {sys_class_name} '{sys_name}'"
+        title = (f"{_rich_wrap(sys_type, _Style.SYSTEM)}: "
+                 f"{_rich_wrap(sys_class_name, _Style.SYSTEM)} "
+                 f"'{_rich_wrap(sys_name, _Style.SYSTEM)}'")
 
     print(f"{add_border(title, '-')}\n", file=sys_buffer)
 
@@ -460,16 +477,19 @@ def _deriv_display_compact(system, err_iter, derivatives, out_stream, totals=Fal
         if directional:
             wrt = f"(d) {wrt}"
 
+        # of = _rich_wrap(of, _Style.VAR)
+        # wrt = _rich_wrap(wrt, _Style.VAR)
+
         err_desc = []
         if above_abs:
-            err_desc.append(' >ABS_TOL')
+            err_desc.append(_rich_wrap(' >ABS_TOL', _Style.ERR))
         if above_rel:
-            err_desc.append(' >REL_TOL')
+            err_desc.append(_rich_wrap(' >REL_TOL', _Style.ERR))
         if inconsistent:
-            err_desc.append(' <RANK INCONSISTENT>')
+            err_desc.append(_rich_wrap(' <RANK INCONSISTENT>', _Style.ERR))
         if 'uncovered_nz' in derivative_info:
-            err_desc.append(' <BAD SPARSITY>')
-        err_desc = ''.join(err_desc)
+            err_desc.append(_rich_wrap(' <BAD SPARSITY>', _Style.ERR))
+        err_desc = ' '.join(err_desc)
 
         abs_errs = derivative_info['abs error']
         rel_errs = derivative_info['rel error']
@@ -509,32 +529,32 @@ def _deriv_display_compact(system, err_iter, derivatives, out_stream, totals=Fal
                 if matrix_free:
                     table_data.append(start +
                                       [abs_val.forward[0], abs_val.forward[1],
-                                       abs_err.forward,
+                                       _format_error(abs_err.forward, tol=abs_error_tol),
                                        abs_val.reverse[0], abs_val.reverse[1],
-                                       abs_err.reverse,
+                                       _format_error(abs_err.reverse, tol=abs_error_tol),
                                        abs_val.fwd_rev[0], abs_val.fwd_rev[1],
-                                       abs_err.fwd_rev,
+                                       _format_error(abs_err.fwd_rev, tol=abs_error_tol),
                                        rel_val.forward[0], rel_val.forward[1],
-                                       rel_err.forward,
+                                       _format_error(rel_err.forward, tol=rel_error_tol),
                                        rel_val.reverse[0], rel_val.reverse[1],
-                                       rel_err.reverse,
+                                       _format_error(rel_err.reverse, tol=rel_error_tol),
                                        rel_val.fwd_rev[0], rel_val.fwd_rev[1],
-                                       rel_err.fwd_rev,
+                                       _format_error(rel_err.fwd_rev, tol=rel_error_tol),
                                        err_desc])
                 else:
                     if abs_val.forward is not None:
                         table_data.append(start +
                                           [abs_val.forward[0], abs_val.forward[1],
-                                           abs_err.forward,
+                                           _format_error(abs_err.forward, tol=abs_error_tol),
                                            rel_val.forward[0], rel_val.forward[1],
-                                           rel_err.forward,
+                                           _format_error(rel_err.forward, tol=rel_error_tol),
                                            err_desc])
                     else:
                         table_data.append(start +
                                           [abs_val.reverse[0], abs_val.reverse[1],
-                                           abs_err.reverse,
+                                           _format_error(abs_err.reverse, tol=abs_error_tol),
                                            rel_val.reverse[0], rel_val.reverse[1],
-                                           rel_err.reverse,
+                                           _format_error(rel_err.reverse, tol=rel_error_tol),
                                            err_desc])
 
                     assert abs_err.fwd_rev is None
@@ -572,7 +592,16 @@ def _deriv_display_compact(system, err_iter, derivatives, out_stream, totals=Fal
             _print_deriv_table([worst_subjac[1]], headers, sys_buffer)
 
     if not show_only_incorrect or num_bad_jacs > 0:
-        out_stream.write(sys_buffer.getvalue())
+
+        if rich is not None:
+            c = console or Console(file=out_stream, force_terminal=True, record=True)
+            c.print(sys_buffer.getvalue(), highlight=False)
+            if console and system.get_reports_dir().is_dir():
+                report = system.get_reports_dir() / f'{system.pathname}_derivs.html'
+                c.save_html(report)
+        else:
+            out_stream.write(sys_buffer.getvalue())
+
 
     if worst_subjac is None:
         return None
@@ -580,7 +609,7 @@ def _deriv_display_compact(system, err_iter, derivatives, out_stream, totals=Fal
     return worst_subjac + (headers,)
 
 
-def _format_error(error, tol):
+def _format_error(error, tol, append_asterisk=True):
     """
     Format the error, flagging if necessary.
 
@@ -590,6 +619,9 @@ def _format_error(error, tol):
         The absolute or relative error.
     tol : float
         Tolerance above which errors are flagged
+    append_asterisk : bool
+        If True, append an asterisk to the formatted error. This is useful for searching
+        through the output to find error violations.
 
     Returns
     -------
@@ -600,11 +632,11 @@ def _format_error(error, tol):
     if rich is None:
         if np.isnan(error) or error < tol:
             return s
-        return f'{s} *'
+        return f'{s}{" *" if append_asterisk else ""}'
     else:
         if error > tol:
-            s = f'{s} *'
-        wrap = 'bright_red' if error > tol else ''
+            s = f'{s}{" *" if append_asterisk else ""}'
+        wrap = _Style.ERR if error > tol else ''
         return _rich_wrap(s, wrap)
 
 
@@ -735,20 +767,20 @@ class _JacFormatter:
                 if (i, j) in self._nonzero:
                     rich_fmt |= {_Style.IN_SPARSITY}
                     if abs_err > atol:
-                        rich_fmt |= {_Style.ABS_ERR}
+                        rich_fmt |= {_Style.ERR}
                     elif np.abs(x) == 0:
                         rich_fmt |= {_Style.WARN}
                 else:
                     rich_fmt |= {_Style.OUT_SPARSITY}
                     if abs_err > atol:
-                        rich_fmt |= {_Style.ABS_ERR}
+                        rich_fmt |= {_Style.ERR}
                     elif self._uncovered is not None and (i, j) in self._uncovered:
                         rich_fmt |= {_Style.WARN}
             else:
                 if abs_err > atol:
-                    rich_fmt |= {_Style.ABS_ERR}
+                    rich_fmt |= {_Style.ERR}
                 elif rel_err > rtol:
-                    rich_fmt |= {_Style.REL_ERR}
+                    rich_fmt |= {_Style.ERR}
 
             s = _rich_wrap(s, *rich_fmt)
 

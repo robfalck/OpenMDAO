@@ -2584,13 +2584,13 @@ class Component(System):
         worst = None
         if out_stream is not None:
             if compact_print:
-                worst = _deriv_display_compact(self, err_iter, partials_data, out_stream,
-                                               totals=False,
+                worst = _deriv_display_compact(self, err_iter, partials_data, rel_err_tol,
+                                               abs_err_tol, out_stream, totals=False,
                                                show_only_incorrect=show_only_incorrect,
                                                show_worst=show_worst)
             else:
-                _deriv_display(self, err_iter, partials_data, rel_err_tol, abs_err_tol, out_stream,
-                               all_fd_options, False, show_only_incorrect)
+                _deriv_display(self, err_iter, partials_data, rel_err_tol, abs_err_tol,
+                               out_stream, all_fd_options, False, show_only_incorrect)
 
         # check for zero subjacs that are declared as dependent
         zero_keys = set()
