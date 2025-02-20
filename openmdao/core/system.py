@@ -27,6 +27,7 @@ from openmdao.utils.record_util import create_local_meta, check_path, has_match
 from openmdao.utils.units import is_compatible, unit_conversion, simplify_unit
 from openmdao.utils.variable_table import write_var_table, NA
 from openmdao.utils.array_utils import evenly_distrib_idxs, shape_to_len, get_errors
+from openmdao.utils.file_utils import get_caller_info
 from openmdao.utils.name_maps import name2abs_name, name2abs_names
 from openmdao.utils.coloring import _compute_coloring, Coloring, \
     _STD_COLORING_FNAME, _DEF_COMP_SPARSITY_ARGS, _ColSparsityJac
@@ -77,10 +78,10 @@ _recordable_funcs = frozenset(['_apply_linear', '_apply_nonlinear', '_solve_line
 # the following are local metadata that will also be accessible for vars on all procs
 global_meta_names = {
     'input': ('units', 'shape', 'size', 'distributed', 'tags', 'desc',
-              'shape_by_conn', 'compute_shape', 'copy_shape', 'require_connection'),
+              'shape_by_conn', 'compute_shape', 'copy_shape', 'require_connection', 'val_info'),
     'output': ('units', 'shape', 'size', 'desc',
                'ref', 'ref0', 'res_ref', 'distributed', 'lower', 'upper', 'tags',
-               'shape_by_conn', 'compute_shape', 'copy_shape'),
+               'shape_by_conn', 'compute_shape', 'copy_shape', 'val_info'),
 }
 
 allowed_meta_names = {
@@ -5529,7 +5530,7 @@ class System(object, metaclass=SystemMetaclass):
 
         return val
 
-    def set_val(self, name, val, units=None, indices=None):
+    def set_val(self, name, val, units=None, indices=None, call_info=None):
         """
         Set an input or output variable.
 
@@ -5543,6 +5544,11 @@ class System(object, metaclass=SystemMetaclass):
             Units of the value.
         indices : int or list of ints or tuple of ints or int ndarray or Iterable or None, optional
             Indices or slice to set.
+        call_info : str or None
+            Information about the calling file/line used to track where values of variables are set.
+            If None, use openmdao.file_utils.get_caller_info to determine this. Libraries that invoke
+            set_val within their own machinery may wish to use get_caller_info to introspect the
+            caller of their API.
         """
         post_setup = self._problem_meta is not None and \
             self._problem_meta['setup_status'] >= _SetupStatus.POST_SETUP
@@ -5577,6 +5583,8 @@ class System(object, metaclass=SystemMetaclass):
             raise KeyError(f'{model.msginfo}: Variable "{name}" not found.')
 
         set_units = None
+
+        call_info = get_caller_info() if call_info is None else call_info
 
         if abs_name in conns:  # we're setting an input
             src = conns[abs_name]
@@ -5637,17 +5645,17 @@ class System(object, metaclass=SystemMetaclass):
                     cval = ic_cache[abs_name][0]
                     if _is_slicer_op(indices):
                         try:
-                            ic_cache[abs_name] = (value[indices], set_units, self.pathname, name)
+                            ic_cache[abs_name] = (value[indices], set_units, self.pathname, name, call_info)
                         except IndexError:
                             cval[indices] = value
-                            ic_cache[abs_name] = (cval, set_units, self.pathname, name)
+                            ic_cache[abs_name] = (cval, set_units, self.pathname, name, call_info)
                     else:
                         cval[indices] = value
-                        ic_cache[abs_name] = (cval, set_units, self.pathname, name)
+                        ic_cache[abs_name] = (cval, set_units, self.pathname, name, call_info)
                 except Exception as err:
                     raise RuntimeError(f"Failed to set value of '{name}': {str(err)}.")
             else:
-                ic_cache[abs_name] = (value, set_units, self.pathname, name)
+                ic_cache[abs_name] = (value, set_units, self.pathname, name, call_info)
         else:
             myrank = model.comm.rank
 

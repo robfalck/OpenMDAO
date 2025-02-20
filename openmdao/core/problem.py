@@ -38,6 +38,7 @@ from openmdao.recorders.recording_iteration_stack import _RecIteration
 from openmdao.recorders.recording_manager import RecordingManager, record_viewer_data, \
     record_model_options
 from openmdao.utils.deriv_display import _print_deriv_table, _deriv_display, _deriv_display_compact
+from openmdao.utils.file_utils import get_caller_info
 from openmdao.utils.mpi import MPI, FakeComm, multi_proc_exception_check, check_mpi_env
 from openmdao.utils.name_maps import name2abs_names
 from openmdao.utils.options_dictionary import OptionsDictionary
@@ -566,9 +567,10 @@ class Problem(object, metaclass=ProblemMetaclass):
         value : float or ndarray or any python object
             value to set this variable to.
         """
-        self.set_val(name, value)
+        call_info = get_caller_info()
+        self.set_val(name, value, call_info=call_info)
 
-    def set_val(self, name, val=None, units=None, indices=None):
+    def set_val(self, name, val=None, units=None, indices=None, call_info=None):
         """
         Set an output/input variable.
 
@@ -584,17 +586,24 @@ class Problem(object, metaclass=ProblemMetaclass):
             Units that value is defined in.
         indices : int or list of ints or tuple of ints or int ndarray or Iterable or None, optional
             Indices or slice to set to specified value.
+        call_info : str or None
+            Information about the calling file/line used to track where values of variables are set.
+            If None, use openmdao.file_utils.get_caller_info to determine this. Libraries that invoke
+            set_val within their own machinery may wish to use get_caller_info to introspect the
+            caller of their API.
         """
         if self._metadata is None:
             raise RuntimeError(f"{self.msginfo}: '{name}' Cannot call set_val before setup.")
 
-        self.model.set_val(name, val, units=units, indices=indices)
+        call_info = get_caller_info() if call_info is None else call_info
+        self.model.set_val(name, val, units=units, indices=indices, call_info=call_info)
 
     def _set_initial_conditions(self):
         """
         Set all initial conditions that have been saved in cache after setup.
         """
-        for value, set_units, pathname, name in self.model._initial_condition_cache.values():
+        for abs_name, ic_meta in self.model._initial_condition_cache.items():
+            value, set_units, pathname, name, call_info = ic_meta
             if pathname:
                 system = self.model._get_subsystem(pathname)
                 if system is None:
@@ -603,6 +612,10 @@ class Problem(object, metaclass=ProblemMetaclass):
                     system.set_val(name, value, units=set_units)
             else:
                 self.model.set_val(name, value, units=set_units)
+
+            io_type = 'input' if abs_name in self.model._var_abs2meta['input'] else 'output'
+            self.model._var_abs2meta[io_type][abs_name]['val_info'] = call_info
+            self.model._var_allprocs_abs2meta[io_type][abs_name]['val_info'] = call_info
 
         # Clean up cache
         self.model._initial_condition_cache = {}

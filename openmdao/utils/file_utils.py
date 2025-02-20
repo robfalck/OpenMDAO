@@ -4,6 +4,7 @@ Utilities for working with files.
 import sys
 import os
 import importlib
+import inspect
 import types
 from collections.abc import Iterable
 from fnmatch import fnmatch
@@ -656,3 +657,42 @@ def clean_outputs(obj='.', recurse=False, prompt=True, pattern='*_out', dryrun=F
             removed_count += 1
 
     print(f'Removed {removed_count} OpenMDAO output directories.')
+
+
+def get_caller_info(depth=0):
+    """
+    Get the file and line number of the function that called the current frame.
+
+    If ignore_funcs are provided and found in the call stack, proceed back in
+    call stack until we find a function _not_ in ignore_funcs, and return
+    its info.
+
+    Parameters
+    ----------
+    ignore_funcs : str or None
+        If provided, gives the name of any function we want to ignore in the 
+        call stack. 
+
+    Returns
+    -------
+    str
+        The filename and line number where the function call to the current frame
+        was made.  
+    """
+    parent_frame = inspect.currentframe().f_back  # Get the caller's frame
+    if parent_frame is not None:
+        grandparent_frame = parent_frame.f_back
+    else:
+        return '<N/A>'
+    
+    if grandparent_frame is None:
+        return ''
+    
+    frame = grandparent_frame
+    for i in range(depth):
+        frame = frame.f_back
+        if frame is None:
+            raise ValueError('depth exceeds call stack')
+    filename = frame.f_code.co_filename
+    line_number = frame.f_lineno
+    return f'{filename}:{line_number}'

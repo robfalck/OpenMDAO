@@ -665,6 +665,7 @@ class Component(System):
             'copy_shape': copy_shape,
             'require_connection': require_connection,
             'distributed': distributed,
+            'val_info': None
         }
 
         # this will get reset later if comm size is 1
@@ -937,6 +938,7 @@ class Component(System):
             'shape_by_conn': shape_by_conn,
             'compute_shape': compute_shape,
             'copy_shape': copy_shape,
+            'val_info': None
         }
 
         # this will get reset later if comm size is 1

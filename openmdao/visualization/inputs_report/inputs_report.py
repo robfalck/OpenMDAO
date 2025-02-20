@@ -80,7 +80,7 @@ def inputs_report(prob, outfile=None, display=True, precision=6, title=None,
     desvars = model.get_design_vars(recurse=True, get_sizes=False, use_prom_ivc=False)
 
     headers = ['Absolute Name', 'Input Name', 'Source Name', 'Source is IVC', 'Source is DV',
-               'Units', 'Shape', 'Tags', 'Val', 'Min Val', 'Max Val', 'Absolute Source', ]
+               'Units', 'Shape', 'Tags', 'Val', 'Min Val', 'Max Val', 'Absolute Source', 'Value set at']
     column_meta = [{'header': h} for h in headers]
     column_meta[9]['format'] = '{:.6g}'
     column_meta[10]['format'] = '{:.6g}'
@@ -88,6 +88,7 @@ def inputs_report(prob, outfile=None, display=True, precision=6, title=None,
     column_meta[2]['tooltip'] = 'c11'
     column_meta[0]['visible'] = False  # abs input is only used for a tooltip, so hide it
     column_meta[11]['visible'] = False  # abs src is only used for a tooltip, so hide it
+    column_meta[12]['visible'] = True  # val_info is only used for a tooltip, so hide it
 
     rows = []
     with printoptions(formatter={'float': functools.partial(_arr_fmt, '{:.6g}')},
@@ -106,7 +107,7 @@ def inputs_report(prob, outfile=None, display=True, precision=6, title=None,
             vcell, mincell, maxcell = _get_val_cells(val)
 
             rows.append([target, prom, sprom, src_is_ivc, src in desvars, _unit_str(meta),
-                         meta['shape'], sorted(meta['tags']), vcell, mincell, maxcell, src])
+                         meta['shape'], sorted(meta['tags']), vcell, mincell, maxcell, src, meta['val_info']])
 
     for target, meta in model._var_discrete['input'].items():
         prom = model._var_allprocs_abs2prom['input'][target]
