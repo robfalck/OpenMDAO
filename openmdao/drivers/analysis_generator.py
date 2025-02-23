@@ -10,6 +10,8 @@ from collections.abc import Iterator
 import csv
 import itertools
 
+import numpy as np
+
 
 class AnalysisGenerator(Iterator):
     """
@@ -46,14 +48,14 @@ class AnalysisGenerator(Iterator):
         self._var_dict = var_dict
         self._iter = None
 
-        self._setup()
-
-    def _setup(self):
+    def _setup(self, problem=None):
         """
         Reset the run counter and instantiate the internal Iterator.
 
         Subclasses of AnalysisGenerator should override this method
         to define self._iter.
+
+        This method is called by AnalysisDriver at the start of a run.
         """
         self._run_count = 0
 
@@ -68,7 +70,7 @@ class AnalysisGenerator(Iterator):
         Provide a dictionary of the next point to be analyzed.
 
         The key of each entry is the promoted path of var whose values are to be set.
-        The associated value is the values to set (required), units (options),
+        The associated value is the values to set (required), units (optional),
         and indices (optional).
 
         Raises
@@ -105,7 +107,7 @@ class ZipGenerator(AnalysisGenerator):
         units (optional), and indices (optional).
     """
 
-    def _setup(self):
+    def _setup(self, problem=None):
         """
         Set up the iterator which provides each case.
 
@@ -136,7 +138,7 @@ class ProductGenerator(AnalysisGenerator):
         units (optional), and indices (optional).
     """
 
-    def _setup(self):
+    def _setup(self, problem=None):
         """
         Set up the iterator which provides each case.
 
@@ -243,7 +245,7 @@ class CSVGenerator(AnalysisGenerator):
             self._csv_file.close()
 
 
-class SequenceGenerator:
+class SequenceGenerator(AnalysisGenerator):
     """
     A generator which provides samples from python lists or tuples.
 
@@ -292,3 +294,182 @@ class SequenceGenerator:
         Return the set of variable names whose value are provided by this generator.
         """
         return self._sampled_vars
+
+
+# def _inverse_affine(x, lower, upper):
+#     """
+#     Maps x from the range [-1, 1] to [lower, upper].
+
+#     The generators in pyDOE3 yield values on [-1, 1], which we remap to [lower, upper]
+
+#     Parameters
+#     ----------
+#     x : float or array-like
+#         Value(s) in the range [-1, 1].
+#     lower : float
+#         Lower bound of the target range.
+#     upper : float
+#         Upper bound of the target range.
+
+#     Returns
+#     -------
+#     float or array-like
+#         Transformed value(s) in the range [lower, upper].
+#     """
+#     return (upper - lower) * (x + 1) / 2 + lower
+
+
+class BaseDOEGenerator(AnalysisGenerator):
+    
+    def _setup(self, problem):
+        """
+        If self._var_data is not provided, use the problems design variables.
+
+        Parameters
+        ----------
+        problem : Problem
+            The OpenMDAO problem associated with the generator.
+        """
+        if self._var_dict is not None:
+            return
+        
+        self._var_dict = problem.driver._designvars
+    
+    def _get_size(self):
+        for meta in self._var_dict.values():
+            if 'size' not in meta:
+                if 'shape' in meta:
+                    meta['size'] = np.prod(meta['shape'])
+                elif 'val' in meta:
+                    meta['size'] = np.prod(np.asarray(meta['val']).shape)
+                else:
+                    meta['size'] = 1
+
+        return sum([meta['size'] for meta in self._var_dict.values()])
+
+    def _get_sample_vals(self, doe):
+        # yield desvar values for doe samples
+        for row in doe:
+            retval = []
+            col = 0
+            for name, meta in self._var_dict.items():
+                size = meta['size']
+                doe_cols = row[col:col + size]
+
+                lower = meta['lower']
+                if not isinstance(lower, np.ndarray):
+                    lower = lower * np.ones(size)
+
+                upper = meta['upper']
+                if not isinstance(upper, np.ndarray):
+                    upper = upper * np.ones(size)
+
+                val = lower + doe_cols * (upper - lower)
+
+                retval.append(val)
+                col += size
+
+            yield retval
+
+
+class BoxBehnkenGenerator(BaseDOEGenerator):
+
+    def __init__(self, var_dict=None, centers=1):
+        """
+        Instantiate the base class for AnalysisGenerators.
+
+        Parameters
+        ----------
+        var_dict : dict
+            A dictionary mapping a variable name to their lower and upper bounds to be tested.
+            For each varaible, dictionaries lower and upper are required. Entry 'units', 'shape',
+            and 'indices' may be optionally provided.
+
+            If var_dict is not provided, use the problem's defined design variables.
+        centers : int
+            The number of center points in the design.
+        """
+        super().__init__(var_dict)
+        self._centers = centers
+
+    def _setup(self, problem=None):
+        """
+        Set up the iterator which provides each case.
+
+        Raises
+        ------
+        ValueError
+            Raised if the length of var_dict for each case are not all the same size.
+        """
+        try:
+            from pyDOE3 import bbdesign
+        except ImportError as e:
+            raise ImportError(
+                f'{self.__class__.__name__} requires pyDOE3\n'
+                'Use `python -m pip install pyDOE3` to install it.'
+            ) from e
+
+        super()._setup(problem)
+
+        bb_designs = bbdesign(n=self._get_size(), center=self._centers)
+
+        # def _iter_rows():
+        #     num_designs = bb_designs.shape[0]
+        #     for i in range(num_designs):
+        #         bb = bb_designs[i, ...]
+        #         vals = []
+        #         for j, (_, meta) in enumerate(self._var_dict.items()):
+        #             lower = meta['lower']
+        #             upper = meta['upper']
+        #             vals.append(_inverse_affine(bb[j], lower, upper))
+        #         yield vals
+
+        self._iter = self._get_sample_vals(bb_designs)
+
+
+class LHSGenerator(BaseDOEGenerator):
+    """
+    Parameters
+    ----------
+    var_dict : dict, optional
+        A dictionary mapping a variable name to their lower and upper bounds to be tested.
+        For each varaible, dictionaries lower and upper are required. Entry 'units', 'shape',
+        and 'indices' may be optionally provided.
+
+        If var_dict is not provided, use the problem's defined design variables.
+    samples : int, optional
+        The number of samples to generate for each factor (Defaults to n).
+    criterion : str, optional
+        Allowable values are "center" or "c", "maximin" or "m",
+        "centermaximin" or "cm", and "correlation" or "corr". If no value
+        given, the design is simply randomized.
+    iterations : int, optional
+        The number of iterations in the maximin and correlations algorithms
+        (Defaults to 5).
+    seed : int, optional
+        Random seed to use if design is randomized. Defaults to None.
+    """
+    def __init__(self, var_dict=None, num_samples=None, criterion=None, iterations=5, random_state=None):
+        super().__init__(var_dict)
+        self._num_samples = num_samples
+        self._criterion = criterion
+        self._iterations = iterations
+        self._random_seed = random_state
+            
+    def _setup(self, problem=None):
+        try:
+            from pyDOE3 import lhs
+        except ImportError as e:
+            raise ImportError(
+                f'{self.__class__.__name__} requires pyDOE3\n'
+                'Use `python -m pip install pyDOE3` to install it.'
+            ) from e
+        super()._setup(problem)
+
+        lhs_designs = lhs(self._get_size(),
+                          samples=self._num_samples,
+                          criterion=self._criterion,
+                          iterations=self._iterations,
+                          random_state=self._random_seed)
+
+        self._iter = self._get_sample_vals(lhs_designs)

@@ -113,7 +113,7 @@ class ParaboloidDiscreteArray(om.ExplicitComponent):
 
 
 @unittest.skipUnless(MPI and PETScVector, "MPI and PETSc are required.")
-@use_tempdirs
+# @use_tempdirs
 class TestAnalysisDriverParallel(unittest.TestCase):
 
     N_PROCS = 4
@@ -538,6 +538,33 @@ class TestAnalysisDriver(unittest.TestCase):
 
         self.assertEqual(expected, str(e.exception))
 
+    def test_box_behnken(self):
+        import openmdao.api as om
+        import numpy as np
+        vars = {'x': {'lower': np.array([[-5, 5]]), 'upper': np.array([[5, 10]])},
+                'y': {'lower': -5, 'upper': 5},
+                'z': {'lower': -5, 'upper': 5}}
+        bbg = om.BoxBehnkenAnalysisGenerator(var_dict=vars)
+        bbg._setup()
+
+        #TODO Asserts
+
+    def test_lhs(self):
+        import openmdao.api as om
+        from openmdao.test_suite.components.paraboloid import Paraboloid
+
+        p = om.Problem(driver = om.AnalysisDriver(om.LHSAnalysisGenerator(num_samples=10,
+                                                                          random_state=2)))
+        p.model.add_subsystem('parab', Paraboloid())
+        p.model.add_design_var('parab.x', lower=-10, upper=10)
+        p.model.add_design_var('parab.y', lower=-10, upper=10)
+        p.model.add_objective('parab.f_xy')
+
+        p.setup()
+
+        p.run_driver()
+
+        #TODO Asserts
 
 if __name__ == "__main__":
     unittest.main()

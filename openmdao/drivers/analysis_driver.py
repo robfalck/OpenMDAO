@@ -63,7 +63,7 @@ class AnalysisDriver(Driver):
             self._generator = samples
         elif samples is not None:
             raise ValueError('If given, samples must be a list, tuple, '
-                             f'or derived from AnalysisDriver but got {type(samples)}')
+                             f'or derived from AnalysisGenerator but got {type(samples)}')
 
         super().__init__(**kwargs)
 
@@ -378,6 +378,10 @@ class AnalysisDriver(Driver):
                 pass
         raise AttributeError('The samples for AnalysisDriver must be a list, tuple, '
                              'or an AnalysisGenerator that provides a _get_sampled_vars() method')
+    
+    def _setup_driver(self, problem):
+        super()._setup_driver(problem)
+        self._generator._setup(problem)
 
     def _setup_recording(self):
         """
