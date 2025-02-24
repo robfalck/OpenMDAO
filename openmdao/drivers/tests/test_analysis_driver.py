@@ -113,7 +113,7 @@ class ParaboloidDiscreteArray(om.ExplicitComponent):
 
 
 @unittest.skipUnless(MPI and PETScVector, "MPI and PETSc are required.")
-# @use_tempdirs
+@use_tempdirs
 class TestAnalysisDriverParallel(unittest.TestCase):
 
     N_PROCS = 4
@@ -371,7 +371,7 @@ class TestAnalysisDriverParallel(unittest.TestCase):
             # On rank 0 we should have even cases, with odd cases on rank 1
             self.assertSetEqual(case_nums, {i for i in range(rank, 100, 2)})
 
-@use_tempdirs
+# @use_tempdirs
 class TestAnalysisDriver(unittest.TestCase):
 
     def test_changing_sample_vars(self):
@@ -467,6 +467,7 @@ class TestAnalysisDriver(unittest.TestCase):
                     'y': {'val': [0.0, 0.5, 1.0], 'units': None, 'indices': [0]}}
 
         case_gen = om.ProductGenerator(var_dict)
+        case_gen._setup(None)
         cases_csv_data = []
 
         row_0 = {v: data['units'] for v, data in var_dict.items()}
@@ -529,9 +530,11 @@ class TestAnalysisDriver(unittest.TestCase):
         """
         samples = {'x': {'val': [0.0, 0.5, 1.0, 1.5, 2.0]},
                    'y': {'val': [0.0, 0.5, 1.0, 1.5]}}
-
+        
+        zg = om.ZipGenerator(samples)
+        
         with self.assertRaises(ValueError) as e:
-            om.ZipGenerator(samples)
+            zg._setup()
 
         expected = ("ZipGenerator requires that val for all var_dict have the same length:\n"
                    "{'x': 5, 'y': 4}")
@@ -546,6 +549,14 @@ class TestAnalysisDriver(unittest.TestCase):
                 'z': {'lower': -5, 'upper': 5}}
         bbg = om.BoxBehnkenAnalysisGenerator(var_dict=vars)
         bbg._setup()
+
+        # from pyDOE3 import bbdesign
+
+        # doe = bbdesign(4)
+
+        # for i, doe_design in enumerate(bbg):
+        #     print(i)
+        #     print(doe_design)
 
         #TODO Asserts
 
@@ -564,7 +575,34 @@ class TestAnalysisDriver(unittest.TestCase):
 
         p.run_driver()
 
-        #TODO Asserts
+        cr = om.CaseReader(p.get_outputs_dir() / 'analysis_driver.sql')
+        num_rec_cases = len(cr.list_cases(out_stream=None))
+
+        x = []
+        y = []
+        f_xy = []
+        for case in cr.get_cases():
+            x.append(case.get_val('parab.x')[0])
+            y.append(case.get_val('parab.y')[0])
+            f_xy.append(case.get_val('parab.f_xy')[0])
+
+        self.assertEqual(10, num_rec_cases)
+
+        expected = np.array([[1.24226767, 1.05828419, 26.99053412],
+                             [9.69312297, -2.76145807, 16.5647286],
+                             [7.70795059, 6.98847367, 193.77816217],
+                             [-9.1280102, 3.02715624, 165.83764312],
+                             [-5.1592644, 5.5706703, 126.43076447],
+                             [-6.90067504, -9.94814754, 199.05275889],
+                             [-3.59070273, -7.12935521, 75.82962181],
+                             [4.36887973, 8.15929095, 182.36914909],
+                             [2.26915989, -1.46634545, 0.62616036],
+                             [-1.40069065, -5.33933036, 25.63863415]])
+        
+        assert_near_equal(expected[:, 0].ravel(), x, tolerance=1.0E-8)
+        assert_near_equal(expected[:, 1].ravel(), y, tolerance=1.0E-8)
+        assert_near_equal(expected[:, 2].ravel(), f_xy, tolerance=1.0E-8)
+
 
 if __name__ == "__main__":
     unittest.main()

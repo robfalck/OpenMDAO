@@ -10,6 +10,7 @@ from openmdao.core.driver import Driver, RecordingDebugging
 from openmdao.core.analysis_error import AnalysisError
 
 from openmdao.drivers.analysis_generator import AnalysisGenerator, SequenceGenerator
+from openmdao.recorders.sqlite_recorder import SqliteRecorder
 from openmdao.utils.mpi import MPI
 from openmdao.utils.om_warnings import issue_warning, DriverWarning
 
@@ -95,6 +96,10 @@ class AnalysisDriver(Driver):
                              'large.')
         self.options.declare('procs_per_model', types=int, default=1, lower=1,
                              desc='Number of processors to give each model under MPI.')
+        self.options.declare('default_recorder', types=str, allow_none=True,
+                             default='analysis_driver.sql',
+                             desc='Filename for default driver recorder output file, or '
+                             'None to disable recording by default.')
 
     def add_response(self, name, indices=None, units=None,
                      linear=False, parallel_deriv_color=None,
@@ -387,6 +392,9 @@ class AnalysisDriver(Driver):
         """
         Set up case recording.
         """
+        if (rec_file := self.options['default_recorder']) is not None:
+            self.add_recorder(SqliteRecorder(rec_file))
+            
         # We don't necessarily know a-priori what variables are in our case generators.
         # Tee the samples and add the variables defined within to be recorded.
         comm = self._problem_comm
