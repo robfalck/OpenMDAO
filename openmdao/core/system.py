@@ -6015,13 +6015,13 @@ class System(object, metaclass=SystemMetaclass):
                         # if at component level, just keep shape of the target and don't flatten
                         if not flat and not is_prom:
                             shp = vmeta['shape']
-                            val.shape = shp
+                            val = np.reshape(val, vmeta['shape'])
                     else:
                         val = val[src_indices()]
                         if vshape is not None and val.shape != vshape:
-                            val.shape = vshape
+                            val = np.reshape(val, vshape)
                         elif not is_prom and vmeta is not None and val.shape != vmeta['shape']:
-                            val.shape = vmeta['shape']
+                            val = np.reshape(val, vmeta['shape'])
 
             if get_remote and self.comm.size > 1:
                 if distrib:
