@@ -6,6 +6,7 @@ import sys
 import os
 import argparse
 import importlib.metadata as ilmd
+import platform
 
 import re
 from openmdao import __version__ as version
@@ -444,6 +445,49 @@ def _cite_cmd(options, user_args):
     _load_and_exec(options.file[0], user_args)
 
 
+def _info_setup_parser(parser):
+    """
+    Set up the openmdao subparser for the 'openmdao info' command.
+
+    Parameters
+    ----------
+    parser : argparse subparser
+        The parser we're adding options to.
+    """
+    parser.add_argument('packages', nargs='*', default=None,
+                        help='Additional packages for which version info should be displayed.')
+
+
+def _info_cmd(options, user_args):
+    """
+    Run the `openmdao info` command.
+
+    Parameters
+    ----------
+    options : argparse Namespace
+        Command line options.
+    user_args : list of str
+        Args to be passed to the user script.
+    """
+    pkgs = ['openmdao','numpy', 'scipy',
+            'petsc4py', 'mpi4py']
+    
+    pkgs.extend(options.packages)
+    
+    print('OpenMDAO Environment Info')
+    print('-------------------------')
+
+    maxlen = max(len(s) for s in pkgs)
+
+    print(f'{"python":>{maxlen}}: {platform.python_version()}')
+
+    for pkg in pkgs:
+        try:
+            print(f'{pkg:>{maxlen}}: {ilmd.version(pkg)}')
+        except ilmd.PackageNotFoundError:
+            print(f'{pkg:>{maxlen}}: {ilmd.version(pkg)}')
+            pass
+
 def _list_pre_post_setup_parser(parser):
     """
     Set up the openmdao subparser for the 'openmdao list_pre_post' command.
@@ -606,6 +650,7 @@ _command_map = {
         "Find repos on github having openmdao topics.",
     ),
     "graph": (_graph_setup_parser, _graph_cmd, "Generate a graph for a group."),
+    "info": (_info_setup_parser, _info_cmd, "Display OpenMDAO's environment info."),
     "iprof": (
         _iprof_setup_parser,
         _iprof_exec,
