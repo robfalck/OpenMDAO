@@ -5476,7 +5476,8 @@ class System(object, metaclass=SystemMetaclass):
                 if distrib:
                     self.comm.Allgatherv(loc_val, [val, sizes, offsets, MPI.DOUBLE])
                     if not flat:
-                        val.shape = meta['global_shape'] if get_remote else meta['shape']
+                        shp = meta['global_shape'] if get_remote else meta['shape']
+                        val = np.reshape(val, shp)
                 else:
                     if owner != self.comm.rank:
                         val = None
@@ -5487,7 +5488,8 @@ class System(object, metaclass=SystemMetaclass):
                 if distrib:
                     self.comm.Gatherv(loc_val, [val, sizes, offsets, MPI.DOUBLE], root=rank)
                     if not flat:
-                        val.shape = meta['global_shape'] if get_remote else meta['shape']
+                        shp = meta['global_shape'] if get_remote else meta['shape']
+                        val = np.reshape(val, shp)
                 else:
                     if rank != owner:
                         tag = self._var_allprocs_abs2idx[abs_name]
@@ -6014,7 +6016,6 @@ class System(object, metaclass=SystemMetaclass):
                         val = val.ravel()[src_indices.flat()]
                         # if at component level, just keep shape of the target and don't flatten
                         if not flat and not is_prom:
-                            shp = vmeta['shape']
                             val = np.reshape(val, vmeta['shape'])
                     else:
                         val = val[src_indices()]
@@ -6043,9 +6044,10 @@ class System(object, metaclass=SystemMetaclass):
                         val = self.comm.bcast(None, root=self._owning_rank[abs_name])
 
             if distrib and get_remote:
-                val.shape = abs2meta_all_ins[abs_name]['global_shape']
+                shp = abs2meta_all_ins[abs_name]['global_shape']
+                val = np.reshape(val, shp)
             elif not flat and val.size > 0 and vshape is not None:
-                val.shape = vshape
+                val = np.reshape(val, vshape)
         elif vshape is not None:
             val = val.reshape(vshape)
 
