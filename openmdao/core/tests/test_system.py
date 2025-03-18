@@ -384,11 +384,43 @@ class TestSystem(unittest.TestCase):
         root.add_subsystem('initial_comp', ExecComp(['x = 10']), promotes_outputs=['x'])
 
         prob.setup()
+        prob.final_setup()
 
         with self.assertRaises(KeyError) as cm:
             root.get_source('f')
 
         self.assertEqual(cm.exception.args[0], "<model> <class Group>: source for 'f' not found.")
+
+    def test_get_source_before_final_setup(self):
+        prob = Problem()
+        root = prob.model
+
+        root.add_subsystem('initial_comp', ExecComp(['x = 10']), promotes_outputs=['x'])
+
+        prob.setup()
+
+        with self.assertRaises(RuntimeError) as cm:
+            root.get_source('f')
+
+        self.assertEqual(str(cm.exception), "<model> <class Group>: get_source cannot be "
+                         "called before Problem.final_setup has been called.")
+
+    def test_get_source(self):
+        from openmdao.test_suite.components.sellar import SellarDis1, SellarDis2
+
+        prob = Problem()
+        cycle = prob.model.add_subsystem("cycle", Group(), promotes=["*"])
+        cycle.add_subsystem(
+            "d1", SellarDis1(), promotes_inputs=["x", "z", "y2"], promotes_outputs=["y1"]
+        )
+        cycle.add_subsystem("d2", SellarDis2(), promotes_inputs=["z", "y1"], promotes_outputs=["y2"])
+
+        prob.setup()
+        prob.final_setup()
+
+        source = prob.model.get_source("cycle.d1.x")
+
+        self.assertEqual(source, '_auto_ivc.v1')
 
     def test_list_inputs_before_final_setup(self):
         class SpeedComp(ExplicitComponent):

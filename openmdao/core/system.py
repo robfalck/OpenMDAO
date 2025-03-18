@@ -1463,16 +1463,26 @@ class System(object, metaclass=SystemMetaclass):
         name : str
             Absolute or promoted name of the variable.
 
+        Raises
+        ------
+        RuntimeError
+            Raised if get_source is called prior to final_setup.
+        KeyError
+            Raised if a no source is found for the variable of the given name.
+
         Returns
         -------
         str
             The absolute name of the source variable.
         """
-        try:
-            prom2abs = self._problem_meta['prom2abs']
-        except Exception:
-            raise RuntimeError(f"{self.msginfo}: get_source cannot be called for variable {name} "
-                               "before Problem.setup has been called.")
+        post_final_setup = self._problem_meta is not None and \
+            self._problem_meta['setup_status'] >= _SetupStatus.POST_FINAL_SETUP
+
+        if not post_final_setup:
+            raise RuntimeError(f"{self.msginfo}: get_source cannot be called "
+                               "before Problem.final_setup has been called.")
+
+        prom2abs = self._problem_meta['prom2abs']
 
         if name in prom2abs['output']:
             return prom2abs['output'][name][0]
