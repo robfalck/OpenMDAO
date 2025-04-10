@@ -10,8 +10,9 @@ from scipy import __version__ as scipy_version
 from scipy.optimize import minimize
 
 from openmdao.core.constants import INF_BOUND
-from openmdao.core.driver import Driver, RecordingDebugging
+from openmdao.core.driver import RecordingDebugging
 from openmdao.core.group import Group
+from openmdao.drivers.optimization_driver import OptimizationDriver
 from openmdao.utils.class_util import WeakMethodWrapper
 from openmdao.utils.mpi import MPI
 
@@ -78,7 +79,7 @@ CITATIONS = """
 """
 
 
-class ScipyOptimizeDriver(Driver):
+class ScipyOptimizeDriver(OptimizationDriver):
     """
     Driver wrapper for the scipy.optimize.minimize family of local optimizers.
 
@@ -135,6 +136,7 @@ class ScipyOptimizeDriver(Driver):
 
         # What we support
         self.supports['optimization'] = True
+        self.supports['post_opt_sensitivities'] = True
         self.supports['inequality_constraints'] = True
         self.supports['equality_constraints'] = True
         self.supports['two_sided_constraints'] = True

@@ -21,3 +21,5 @@ prob.set_val('paraboloid.y', -4.0)
 
 # run the optimization
 prob.run_driver()
+
+print(prob.driver.get_active_constraints())
