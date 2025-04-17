@@ -135,8 +135,8 @@ class ScipyOptimizeDriver(OptimizationDriver):
         super().__init__(**kwargs)
 
         # What we support
+        self.supports._read_only = False
         self.supports['optimization'] = True
-        self.supports['post_opt_sensitivities'] = True
         self.supports['inequality_constraints'] = True
         self.supports['equality_constraints'] = True
         self.supports['two_sided_constraints'] = True

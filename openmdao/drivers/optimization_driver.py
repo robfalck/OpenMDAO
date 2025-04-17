@@ -7,11 +7,11 @@ import weakref
 
 import numpy as np
 
-from openmdao.core.driver import Driver, DriverResult, SaveDriverResult
+from openmdao.core.driver import Driver, DriverResult, SaveDriverResult, filter_by_meta, \
+    record_iteration, RecordingDebugging
 from openmdao.core.group import Group
 from openmdao.core.total_jac import _TotalJacInfo
 from openmdao.core.constants import INT_DTYPE, _SetupStatus
-from openmdao.recorders.recording_iteration_stack import Recording
 from openmdao.utils.record_util import create_local_meta, check_path, has_match
 from openmdao.utils.general_utils import _src_name_iter
 from openmdao.utils.mpi import MPI
@@ -1470,7 +1470,7 @@ class OptimizationDriver(Driver):
         """
         pass
 
-    def get_active_cons_and_dvs(self, feas_atol=1.e-6, feas_rtol=1.e-6):
+    def _get_active_cons_and_dvs(self, feas_atol=1.e-6, feas_rtol=1.e-6, assume_dvs_active=False):
         """
         Obtain the constraints and design varaibles which are active.
 
@@ -1483,6 +1483,8 @@ class OptimizationDriver(Driver):
             Feasibility absolute tolerance
         feas_rtol : float
             Feasibility relative tolerance
+        assume_dvs_active : bool
+            Override to force design variables to be treated as active.
 
         Returns:
             A list of constraint names for those constraints that are at
@@ -1510,10 +1512,13 @@ class OptimizationDriver(Driver):
             des_var_value = prob[des_var]
             des_var_upper = des_vars[des_var].get("upper", np.inf)
             des_var_lower = des_vars[des_var].get("lower", -np.inf)
-            if des_var_value > des_var_upper or np.isclose(des_var_value, des_var_upper, atol=feas_atol, rtol=feas_rtol):
+            if assume_dvs_active:
                 active_dvs.append(des_var)
-            elif des_var_value < des_var_lower or np.isclose(des_var_value, des_var_lower, atol=feas_atol, rtol=feas_rtol):
-                active_dvs.append(des_var)
+            else:
+                if des_var_value > des_var_upper or np.isclose(des_var_value, des_var_upper, atol=feas_atol, rtol=feas_rtol):
+                    active_dvs.append(des_var)
+                elif des_var_value < des_var_lower or np.isclose(des_var_value, des_var_lower, atol=feas_atol, rtol=feas_rtol):
+                    active_dvs.append(des_var)
 
         return active_cons, active_dvs
 
@@ -1570,7 +1575,8 @@ class OptimizationDriver(Driver):
 
         return unscaled_multipliers
 
-    def get_lagrange_multipliers(self, unscaled=True, feas_tol=1.0E-6):
+    def _get_lagrange_multipliers(self, driver_scaling=False, feas_tol=1.0E-6,
+                                  include_of=None, include_wrt=None, assume_dvs_active=False):
         """
         Get the approximated Lagrange multipliers of one or more constraints.
 
@@ -1585,20 +1591,28 @@ class OptimizationDriver(Driver):
 
         Parameters
         ----------
-        driver : Driver
-        The driver instance of the problem.
-        unscaled : bool
-            If True, return the Lagrange multipliers estimates in their physical units.
-            If False, return the Lagrange multiplier estimates in a driver-scaled state.
+        driver_scaling : bool
+            If False, return the Lagrange multipliers estimates in their physical units.
+            If True, return the Lagrange multiplier estimates in a driver-scaled state.
         feas_tol : float or None
             The feasibility tolerance under which the optimization was run. If None, attempt
             to determine this automatically based on the specified optimizer settings.
+        include_of : Sequence[str] or None
+            Other additional outputs for which totals should be computed.
+        include_wrt : Sequence[str] or None
+            Other additional independent variables for which the totals should be computed.
+        assume_dvs_active : bool
+            If True, mark all design variables as active equality constraints.  This will make it so that
+            lagrange multipliers corresponding to the design varaibles are returned. This is needed for computing
+            derivatives of the optimal design variable values wrt parameters to the problem.
 
         Returns
         -------
         dict[str: ArrayLike]
             A dictionary with an entry for each constraint whose Lagrange multiplier was requested,
             and the associated Lagrange multiplier value.
+        dict[tuple[str, str]: ArrayLike]
+            The total derivative jacobian computed while determining the Lagrange multipliers
 
         Raises
         ------
@@ -1615,34 +1629,43 @@ class OptimizationDriver(Driver):
         constraints = self._cons
         des_vars = self._designvars
 
-        active_cons, active_dvs = self.get_active_cons_and_dvs(feas_atol=feas_tol, feas_rtol=feas_tol)
-        totals = prob.compute_totals([objective, *constraints.keys()], [*des_vars.keys()], driver_scaling=True)
+        of_totals = {objective, *constraints.keys()}
+        if include_of:
+            of_totals |= include_of
 
-        grad_f = {input: totals[objective, input] for input in des_vars.keys()}
+        wrt_totals = {*des_vars.keys()}
+        if include_wrt:
+            wrt_totals |= include_wrt
+
+        active_cons, active_dvs = self._get_active_cons_and_dvs(feas_atol=feas_tol, feas_rtol=feas_tol,
+                                                                assume_dvs_active=assume_dvs_active)
+        totals = prob.compute_totals(list(of_totals), list(wrt_totals), driver_scaling=True)
+
+        grad_f = {inp: totals[objective, inp] for inp in des_vars.keys()}
 
         n = 0
-        for input in grad_f.keys():
-            n += grad_f[input].size
+        for inp in grad_f.keys():
+            n += grad_f[inp].size
 
         grad_f_vec = np.zeros((n))
         offset = 0
-        for input in grad_f.keys():
-            input_size = grad_f[input].size
-            grad_f_vec[offset:offset + input_size] = grad_f[input]
-            offset += input_size
+        for inp in grad_f.keys():
+            inp_size = grad_f[inp].size
+            grad_f_vec[offset:offset + inp_size] = grad_f[inp]
+            offset += inp_size
 
         n_con = len(active_cons + active_dvs)
         active_cons_mat = np.zeros((n, n_con))
         for i, constraint in enumerate(active_cons + active_dvs):
             if constraint in des_vars.keys():
-                constraint_grad = {input: np.array([1.0]) if input == constraint else np.array([0.0]) for input in des_vars.keys()}
+                constraint_grad = {inp: np.array([1.0]) if inp == constraint else np.array([0.0]) for inp in des_vars.keys()}
             else:
-                constraint_grad = {input: totals[constraint, input] for input in des_vars.keys()}
+                constraint_grad = {inp: totals[constraint, inp] for inp in des_vars.keys()}
             offset = 0
-            for input in constraint_grad.keys():
-                input_size = constraint_grad[input].size
-                active_cons_mat[offset:offset + input_size, i] = constraint_grad[input]
-                offset += input_size
+            for inp in constraint_grad.keys():
+                inp_size = constraint_grad[inp].size
+                active_cons_mat[offset:offset + inp_size, i] = -constraint_grad[inp]
+                offset += inp_size
 
         multipliers_vec, optimality_squared, rank, singular_vals = np.linalg.lstsq(active_cons_mat, grad_f_vec, rcond=None)
 
@@ -1653,144 +1676,49 @@ class OptimizationDriver(Driver):
             multipliers[constraint] = multipliers_vec[offset:offset + constraint_size]
             offset += constraint_size
 
-        if unscaled:
+        if not driver_scaling:
             self._unscale_lagrange_multipliers(active_cons + active_dvs, multipliers)
 
-        return multipliers
+        return multipliers, totals
 
-
-class RecordingDebugging(Recording):
-    """
-    A class that acts as a context manager.
-
-    Handles doing the case recording and also the Driver
-    debugging printing.
-
-    Parameters
-    ----------
-    name : str
-        Name of object getting recorded.
-    iter_count : int
-        Current counter of iterations completed.
-    recording_requester : object
-        Object to which this recorder is attached.
-    """
-
-    def __enter__(self):
+    def compute_sensitivites(self, wrt=None, of=None, return_format='flat_dict', debug_print=False,
+                             driver_scaling=False, use_abs_names=False, get_remote=True,
+                             coloring_info=None, feas_tol=1.e-6, mode='rev'):
         """
-        Do things before the code inside the 'with RecordingDebugging' block.
+        Compute the sensitivities of the objective and other outputs wrt the desired variables.
 
-        Returns
-        -------
-        self : object
-            self
+        If `of` is None, only compute the sensitivity of the objective function.
+
+        If `wrt` is None, only compute the sensitivities wrt the design variable bounds.
+
+        Argument wrt must be provided and may be one of:
+        - The promoted path of a variable whose source is an IndepVarComp.
+        - The upper or lower bound on a design variable given as a tuple `('dv_name', 'upper')` or `('dv_name', 'lower')`.
+        - The upper, lower, or equality bound on a constraint given as a tuple `('con_name', 'upper')`,
+         `('con_name', 'lower')`, or  `('con_name', 'equals')`
+
+        Args:
+            wrt (_type_): _description_
+            of (_type_, optional): _description_. Defaults to None.
+            return_format (str, optional): _description_. Defaults to 'flat_dict'.
+            debug_print (bool, optional): _description_. Defaults to False.
+            driver_scaling (bool, optional): _description_. Defaults to False.
+            use_abs_names (bool, optional): _description_. Defaults to False.
+            get_remote (bool, optional): _description_. Defaults to True.
+            coloring_info (_type_, optional): _description_. Defaults to None.
+            mode (str, optional): _description_. Defaults to 'rev'.
+
+        Returns:
+            _type_: _description_
+
+        Yields:
+            _type_: _description_
         """
-        super().__enter__()
-        self.recording_requester()._pre_run_model_debug_print()
-        return self
-
-    def __exit__(self, *args):
-        """
-        Do things after the code inside the 'with RecordingDebugging' block.
-
-        Parameters
-        ----------
-        *args : array
-            Solver recording requires extra args.
-        """
-        self.recording_requester()._post_run_model_debug_print()
-        super().__exit__()
+        lam, _ = self._get_lagrange_multipliers(driver_scaling=driver_scaling, feas_tol=feas_tol)
 
 
-def record_iteration(requester, prob, case_name):
-    """
-    Record an iteration of the current Problem or Driver.
 
-    Parameters
-    ----------
-    requester : Problem or Driver
-        The recording requester.
-    prob : Problem
-        The Problem.
-    case_name : str
-        The name of this case.
-    """
-    rec_mgr = requester._rec_mgr
-    if not rec_mgr._recorders:
-        return
+        # df_dwrt = []
 
-    # Get the data to record (collective calls that get across all ranks)
-    model = prob.model
-    parallel = rec_mgr._check_parallel() if model.comm.size > 1 else False
-
-    inputs, outputs, residuals = model.get_nonlinear_vectors()
-    discrete_inputs = model._discrete_inputs
-    discrete_outputs = model._discrete_outputs
-
-    opts = requester.recording_options
-    data = {'input': {}, 'output': {}, 'residual': {}}
-    filt = requester._filtered_vars_to_record
-
-    if opts['record_inputs'] and (inputs._names or len(discrete_inputs) > 0):
-        data['input'] = model._retrieve_data_of_kind(filt, 'input', 'nonlinear', parallel)
-
-    if opts['record_outputs'] and (outputs._names or len(discrete_outputs) > 0):
-        data['output'] = model._retrieve_data_of_kind(filt, 'output', 'nonlinear', parallel)
-
-    if opts['record_residuals'] and residuals._names:
-        data['residual'] = model._retrieve_data_of_kind(filt, 'residual', 'nonlinear', parallel)
-
-    from openmdao.core.problem import Problem
-    if isinstance(requester, Problem):
-        # Record total derivatives
-        if opts['record_derivatives'] and prob.driver._designvars and prob.driver._responses:
-            data['totals'] = requester.compute_totals(return_format='flat_dict_structured_key')
-
-        # Record solver info
-        if opts['record_abs_error'] or opts['record_rel_error']:
-            norm = residuals.get_norm()
-        if opts['record_abs_error']:
-            data['abs'] = norm
-        if opts['record_rel_error']:
-            solver = model.nonlinear_solver
-            norm0 = solver._norm0 if solver._norm0 != 0.0 else 1.0  # runonce never sets _norm0
-            data['rel'] = norm / norm0
-
-    rec_mgr.record_iteration(requester, data, requester._get_recorder_metadata(case_name))
-
-
-def filter_by_meta(metadict_items, key, chk_none=False, exclude=False):
-    """
-    Filter metadata items based on their value.
-
-    Parameters
-    ----------
-    metadict_items : iter of (name, meta)
-        Iterable of (name, meta) tuples.
-    key : str
-        Metadata key.
-    chk_none : bool
-        If True, compare items to None. If False, check if items are truthy.
-    exclude : bool
-        If True, exclude matching items rather than yielding them.
-
-    Yields
-    ------
-    tuple
-        Tuple of the form (name, meta) for each item in metadict_items that satisfies the condition.
-    """
-    if chk_none:
-        for tup in metadict_items:
-            none = tup[1][key] is None
-            if exclude:
-                if none:
-                    yield tup
-            elif not none:
-                yield tup
-    else:
-        for tup in metadict_items:
-            if exclude:
-                if not tup[1][key]:
-                    yield tup
-            elif tup[1][key]:
-                yield tup
+        # for inp in wrt:
+        #     df_dwrt[inp] =
