@@ -1474,7 +1474,7 @@ class OptimizationDriver(Driver):
         """
         Obtain the constraints and design varaibles which are active.
 
-        Active means the constraint is on the bound (or close enough
+        Active means the constraint or design variable is on the bound (or close enough
         that it satisfies np.isclose(val, bound, atol=feas_atol, rtol=feas_rtol))
 
         Parameters
@@ -1487,11 +1487,16 @@ class OptimizationDriver(Driver):
             Override to force design variables to be treated as active.
 
         Returns:
-            A list of constraint names for those constraints that are at
-            least within the given feasiblity tolerances.
+        active_cons : list[str]
+            The names of the active constraints.
+        active_dvs : list[str]
+            The names of the active design variables.
+        active_bound : dict[str, str]
+            For each active constraint or desvar, one of 'equal', 'lower', or 'upper' signifying which bound is active.
         """
         active_cons = list()
         active_dvs = list()
+        active_bound = {}
         prob = self._problem()
         des_vars = self._designvars
         constraints = self._cons
@@ -1500,13 +1505,16 @@ class OptimizationDriver(Driver):
             constraint_value = prob[constraint]
             if "equals" in constraints[constraint]:
                 active_cons.append(constraint)
+                active_bound[constraint] = 'equal'
             else:
                 constraint_upper = constraints[constraint].get("upper", np.inf)
                 constraint_lower = constraints[constraint].get("lower", -np.inf)
                 if constraint_value > constraint_upper or np.isclose(constraint_value, constraint_upper, atol=feas_atol, rtol=feas_rtol):
                     active_cons.append(constraint)
+                    active_bound[constraint] = 'upper'
                 elif constraint_value < constraint_lower or np.isclose(constraint_value, constraint_lower, atol=feas_atol, rtol=feas_rtol):
                     active_cons.append(constraint)
+                    active_bound[constraint] = 'lower'
 
         for des_var in des_vars.keys():
             des_var_value = prob[des_var]
@@ -1514,15 +1522,18 @@ class OptimizationDriver(Driver):
             des_var_lower = des_vars[des_var].get("lower", -np.inf)
             if assume_dvs_active:
                 active_dvs.append(des_var)
+                active_bound[des_var] = 'equal'
             else:
                 if des_var_value > des_var_upper or np.isclose(des_var_value, des_var_upper, atol=feas_atol, rtol=feas_rtol):
                     active_dvs.append(des_var)
+                    active_bound[des_var] = 'upper'
                 elif des_var_value < des_var_lower or np.isclose(des_var_value, des_var_lower, atol=feas_atol, rtol=feas_rtol):
                     active_dvs.append(des_var)
+                    active_bound[des_var] = 'lower'
 
-        return active_cons, active_dvs
+        return active_cons, active_dvs, active_bound
 
-    def _unscale_lagrange_multipliers(self, active_constraints, multipliers):
+    def _unscale_lagrange_multipliers(self, multipliers):
         """
         Unscale the Lagrange multipliers from optimizer scaling to physical/model scaling.
 
@@ -1556,7 +1567,7 @@ class OptimizationDriver(Driver):
 
         unscaled_multipliers = {}
 
-        for name in active_constraints:
+        for name, val in multipliers.items():
             if name in self._designvars:
                 ref = self._designvars[name]['ref']
                 ref0 = self._designvars[name]['ref0']
@@ -1571,12 +1582,12 @@ class OptimizationDriver(Driver):
             if ref0 is None:
                 ref0 = 0.0
 
-            unscaled_multipliers[name] = multipliers[name] * (obj_ref - obj_ref0) / (ref - ref0)
+            unscaled_multipliers[name] = val * (obj_ref - obj_ref0) / (ref - ref0)
 
         return unscaled_multipliers
 
     def _get_lagrange_multipliers(self, driver_scaling=False, feas_tol=1.0E-6,
-                                  include_of=None, include_wrt=None, assume_dvs_active=False):
+                                  assume_dvs_active=False):
         """
         Get the approximated Lagrange multipliers of one or more constraints.
 
@@ -1597,10 +1608,6 @@ class OptimizationDriver(Driver):
         feas_tol : float or None
             The feasibility tolerance under which the optimization was run. If None, attempt
             to determine this automatically based on the specified optimizer settings.
-        include_of : Sequence[str] or None
-            Other additional outputs for which totals should be computed.
-        include_wrt : Sequence[str] or None
-            Other additional independent variables for which the totals should be computed.
         assume_dvs_active : bool
             If True, mark all design variables as active equality constraints.  This will make it so that
             lagrange multipliers corresponding to the design varaibles are returned. This is needed for computing
@@ -1630,15 +1637,11 @@ class OptimizationDriver(Driver):
         des_vars = self._designvars
 
         of_totals = {objective, *constraints.keys()}
-        if include_of:
-            of_totals |= include_of
-
         wrt_totals = {*des_vars.keys()}
-        if include_wrt:
-            wrt_totals |= include_wrt
 
-        active_cons, active_dvs = self._get_active_cons_and_dvs(feas_atol=feas_tol, feas_rtol=feas_tol,
-                                                                assume_dvs_active=assume_dvs_active)
+        active_cons, active_dvs, active_bound = self._get_active_cons_and_dvs(feas_atol=feas_tol, feas_rtol=feas_tol,
+                                                                              assume_dvs_active=assume_dvs_active)
+
         totals = prob.compute_totals(list(of_totals), list(wrt_totals), driver_scaling=True)
 
         grad_f = {inp: totals[objective, inp] for inp in des_vars.keys()}
@@ -1664,22 +1667,25 @@ class OptimizationDriver(Driver):
             offset = 0
             for inp in constraint_grad.keys():
                 inp_size = constraint_grad[inp].size
-                active_cons_mat[offset:offset + inp_size, i] = -constraint_grad[inp]
+                active_cons_mat[offset:offset + inp_size, i] = constraint_grad[inp]
                 offset += inp_size
 
-        multipliers_vec, optimality_squared, rank, singular_vals = np.linalg.lstsq(active_cons_mat, grad_f_vec, rcond=None)
+        multipliers_vec, optimality_squared, rank, singular_vals = np.linalg.lstsq(active_cons_mat, -grad_f_vec, rcond=None)
 
         multipliers = dict()
+        active_bounds = dict()
         offset = 0
+
         for constraint in active_cons + active_dvs:
             constraint_size = 1
             multipliers[constraint] = multipliers_vec[offset:offset + constraint_size]
+            active_bounds[constraint] = active_bound[constraint]
             offset += constraint_size
 
         if not driver_scaling:
-            self._unscale_lagrange_multipliers(active_cons + active_dvs, multipliers)
+            self._unscale_lagrange_multipliers(multipliers)
 
-        return multipliers, totals
+        return multipliers, active_bounds, totals
 
     def compute_sensitivites(self, wrt=None, of=None, return_format='flat_dict', debug_print=False,
                              driver_scaling=False, use_abs_names=False, get_remote=True,
