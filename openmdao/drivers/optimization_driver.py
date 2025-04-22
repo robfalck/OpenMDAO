@@ -1487,51 +1487,59 @@ class OptimizationDriver(Driver):
             Override to force design variables to be treated as active.
 
         Returns:
-        active_cons : list[str]
-            The names of the active constraints.
+        active_cons : dict[str: dict
+            The names of the active constraints. For each active constraint, a dict of the active indices
+            and the active bound (0='equals', -1='lower', 1='upper') is provided.
         active_dvs : list[str]
-            The names of the active design variables.
-        active_bound : dict[str, str]
-            For each active constraint or desvar, one of 'equal', 'lower', or 'upper' signifying which bound is active.
+            The names of the active design variables. For each active design variable, a dict of the active indices
+            and the active bound (0='equals', -1='lower', 1='upper') is provided. An active design variable bound of
+            'equal' is only possible when assume_dvs_active is True, and the design variables are returned as if they
+            are on an active equality constraint.
         """
-        active_cons = list()
-        active_dvs = list()
-        active_bound = {}
+        active_cons = {}
+        active_dvs = {}
         prob = self._problem()
         des_vars = self._designvars
         constraints = self._cons
 
         for constraint in constraints:
-            constraint_value = prob[constraint]
-            if "equals" in constraints[constraint]:
-                active_cons.append(constraint)
-                active_bound[constraint] = 'equal'
+            constraint_value = np.copy(prob.get_val(constraint)).ravel()
+            con_size = constraints[constraint]['size']
+            if 'equals' in constraints[constraint] and constraints[constraint]['equals'] is not None:
+                active_cons[constraint] = {'indices': np.arange(con_size, dtype=int),
+                                           'active_bound': np.zeros(con_size, dtype=int)}
             else:
                 constraint_upper = constraints[constraint].get("upper", np.inf)
                 constraint_lower = constraints[constraint].get("lower", -np.inf)
-                if constraint_value > constraint_upper or np.isclose(constraint_value, constraint_upper, atol=feas_atol, rtol=feas_rtol):
-                    active_cons.append(constraint)
-                    active_bound[constraint] = 'upper'
-                elif constraint_value < constraint_lower or np.isclose(constraint_value, constraint_lower, atol=feas_atol, rtol=feas_rtol):
-                    active_cons.append(constraint)
-                    active_bound[constraint] = 'lower'
+
+                upper_idxs = np.where(constraint_value > constraint_upper or
+                                      np.isclose(constraint_value, constraint_upper, atol=feas_atol, rtol=feas_rtol))[0]
+                lower_idxs = np.where(constraint_value < constraint_lower or
+                                      np.isclose(constraint_value, constraint_lower, atol=feas_atol, rtol=feas_rtol))[0]
+                active_idxs = sorted(np.concatenate((upper_idxs, lower_idxs)))
+                active_bounds = [1 if idx in upper_idxs else -1 for idx in active_idxs]
+                if active_idxs:
+                    active_cons[constraint] = {'indices': active_idxs, 'active_bounds': active_bounds}
 
         for des_var in des_vars.keys():
-            des_var_value = prob[des_var]
-            des_var_upper = des_vars[des_var].get("upper", np.inf)
-            des_var_lower = des_vars[des_var].get("lower", -np.inf)
+            des_var_value = np.copy(prob.get_val(des_var)).ravel()
+            des_var_upper = np.ravel(des_vars[des_var].get("upper", np.inf))
+            des_var_lower = np.ravel(des_vars[des_var].get("lower", -np.inf))
+            des_var_size = des_vars[des_var]['size']
             if assume_dvs_active:
-                active_dvs.append(des_var)
-                active_bound[des_var] = 'equal'
+                active_dvs[des_var] = {'indices': np.arange(des_var_size, dtype=int),
+                                       'active_bound': np.zeros(des_var_size, dtype=int)}
             else:
-                if des_var_value > des_var_upper or np.isclose(des_var_value, des_var_upper, atol=feas_atol, rtol=feas_rtol):
-                    active_dvs.append(des_var)
-                    active_bound[des_var] = 'upper'
-                elif des_var_value < des_var_lower or np.isclose(des_var_value, des_var_lower, atol=feas_atol, rtol=feas_rtol):
-                    active_dvs.append(des_var)
-                    active_bound[des_var] = 'lower'
+                upper_idxs = np.where(des_var_value > des_var_upper or
+                                      np.isclose(des_var_value, des_var_upper, atol=feas_atol, rtol=feas_rtol))[0]
+                lower_idxs = np.where(des_var_value < des_var_lower or
+                                      np.isclose(des_var_value, des_var_lower, atol=feas_atol, rtol=feas_rtol))[0]
+                active_idxs = sorted(np.concatenate((upper_idxs, lower_idxs)))
+                active_bounds = [1 if idx in upper_idxs else -1 for idx in active_idxs]
+                if active_idxs:
+                    active_dvs[des_var] = {'indices': active_idxs, 'active_bounds': active_bounds}
 
-        return active_cons, active_dvs, active_bound
+        return active_cons, active_dvs
 
     def _unscale_lagrange_multipliers(self, multipliers):
         """
@@ -1615,11 +1623,10 @@ class OptimizationDriver(Driver):
 
         Returns
         -------
-        dict[str: ArrayLike]
-            A dictionary with an entry for each constraint whose Lagrange multiplier was requested,
-            and the associated Lagrange multiplier value.
-        dict[tuple[str, str]: ArrayLike]
-            The total derivative jacobian computed while determining the Lagrange multipliers
+        multipliers : dict[str: ArrayLike]
+            A dictionary with an entry for each active constraint and the associated Lagrange multiplier value.
+        active_bounds : dict[str: ArrayLike]
+            A dictionary with an entry for each active constraint and the associated Lagrange multiplier value.
 
         Raises
         ------
@@ -1639,8 +1646,8 @@ class OptimizationDriver(Driver):
         of_totals = {objective, *constraints.keys()}
         wrt_totals = {*des_vars.keys()}
 
-        active_cons, active_dvs, active_bound = self._get_active_cons_and_dvs(feas_atol=feas_tol, feas_rtol=feas_tol,
-                                                                              assume_dvs_active=assume_dvs_active)
+        active_cons, active_dvs = self._get_active_cons_and_dvs(feas_atol=feas_tol, feas_rtol=feas_tol,
+                                                                assume_dvs_active=assume_dvs_active)
 
         totals = prob.compute_totals(list(of_totals), list(wrt_totals), driver_scaling=True)
 
@@ -1657,9 +1664,10 @@ class OptimizationDriver(Driver):
             grad_f_vec[offset:offset + inp_size] = grad_f[inp]
             offset += inp_size
 
-        n_con = len(active_cons + active_dvs)
-        active_cons_mat = np.zeros((n, n_con))
-        for i, constraint in enumerate(active_cons + active_dvs):
+        active_all = active_cons | active_dvs
+        n_active = np.sum(np.fromiter((len(c['indices']) for c in active_all.values()), dtype=int))
+        active_cons_mat = np.zeros((n, n_active))
+        for i, constraint in enumerate(active_all):
             if constraint in des_vars.keys():
                 constraint_grad = {inp: np.array([1.0]) if inp == constraint else np.array([0.0]) for inp in des_vars.keys()}
             else:
@@ -1673,19 +1681,25 @@ class OptimizationDriver(Driver):
         multipliers_vec, optimality_squared, rank, singular_vals = np.linalg.lstsq(active_cons_mat, -grad_f_vec, rcond=None)
 
         multipliers = dict()
+        active_idxs = dict()
         active_bounds = dict()
         offset = 0
 
-        for constraint in active_cons + active_dvs:
-            constraint_size = 1
+        for constraint, act_info in active_all.items():
+            print(constraint)
+            print(act_info)
+            act_idxs = act_info['indices']
+            act_bounds = act_info['active_bound']
+            constraint_size = len(act_idxs)
+            active_idxs[constraint] = act_idxs
+            active_bounds[constraint] = act_bounds
             multipliers[constraint] = multipliers_vec[offset:offset + constraint_size]
-            active_bounds[constraint] = active_bound[constraint]
             offset += constraint_size
 
         if not driver_scaling:
             self._unscale_lagrange_multipliers(multipliers)
 
-        return multipliers, active_bounds, totals
+        return multipliers, active_idxs, active_bounds
 
     def compute_sensitivites(self, wrt=None, of=None, return_format='flat_dict', debug_print=False,
                              driver_scaling=False, use_abs_names=False, get_remote=True,
