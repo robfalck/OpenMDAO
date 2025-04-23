@@ -18,7 +18,7 @@ from openmdao.utils.mpi import MPI
 import openmdao.utils.coloring as coloring_mod
 from openmdao.utils.array_utils import sizes2offsets
 from openmdao.vectors.vector import _full_slice, _flat_full_indexer
-from openmdao.utils.indexer import indexer
+from openmdao.utils.indexer import indexer, iter_indices
 from openmdao.utils.om_warnings import issue_warning, DerivativesWarning, \
     DriverWarning, warn_deprecation
 
@@ -1507,15 +1507,18 @@ class OptimizationDriver(Driver):
             con_size = constraints[constraint]['size']
             if 'equals' in constraints[constraint] and constraints[constraint]['equals'] is not None:
                 active_cons[constraint] = {'indices': np.arange(con_size, dtype=int),
-                                           'active_bound': np.zeros(con_size, dtype=int)}
+                                           'active_bounds': np.zeros(con_size, dtype=int)}
             else:
                 constraint_upper = constraints[constraint].get("upper", np.inf)
                 constraint_lower = constraints[constraint].get("lower", -np.inf)
 
-                upper_idxs = np.where(constraint_value > constraint_upper or
-                                      np.isclose(constraint_value, constraint_upper, atol=feas_atol, rtol=feas_rtol))[0]
-                lower_idxs = np.where(constraint_value < constraint_lower or
-                                      np.isclose(constraint_value, constraint_lower, atol=feas_atol, rtol=feas_rtol))[0]
+                upper_mask = np.logical_or(constraint_value > constraint_upper,
+                                           np.isclose(constraint_value, constraint_upper, atol=feas_atol, rtol=feas_rtol))
+                upper_idxs = np.where(upper_mask)[0]
+                lower_mask = np.logical_or(constraint_value < constraint_lower,
+                                           np.isclose(constraint_value, constraint_lower, atol=feas_atol, rtol=feas_rtol))
+                lower_idxs = np.where(lower_mask)[0]
+
                 active_idxs = sorted(np.concatenate((upper_idxs, lower_idxs)))
                 active_bounds = [1 if idx in upper_idxs else -1 for idx in active_idxs]
                 if active_idxs:
@@ -1528,12 +1531,15 @@ class OptimizationDriver(Driver):
             des_var_size = des_vars[des_var]['size']
             if assume_dvs_active:
                 active_dvs[des_var] = {'indices': np.arange(des_var_size, dtype=int),
-                                       'active_bound': np.zeros(des_var_size, dtype=int)}
+                                       'active_bounds': np.zeros(des_var_size, dtype=int)}
             else:
-                upper_idxs = np.where(des_var_value > des_var_upper or
-                                      np.isclose(des_var_value, des_var_upper, atol=feas_atol, rtol=feas_rtol))[0]
-                lower_idxs = np.where(des_var_value < des_var_lower or
-                                      np.isclose(des_var_value, des_var_lower, atol=feas_atol, rtol=feas_rtol))[0]
+                upper_mask = np.logical_or(des_var_value > des_var_upper,
+                                           np.isclose(des_var_value, des_var_upper, atol=feas_atol, rtol=feas_rtol))
+                upper_idxs = np.where(upper_mask)[0]
+                lower_mask = np.logical_or(des_var_value < des_var_lower,
+                                           np.isclose(des_var_value, des_var_lower, atol=feas_atol, rtol=feas_rtol))
+                lower_idxs = np.where(lower_mask)[0]
+
                 active_idxs = sorted(np.concatenate((upper_idxs, lower_idxs)))
                 active_bounds = [1 if idx in upper_idxs else -1 for idx in active_idxs]
                 if active_idxs:
@@ -1625,8 +1631,8 @@ class OptimizationDriver(Driver):
         -------
         multipliers : dict[str: ArrayLike]
             A dictionary with an entry for each active constraint and the associated Lagrange multiplier value.
-        active_bounds : dict[str: ArrayLike]
-            A dictionary with an entry for each active constraint and the associated Lagrange multiplier value.
+        active_info : dict[str: dict
+            A dictionary with an entry for each active constraint and its active indices and bounds.
 
         Raises
         ------
@@ -1664,46 +1670,57 @@ class OptimizationDriver(Driver):
             grad_f_vec[offset:offset + inp_size] = grad_f[inp]
             offset += inp_size
 
-        active_all = active_cons | active_dvs
-        n_active = np.sum(np.fromiter((len(c['indices']) for c in active_all.values()), dtype=int))
+        actives = active_cons | active_dvs
+        n_active = np.sum(np.fromiter((len(c['indices']) for c in actives.values()), dtype=int))
         active_cons_mat = np.zeros((n, n_active))
-        for i, constraint in enumerate(active_all):
-            if constraint in des_vars.keys():
-                constraint_grad = {inp: np.array([1.0]) if inp == constraint else np.array([0.0]) for inp in des_vars.keys()}
-            else:
-                constraint_grad = {inp: totals[constraint, inp] for inp in des_vars.keys()}
-            offset = 0
-            for inp in constraint_grad.keys():
-                inp_size = constraint_grad[inp].size
-                active_cons_mat[offset:offset + inp_size, i] = constraint_grad[inp]
-                offset += inp_size
+        active_jac_blocks = []
+
+        if n_active > 0:
+            # TODO: Convert this to a sparse nonlinear least squares.
+            for i, (con_name, active_meta) in enumerate(actives.items()):
+                # If the constraint is a design variable, the constraint gradient wrt des vars is just
+                # an identity matrix sized by the number of active elements in the design variable.
+                active_idxs = active_meta['indices']
+                n_active_elems = len(active_meta['indices'])
+                if con_name in des_vars.keys():
+                    constraint_grad = {inp: np.eye(n_active_elems) if inp == con_name else
+                                    np.zeros((n_active_elems, n_active_elems)) for inp in des_vars.keys()}
+                else:
+                    constraint_grad = {inp: totals[con_name, inp][active_idxs, ...] for inp in des_vars.keys()}
+                # offset = 0
+                # for inp in constraint_grad.keys():
+                #     inp_size = constraint_grad[inp].size
+                #     active_cons_mat[offset:offset + inp_size, i] = constraint_grad[inp]
+                #     offset += inp_size
+                active_jac_blocks.append(list(constraint_grad.values()))
+
+            active_cons_mat = np.block(active_jac_blocks)
+        else:
+            active_cons_mat = np.zeros((n, n_active))
+
+        # print('active cons mat')
+        # print(active_cons_mat)
+
+        # print('grad_f_vec')
+        # print(grad_f_vec)
 
         multipliers_vec, optimality_squared, rank, singular_vals = np.linalg.lstsq(active_cons_mat, -grad_f_vec, rcond=None)
 
         multipliers = dict()
-        active_idxs = dict()
-        active_bounds = dict()
         offset = 0
 
-        for constraint, act_info in active_all.items():
-            print(constraint)
-            print(act_info)
+        for constraint, act_info in actives.items():
             act_idxs = act_info['indices']
-            act_bounds = act_info['active_bound']
             constraint_size = len(act_idxs)
-            active_idxs[constraint] = act_idxs
-            active_bounds[constraint] = act_bounds
             multipliers[constraint] = multipliers_vec[offset:offset + constraint_size]
             offset += constraint_size
 
         if not driver_scaling:
             self._unscale_lagrange_multipliers(multipliers)
 
-        return multipliers, active_idxs, active_bounds
+        return multipliers, actives
 
-    def compute_sensitivites(self, wrt=None, of=None, return_format='flat_dict', debug_print=False,
-                             driver_scaling=False, use_abs_names=False, get_remote=True,
-                             coloring_info=None, feas_tol=1.e-6, mode='rev'):
+    def compute_sensitivites(self, of=None, wrt=None, feas_tol=1.e-6, fd_step=1.0E-8):
         """
         Compute the sensitivities of the objective and other outputs wrt the desired variables.
 
@@ -1717,28 +1734,97 @@ class OptimizationDriver(Driver):
         - The upper, lower, or equality bound on a constraint given as a tuple `('con_name', 'upper')`,
          `('con_name', 'lower')`, or  `('con_name', 'equals')`
 
-        Args:
-            wrt (_type_): _description_
-            of (_type_, optional): _description_. Defaults to None.
-            return_format (str, optional): _description_. Defaults to 'flat_dict'.
-            debug_print (bool, optional): _description_. Defaults to False.
-            driver_scaling (bool, optional): _description_. Defaults to False.
-            use_abs_names (bool, optional): _description_. Defaults to False.
-            get_remote (bool, optional): _description_. Defaults to True.
-            coloring_info (_type_, optional): _description_. Defaults to None.
-            mode (str, optional): _description_. Defaults to 'rev'.
+        Parameters
+        ----------
+        of : list[str]
+            Other inputs to the model, aside from design var and constraint bounds, for which
+            the sensitivities should be computed.
+        wrt : list[str]
+            Other outputs, aside from the objective and design variable values, for which
+            the sensitivities should be computed.
+        feas_tol : float
+            The feasibility tolerance used to determine the active set. If a vehicle violates
+            its bound, or satisfies np.isclose(val, bound, atol=feas_tol, rtol=feas_tol),
+            it is considered active and its sensitivity will be computed.
+        fd_step : float
+            The finite-difference step used to compute second derivatives for the sensitivities.
 
-        Returns:
-            _type_: _description_
+        Returns
+        -------
+        ArrayLike
+            A matrix where each row corresponds to an optimal objective or design var value, or
+            a value specified by other_of, and each column corresponds to an active constraint bound,
+            design variable bound, or value specified by other_wrt.  The value in each element of
+            the matrix is the sensitivity of that row value with respect to the column value.
 
-        Yields:
-            _type_: _description_
         """
-        lam, _ = self._get_lagrange_multipliers(driver_scaling=driver_scaling, feas_tol=feas_tol)
+        prob = self._problem()
+        # The nominal multipliers
+        nom_mult, nom_actives = self._get_lagrange_multipliers(driver_scaling=False, feas_tol=feas_tol)
 
+        driver_vars = prob.list_driver_vars(out_stream=None,
+                                            desvar_opts=['indices', 'ref0', 'ref', 'shape'],
+                                            cons_opts=['indices', 'ref0', 'ref', 'shape'],
+                                            objs_opts=['indices', 'ref0', 'ref', 'shape'])
+        des_vars = {dv: meta for dv, meta in driver_vars['design_vars']}
+        constraints = {con: meta for con, meta in driver_vars['constraints']}
+        objs = {obj: meta for obj, meta in driver_vars['objectives']}
 
+        other_ofs = of if of is not None else []
+        other_wrts = wrt if wrt is not None else []
 
-        # df_dwrt = []
+        ofs = list(objs.keys()) + list(constraints.keys()) + other_ofs
+        wrts = list(des_vars.keys()) + other_wrts
 
-        # for inp in wrt:
-        #     df_dwrt[inp] =
+        totals = prob.compute_totals(of=ofs, wrt=wrts, driver_scaling=False)
+
+        dR_dtheta_blocks = []
+
+        # Compute dR_dtheta
+        for dv_j, dv_j_meta in driver_vars['design_vars']:
+            if dv_j not in nom_mult:
+                nom_mult[dv_j] = np.zeros(dv_j_meta['size'])
+            opt_val = np.copy(dv_j_meta['val'])
+            idxs_j = dv_j_meta['indices']
+            size_j = dv_j_meta['size']
+
+            block_row = []
+            # Perturb the j'th index of dv_j
+            for idx_j in iter_indices(idxs_j, size_j):
+                prob.set_val(dv_j_meta['name'], opt_val[idx_j] + fd_step, indices=idx_j)
+                pert_mult, pert_actives = prob.driver._get_lagrange_multipliers(driver_scaling=False,
+                                                                                feas_tol=feas_tol, assume_dvs_active=True)
+                block_row.append(np.atleast_2d(-(pert_mult[dv_j] - nom_mult[dv_j]) / fd_step).T)
+                prob.set_val(dv_j_meta['name'], opt_val[idx_j], indices=idx_j)
+            dR_dtheta_blocks.append(block_row)
+
+        # This is a hessian, force it to be symmetric to eliminate some roundoff error
+        dR_dtheta = np.block(dR_dtheta_blocks)
+        dR_dtheta = 0.5 * (dR_dtheta + dR_dtheta.T)
+
+        # Now do the same thing for dR_dp
+        dR_dp_blocks = []
+        for wrt_name in other_wrts:
+            nom_val = np.copy(prob.get_val(wrt_name))
+            size = np.prod(nom_val.shape)
+            block_row = []
+            for idx_j in iter_indices(None, size):
+                prob.set_val(wrt_name, nom_val[idx_j] + fd_step, indices=idx_j)
+                pert_mult, pert_actives = prob.driver._get_lagrange_multipliers(driver_scaling=False,
+                                                                                feas_tol=feas_tol, assume_dvs_active=True)
+                sub_col = np.vstack([np.atleast_2d(-(pert_mult[dv_name] - nom_mult[dv_name]) / fd_step).T for dv_name in des_vars])
+                block_row.append(sub_col)
+                prob.set_val(wrt_name, nom_val[idx_j], indices=idx_j)
+            dR_dp_blocks.append(block_row)
+
+        dR_dp = np.block(dR_dp_blocks)
+
+        # Now compute d(theta*)/dp
+        dthetastar_dp, optimality_squared, rank, singular_vals = np.linalg.lstsq(dR_dtheta, -dR_dp, rcond=None)
+
+        # Make the objective sensitivities the first row (unconstrained case)
+        dobj_dp = np.hstack([totals[list(objs.keys())[0], wrt] for wrt in other_wrts])
+
+        sensitivity_matrix = np.vstack((dobj_dp, dthetastar_dp))
+
+        return sensitivity_matrix

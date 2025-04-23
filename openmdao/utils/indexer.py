@@ -87,6 +87,31 @@ def combine_ranges(ranges):
     return rnglist
 
 
+def iter_indices(indices, size):
+    """
+    Generator that yields all variable indices based on an OpenMDAO-style `indices` specification.
+
+    Parameters
+    ----------
+    indices : None, slice, or sequence of int
+        Specifies which indices of the variable to use. `None` means all.
+    size : int
+        Total size (length) of the variable.
+
+    Yields
+    ------
+    int
+        Next valid index of the variable.
+    """
+    if indices is None:
+        yield from range(size)
+    elif isinstance(indices, slice):
+        yield from range(*indices.indices(size))
+    else:
+        for idx in indices:
+            yield idx
+
+
 def ranges2indexer(ranges, src_shape=None):
     """
     Convert a list of ranges to an indexer.
