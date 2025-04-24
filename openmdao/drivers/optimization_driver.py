@@ -1720,7 +1720,7 @@ class OptimizationDriver(Driver):
 
         return multipliers, actives
 
-    def compute_sensitivites(self, of=None, wrt=None, feas_tol=1.e-6, fd_step=1.0E-8):
+    def compute_sensitivities(self, of=None, wrt=None, feas_tol=1.e-6, fd_step=1.0E-8):
         """
         Compute the sensitivities of the objective and other outputs wrt the desired variables.
 
@@ -1756,16 +1756,27 @@ class OptimizationDriver(Driver):
             a value specified by other_of, and each column corresponds to an active constraint bound,
             design variable bound, or value specified by other_wrt.  The value in each element of
             the matrix is the sensitivity of that row value with respect to the column value.
+        rows : dict[str: dict]
+            A dictionary keyed by row variable name and containing metadata for that
+            varaible such as units and indices.
+        cols : dict[str: dict]
+            A dictionary keyed by column variable name and containing metadata for that
+            varaible such as units, active indices, and active bounds.
 
         """
         prob = self._problem()
         # The nominal multipliers
         nom_mult, nom_actives = self._get_lagrange_multipliers(driver_scaling=False, feas_tol=feas_tol)
 
+        if not nom_actives and not wrt:
+            raise RuntimeError('Problem has no active constraints and no '
+                               'other wrt variables are specified.\n'
+                               'No sensitivities computed.')
+
         driver_vars = prob.list_driver_vars(out_stream=None,
-                                            desvar_opts=['indices', 'ref0', 'ref', 'shape'],
-                                            cons_opts=['indices', 'ref0', 'ref', 'shape'],
-                                            objs_opts=['indices', 'ref0', 'ref', 'shape'])
+                                            desvar_opts=['indices', 'ref0', 'ref', 'shape', 'units'],
+                                            cons_opts=['indices', 'ref0', 'ref', 'shape', 'units'],
+                                            objs_opts=['indices', 'ref0', 'ref', 'shape', 'units'])
         des_vars = {dv: meta for dv, meta in driver_vars['design_vars']}
         constraints = {con: meta for con, meta in driver_vars['constraints']}
         objs = {obj: meta for obj, meta in driver_vars['objectives']}
@@ -1778,46 +1789,54 @@ class OptimizationDriver(Driver):
 
         totals = prob.compute_totals(of=ofs, wrt=wrts, driver_scaling=False)
 
-        dR_dtheta_blocks = []
+        # Set the nominal multiplier for the design variables to 0.0 if its not active
+        for dv, meta in des_vars.items():
+            if dv not in nom_mult:
+                nom_mult[dv] = np.zeros(meta['size'])
 
         # Compute dR_dtheta
+        dR_dtheta_cols = []
         for dv_j, dv_j_meta in driver_vars['design_vars']:
-            if dv_j not in nom_mult:
-                nom_mult[dv_j] = np.zeros(dv_j_meta['size'])
             opt_val = np.copy(dv_j_meta['val'])
             idxs_j = dv_j_meta['indices']
             size_j = dv_j_meta['size']
 
-            block_row = []
             # Perturb the j'th index of dv_j
             for idx_j in iter_indices(idxs_j, size_j):
                 prob.set_val(dv_j_meta['name'], opt_val[idx_j] + fd_step, indices=idx_j)
                 pert_mult, pert_actives = prob.driver._get_lagrange_multipliers(driver_scaling=False,
                                                                                 feas_tol=feas_tol, assume_dvs_active=True)
-                block_row.append(np.atleast_2d(-(pert_mult[dv_j] - nom_mult[dv_j]) / fd_step).T)
+                # Make a column vector of the lagrange multiplier associated with each design variable
+                col_j = np.vstack([np.atleast_2d(-(pert_mult[dv_i] - nom_mult[dv_i]) / fd_step).T for dv_i in des_vars.keys()])
+                dR_dtheta_cols.append(col_j)
                 prob.set_val(dv_j_meta['name'], opt_val[idx_j], indices=idx_j)
-            dR_dtheta_blocks.append(block_row)
+            # print('block row')
+            # print(block_row)
+            # dR_dtheta_blocks.append(block_row)
+
+        # print('dR_dtheta_blocks')
+        # print(dR_dtheta_blocks)
+        # print()
 
         # This is a hessian, force it to be symmetric to eliminate some roundoff error
-        dR_dtheta = np.block(dR_dtheta_blocks)
+        dR_dtheta = np.hstack(dR_dtheta_cols)
         dR_dtheta = 0.5 * (dR_dtheta + dR_dtheta.T)
 
         # Now do the same thing for dR_dp
-        dR_dp_blocks = []
+        dR_dp_cols = []
         for wrt_name in other_wrts:
             nom_val = np.copy(prob.get_val(wrt_name))
             size = np.prod(nom_val.shape)
-            block_row = []
+
             for idx_j in iter_indices(None, size):
                 prob.set_val(wrt_name, nom_val[idx_j] + fd_step, indices=idx_j)
                 pert_mult, pert_actives = prob.driver._get_lagrange_multipliers(driver_scaling=False,
                                                                                 feas_tol=feas_tol, assume_dvs_active=True)
                 sub_col = np.vstack([np.atleast_2d(-(pert_mult[dv_name] - nom_mult[dv_name]) / fd_step).T for dv_name in des_vars])
-                block_row.append(sub_col)
+                dR_dp_cols.append(sub_col)
                 prob.set_val(wrt_name, nom_val[idx_j], indices=idx_j)
-            dR_dp_blocks.append(block_row)
 
-        dR_dp = np.block(dR_dp_blocks)
+        dR_dp = np.hstack(dR_dp_cols)
 
         # Now compute d(theta*)/dp
         dthetastar_dp, optimality_squared, rank, singular_vals = np.linalg.lstsq(dR_dtheta, -dR_dp, rcond=None)
@@ -1827,4 +1846,7 @@ class OptimizationDriver(Driver):
 
         sensitivity_matrix = np.vstack((dobj_dp, dthetastar_dp))
 
-        return sensitivity_matrix
+        rows = ofs
+        dR_dtheta_cols = nom_actives | {var: {} for var in other_wrts}
+
+        return sensitivity_matrix, rows, dR_dtheta_cols
