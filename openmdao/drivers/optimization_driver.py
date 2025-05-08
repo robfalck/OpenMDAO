@@ -18,7 +18,7 @@ from openmdao.utils.mpi import MPI
 import openmdao.utils.coloring as coloring_mod
 from openmdao.utils.array_utils import sizes2offsets
 from openmdao.vectors.vector import _full_slice, _flat_full_indexer
-from openmdao.utils.indexer import indexer, iter_indices
+from openmdao.utils.indexer import indexer
 from openmdao.utils.om_warnings import issue_warning, DerivativesWarning, \
     DriverWarning, warn_deprecation
 
@@ -1543,7 +1543,8 @@ class OptimizationDriver(Driver):
                 active_idxs = sorted(np.concatenate((upper_idxs, lower_idxs)))
                 active_bounds = [1 if idx in upper_idxs else -1 for idx in active_idxs]
                 if active_idxs:
-                    active_dvs[des_var] = {'indices': active_idxs, 'active_bounds': active_bounds}
+                    active_dvs[des_var] = {'indices': np.asarray(active_idxs, dtype=int),
+                                           'active_bounds': np.asarray(active_bounds, dtype=int)}
 
         return active_cons, active_dvs
 
@@ -1600,8 +1601,7 @@ class OptimizationDriver(Driver):
 
         return unscaled_multipliers
 
-    def _get_lagrange_multipliers(self, driver_scaling=False, feas_tol=1.0E-6,
-                                  assume_dvs_active=False):
+    def _compute_lagrange_multipliers(self, driver_scaling=False, feas_tol=1.0E-6):
         """
         Get the approximated Lagrange multipliers of one or more constraints.
 
@@ -1622,10 +1622,6 @@ class OptimizationDriver(Driver):
         feas_tol : float or None
             The feasibility tolerance under which the optimization was run. If None, attempt
             to determine this automatically based on the specified optimizer settings.
-        assume_dvs_active : bool
-            If True, mark all design variables as active equality constraints.  This will make it so that
-            lagrange multipliers corresponding to the design varaibles are returned. This is needed for computing
-            derivatives of the optimal design variable values wrt parameters to the problem.
 
         Returns
         -------
@@ -1652,8 +1648,7 @@ class OptimizationDriver(Driver):
         of_totals = {objective, *constraints.keys()}
         wrt_totals = {*des_vars.keys()}
 
-        active_cons, active_dvs = self._get_active_cons_and_dvs(feas_atol=feas_tol, feas_rtol=feas_tol,
-                                                                assume_dvs_active=assume_dvs_active)
+        active_cons, active_dvs = self._get_active_cons_and_dvs(feas_atol=feas_tol, feas_rtol=feas_tol)
 
         totals = prob.compute_totals(list(of_totals), list(wrt_totals), driver_scaling=True)
 
@@ -1681,172 +1676,182 @@ class OptimizationDriver(Driver):
                 # If the constraint is a design variable, the constraint gradient wrt des vars is just
                 # an identity matrix sized by the number of active elements in the design variable.
                 active_idxs = active_meta['indices']
-                n_active_elems = len(active_meta['indices'])
                 if con_name in des_vars.keys():
-                    constraint_grad = {inp: np.eye(n_active_elems) if inp == con_name else
-                                    np.zeros((n_active_elems, n_active_elems)) for inp in des_vars.keys()}
+                    size = des_vars[con_name]['size']
+                    con_grad = {(con_name, inp): np.eye(size)[active_idxs, ...] if inp == con_name else
+                                np.zeros((size, size))[active_idxs, ...] for inp in des_vars.keys()}
                 else:
-                    constraint_grad = {inp: totals[con_name, inp][active_idxs, ...] for inp in des_vars.keys()}
-                # offset = 0
-                # for inp in constraint_grad.keys():
-                #     inp_size = constraint_grad[inp].size
-                #     active_cons_mat[offset:offset + inp_size, i] = constraint_grad[inp]
-                #     offset += inp_size
-                active_jac_blocks.append(list(constraint_grad.values()))
+                    con_grad = {(con_name, inp): totals[con_name, inp][active_idxs, ...] for inp in des_vars.keys()}
+                active_jac_blocks.append(list(con_grad.values()))
 
             active_cons_mat = np.block(active_jac_blocks)
         else:
-            active_cons_mat = np.zeros((n, n_active))
+            return {}, actives
 
-        # print('active cons mat')
-        # print(active_cons_mat)
-
-        # print('grad_f_vec')
-        # print(grad_f_vec)
-
-        multipliers_vec, optimality_squared, rank, singular_vals = np.linalg.lstsq(active_cons_mat, -grad_f_vec, rcond=None)
+        multipliers_vec, optimality_squared, rank, singular_vals = np.linalg.lstsq(active_cons_mat.T, -grad_f_vec, rcond=None)
 
         multipliers = dict()
         offset = 0
 
+        opts = ['indices', 'ref0', 'ref', 'units']
+        driver_vars = prob.list_driver_vars(out_stream=None,
+                                            desvar_opts=opts + ['flat_indices'],
+                                            cons_opts=opts + ['flat_indices'],
+                                            objs_opts=opts,
+                                            return_format='dict')
+        driver_vars = driver_vars['design_vars'] | driver_vars['constraints']
+
         for constraint, act_info in actives.items():
             act_idxs = act_info['indices']
-            constraint_size = len(act_idxs)
-            multipliers[constraint] = multipliers_vec[offset:offset + constraint_size]
-            offset += constraint_size
+            active_size = len(act_idxs)
+            mult_vals = multipliers_vec[offset:offset + active_size]
+
+            shape = prob.get_val(constraint).shape
+            opt_idxs = driver_vars[constraint]['indices']
+            opt_flat_idxs = driver_vars[constraint]['indices']
+            if opt_idxs is not None:
+                if opt_flat_idxs:
+                    flat_opt_idxs = opt_idxs
+                else:
+                    flat_opt_idxs = np.ravel_multi_index(opt_idxs)
+                unraveled_idxs = np.unravel_index(flat_opt_idxs[act_idxs], shape)
+            else:
+                unraveled_idxs = np.unravel_index(act_idxs, shape)
+            multipliers[constraint] = np.zeros(shape)
+            multipliers[constraint][unraveled_idxs] = mult_vals
+            offset += active_size
 
         if not driver_scaling:
             self._unscale_lagrange_multipliers(multipliers)
 
         return multipliers, actives
 
-    def compute_sensitivities(self, of=None, wrt=None, feas_tol=1.e-6, fd_step=1.0E-8):
-        """
-        Compute the sensitivities of the objective and other outputs wrt the desired variables.
+    # def compute_sensitivities(self, of=None, wrt=None, feas_tol=1.e-6, fd_step=1.0E-8):
+    #     """
+    #     Compute the sensitivities of the objective and other outputs wrt the desired variables.
 
-        If `of` is None, only compute the sensitivity of the objective function.
+    #     If `of` is None, only compute the sensitivity of the objective function.
 
-        If `wrt` is None, only compute the sensitivities wrt the design variable bounds.
+    #     If `wrt` is None, only compute the sensitivities wrt the design variable bounds.
 
-        Argument wrt must be provided and may be one of:
-        - The promoted path of a variable whose source is an IndepVarComp.
-        - The upper or lower bound on a design variable given as a tuple `('dv_name', 'upper')` or `('dv_name', 'lower')`.
-        - The upper, lower, or equality bound on a constraint given as a tuple `('con_name', 'upper')`,
-         `('con_name', 'lower')`, or  `('con_name', 'equals')`
+    #     Argument wrt must be provided and may be one of:
+    #     - The promoted path of a variable whose source is an IndepVarComp.
+    #     - The upper or lower bound on a design variable given as a tuple `('dv_name', 'upper')` or `('dv_name', 'lower')`.
+    #     - The upper, lower, or equality bound on a constraint given as a tuple `('con_name', 'upper')`,
+    #      `('con_name', 'lower')`, or  `('con_name', 'equals')`
 
-        Parameters
-        ----------
-        of : list[str]
-            Other inputs to the model, aside from design var and constraint bounds, for which
-            the sensitivities should be computed.
-        wrt : list[str]
-            Other outputs, aside from the objective and design variable values, for which
-            the sensitivities should be computed.
-        feas_tol : float
-            The feasibility tolerance used to determine the active set. If a vehicle violates
-            its bound, or satisfies np.isclose(val, bound, atol=feas_tol, rtol=feas_tol),
-            it is considered active and its sensitivity will be computed.
-        fd_step : float
-            The finite-difference step used to compute second derivatives for the sensitivities.
+    #     Parameters
+    #     ----------
+    #     of : list[str]
+    #         Other inputs to the model, aside from design var and constraint bounds, for which
+    #         the sensitivities should be computed.
+    #     wrt : list[str]
+    #         Other outputs, aside from the objective and design variable values, for which
+    #         the sensitivities should be computed.
+    #     feas_tol : float
+    #         The feasibility tolerance used to determine the active set. If a vehicle violates
+    #         its bound, or satisfies np.isclose(val, bound, atol=feas_tol, rtol=feas_tol),
+    #         it is considered active and its sensitivity will be computed.
+    #     fd_step : float
+    #         The finite-difference step used to compute second derivatives for the sensitivities.
 
-        Returns
-        -------
-        ArrayLike
-            A matrix where each row corresponds to an optimal objective or design var value, or
-            a value specified by other_of, and each column corresponds to an active constraint bound,
-            design variable bound, or value specified by other_wrt.  The value in each element of
-            the matrix is the sensitivity of that row value with respect to the column value.
-        rows : dict[str: dict]
-            A dictionary keyed by row variable name and containing metadata for that
-            varaible such as units and indices.
-        cols : dict[str: dict]
-            A dictionary keyed by column variable name and containing metadata for that
-            varaible such as units, active indices, and active bounds.
+    #     Returns
+    #     -------
+    #     ArrayLike
+    #         A matrix where each row corresponds to an optimal objective or design var value, or
+    #         a value specified by other_of, and each column corresponds to an active constraint bound,
+    #         design variable bound, or value specified by other_wrt.  The value in each element of
+    #         the matrix is the sensitivity of that row value with respect to the column value.
+    #     rows : dict[str: dict]
+    #         A dictionary keyed by row variable name and containing metadata for that
+    #         varaible such as units and indices.
+    #     cols : dict[str: dict]
+    #         A dictionary keyed by column variable name and containing metadata for that
+    #         varaible such as units, active indices, and active bounds.
 
-        """
-        prob = self._problem()
-        # The nominal multipliers
-        nom_mult, nom_actives = self._get_lagrange_multipliers(driver_scaling=False, feas_tol=feas_tol)
+    #     """
+    #     prob = self._problem()
+    #     # The nominal multipliers
+    #     nom_mult, nom_actives = self._compute_lagrange_multipliers(driver_scaling=False, feas_tol=feas_tol)
 
-        if not nom_actives and not wrt:
-            raise RuntimeError('Problem has no active constraints and no '
-                               'other wrt variables are specified.\n'
-                               'No sensitivities computed.')
+    #     if not nom_actives and not wrt:
+    #         raise RuntimeError('Problem has no active constraints and no '
+    #                            'other wrt variables are specified.\n'
+    #                            'No sensitivities computed.')
 
-        driver_vars = prob.list_driver_vars(out_stream=None,
-                                            desvar_opts=['indices', 'ref0', 'ref', 'shape', 'units'],
-                                            cons_opts=['indices', 'ref0', 'ref', 'shape', 'units'],
-                                            objs_opts=['indices', 'ref0', 'ref', 'shape', 'units'])
-        des_vars = {dv: meta for dv, meta in driver_vars['design_vars']}
-        constraints = {con: meta for con, meta in driver_vars['constraints']}
-        objs = {obj: meta for obj, meta in driver_vars['objectives']}
+    #     driver_vars = prob.list_driver_vars(out_stream=None,
+    #                                         desvar_opts=['indices', 'ref0', 'ref', 'shape', 'units', 'lower', 'upper'],
+    #                                         cons_opts=['indices', 'ref0', 'ref', 'shape', 'units', 'lower', 'upper', 'equals'],
+    #                                         objs_opts=['indices', 'ref0', 'ref', 'shape', 'units'],
+    #                                         return_format='dict')
+    #     des_vars = driver_vars['design_vars']
+    #     constraints = driver_vars['constraints']
+    #     objs = driver_vars['objectives']
 
-        other_ofs = of if of is not None else []
-        other_wrts = wrt if wrt is not None else []
+    #     other_ofs = of if of is not None else []
+    #     other_wrts = wrt if wrt is not None else []
 
-        ofs = list(objs.keys()) + list(constraints.keys()) + other_ofs
-        wrts = list(des_vars.keys()) + other_wrts
+    #     ofs = list(objs.keys()) + list(constraints.keys()) + other_ofs
+    #     wrts = list(des_vars.keys()) + other_wrts
 
-        totals = prob.compute_totals(of=ofs, wrt=wrts, driver_scaling=False)
+    #     totals = prob.compute_totals(of=ofs, wrt=wrts, driver_scaling=False)
 
-        # Set the nominal multiplier for the design variables to 0.0 if its not active
-        for dv, meta in des_vars.items():
-            if dv not in nom_mult:
-                nom_mult[dv] = np.zeros(meta['size'])
+    #     # Set the nominal multiplier for the design variables to 0.0 if its not active
+    #     for dv, meta in des_vars.items():
+    #         if dv not in nom_mult:
+    #             nom_mult[dv] = np.zeros(meta['size'])
 
-        # Compute dR_dtheta
-        dR_dtheta_cols = []
-        for dv_j, dv_j_meta in driver_vars['design_vars']:
-            opt_val = np.copy(dv_j_meta['val'])
-            idxs_j = dv_j_meta['indices']
-            size_j = dv_j_meta['size']
+    #     # Compute dR_dtheta
+    #     dR_dtheta_cols = []
+    #     for dv_j, dv_j_meta in des_vars.items():
+    #         opt_val = np.copy(dv_j_meta['val'])
+    #         lower_j = dv_j_meta['lower']
+    #         upper_j = dv_j_meta['upper']
+    #         idxs_j = dv_j_meta['indices']
+    #         size_j = dv_j_meta['size']
 
-            # Perturb the j'th index of dv_j
-            for idx_j in iter_indices(idxs_j, size_j):
-                prob.set_val(dv_j_meta['name'], opt_val[idx_j] + fd_step, indices=idx_j)
-                pert_mult, pert_actives = prob.driver._get_lagrange_multipliers(driver_scaling=False,
-                                                                                feas_tol=feas_tol, assume_dvs_active=True)
-                # Make a column vector of the lagrange multiplier associated with each design variable
-                col_j = np.vstack([np.atleast_2d(-(pert_mult[dv_i] - nom_mult[dv_i]) / fd_step).T for dv_i in des_vars.keys()])
-                dR_dtheta_cols.append(col_j)
-                prob.set_val(dv_j_meta['name'], opt_val[idx_j], indices=idx_j)
-            # print('block row')
-            # print(block_row)
-            # dR_dtheta_blocks.append(block_row)
+    #         # Perturb the j'th index of dv_j
+    #         for idx_j in iter_indices(idxs_j, size_j):
+    #             prob.set_val(dv_j_meta['name'], opt_val[idx_j] + fd_step, indices=idx_j)
+    #             pert_mult, pert_actives = self._compute_lagrange_multipliers(driver_scaling=False,
+    #                                                                          feas_tol=feas_tol, assume_dvs_active=True)
+    #             # Make a column vector of the lagrange multiplier associated with each design variable
+    #             col_j = np.vstack([np.atleast_2d(-(pert_mult[dv_i] - nom_mult[dv_i]) / fd_step).T for dv_i in des_vars.keys()])
+    #             dR_dtheta_cols.append(col_j)
+    #             prob.set_val(dv_j_meta['name'], opt_val[idx_j], indices=idx_j)
 
-        # print('dR_dtheta_blocks')
-        # print(dR_dtheta_blocks)
-        # print()
+    #     # This is a hessian, force it to be symmetric to eliminate some roundoff error
+    #     dR_dtheta = np.hstack(dR_dtheta_cols)
+    #     dR_dtheta = 0.5 * (dR_dtheta + dR_dtheta.T)
 
-        # This is a hessian, force it to be symmetric to eliminate some roundoff error
-        dR_dtheta = np.hstack(dR_dtheta_cols)
-        dR_dtheta = 0.5 * (dR_dtheta + dR_dtheta.T)
+    #     # Now do the same thing for dR_dp
+    #     dR_dp_cols = []
 
-        # Now do the same thing for dR_dp
-        dR_dp_cols = []
-        for wrt_name in other_wrts:
-            nom_val = np.copy(prob.get_val(wrt_name))
-            size = np.prod(nom_val.shape)
+    #     # Make a column of dR_dp for each parameter
+    #     for wrt_name in other_wrts:
+    #         nom_val = np.copy(prob.get_val(wrt_name))
+    #         size = np.prod(nom_val.shape)
 
-            for idx_j in iter_indices(None, size):
-                prob.set_val(wrt_name, nom_val[idx_j] + fd_step, indices=idx_j)
-                pert_mult, pert_actives = prob.driver._get_lagrange_multipliers(driver_scaling=False,
-                                                                                feas_tol=feas_tol, assume_dvs_active=True)
-                sub_col = np.vstack([np.atleast_2d(-(pert_mult[dv_name] - nom_mult[dv_name]) / fd_step).T for dv_name in des_vars])
-                dR_dp_cols.append(sub_col)
-                prob.set_val(wrt_name, nom_val[idx_j], indices=idx_j)
+    #         for idx_j in iter_indices(None, size):
+    #             prob.set_val(wrt_name, nom_val[idx_j] + fd_step, indices=idx_j)
+    #             pert_mult, pert_actives = self._compute_lagrange_multipliers(driver_scaling=False,
+    #                                                                          feas_tol=feas_tol,
+    #                                                                          assume_dvs_active=True)
+    #             sub_col = np.vstack([np.atleast_2d(-(pert_mult[dv_name] - nom_mult[dv_name]) / fd_step).T for dv_name in des_vars])
+    #             dR_dp_cols.append(sub_col)
+    #             prob.set_val(wrt_name, nom_val[idx_j], indices=idx_j)
 
-        dR_dp = np.hstack(dR_dp_cols)
+    #     dR_dp = np.hstack(dR_dp_cols)
 
-        # Now compute d(theta*)/dp
-        dthetastar_dp, optimality_squared, rank, singular_vals = np.linalg.lstsq(dR_dtheta, -dR_dp, rcond=None)
+    #     # Now compute d(theta*)/dp
+    #     dthetastar_dp, optimality_squared, rank, singular_vals = np.linalg.lstsq(dR_dtheta, -dR_dp, rcond=None)
 
-        # Make the objective sensitivities the first row (unconstrained case)
-        dobj_dp = np.hstack([totals[list(objs.keys())[0], wrt] for wrt in other_wrts])
+    #     # Make the objective sensitivities the first row (unconstrained case)
+    #     dobj_dp = np.hstack([totals[list(objs.keys())[0], wrt] for wrt in other_wrts])
 
-        sensitivity_matrix = np.vstack((dobj_dp, dthetastar_dp))
+    #     sensitivity_matrix = np.vstack((dobj_dp, dthetastar_dp))
 
-        rows = ofs
-        dR_dtheta_cols = nom_actives | {var: {} for var in other_wrts}
+    #     rows = list(objs.keys()) + list(des_vars.keys()) + other_ofs
+    #     sens_mat_cols = nom_actives | {var: {} for var in other_wrts}
 
-        return sensitivity_matrix, rows, dR_dtheta_cols
+    #     return sensitivity_matrix, rows, sens_mat_cols
