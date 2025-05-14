@@ -97,100 +97,10 @@ class OptimizationDriver(Driver):
         """
         super().__init__(**kwargs)
 
-        # self._rec_mgr = RecordingManager()  # From super()
-        # self._problem = None   # From super()
-
-        # self._designvars = None
-        # self._designvars_discrete = []
-        # self._cons = None
-        # self._objs = None
-        # self._responses = None
-        # self._lin_dvs = None
-        # self._nl_dvs = None
-
-        # Driver options
-        # self.options = OptionsDictionary(parent_name=type(self).__name__)
-
-        # self.options.declare('debug_print', types=list,
-        #                      values=['desvars', 'nl_cons', 'ln_cons', 'objs', 'totals'],
-        #                      desc="List of what type of Driver variables to print at each "
-        #                           "iteration.",
-        #                      default=[])
-
-        default_desvar_behavior = os.environ.get('OPENMDAO_INVALID_DESVAR_BEHAVIOR', 'warn').lower()
-
-        self.options.declare('invalid_desvar_behavior', values=('warn', 'raise', 'ignore'),
-                             desc='Behavior of driver if the initial value of a design '
-                                  'variable exceeds its bounds. The default value may be'
-                                  'set using the `OPENMDAO_INVALID_DESVAR_BEHAVIOR` environment '
-                                  'variable to one of the valid options.',
-                             default=default_desvar_behavior)
-
-        # Case recording options
-        # self.recording_options = OptionsDictionary(parent_name=type(self).__name__)
-
-        # self.recording_options.declare('record_desvars', types=bool, default=True,
-        #                                desc='Set to True to record design variables at the '
-        #                                     'driver level')
-        # self.recording_options.declare('record_responses', types=bool, default=False,
-        #                                desc='Set True to record constraints and objectives at the '
-        #                                     'driver level')
-        # self.recording_options.declare('record_objectives', types=bool, default=True,
-        #                                desc='Set to True to record objectives at the driver level')
-        # self.recording_options.declare('record_constraints', types=bool, default=True,
-        #                                desc='Set to True to record constraints at the '
-        #                                     'driver level')
-        # self.recording_options.declare('includes', types=list, default=[],
-        #                                desc='Patterns for variables to include in recording. '
-        #                                     'Uses fnmatch wildcards')
-        # self.recording_options.declare('excludes', types=list, default=[],
-        #                                desc='Patterns for vars to exclude in recording '
-        #                                     '(processed post-includes). Uses fnmatch wildcards')
-        # self.recording_options.declare('record_derivatives', types=bool, default=False,
-        #                                desc='Set to True to record derivatives at the driver '
-        #                                     'level')
-        # self.recording_options.declare('record_inputs', types=bool, default=True,
-        #                                desc='Set to True to record inputs at the driver level')
-        # self.recording_options.declare('record_outputs', types=bool, default=True,
-        #                                desc='Set True to record outputs at the '
-        #                                     'driver level.')
-        # self.recording_options.declare('record_residuals', types=bool, default=False,
-        #                                desc='Set True to record residuals at the '
-        #                                     'driver level.')
-
         # What the driver supports.
         self.supports._read_only = False
         self.supports['optimization'] = True
         self.supports._read_only = True
-        # self.supports = OptionsDictionary(parent_name=type(self).__name__)
-        # self.supports.declare('optimization', types=bool, default=True)
-        # self.supports.declare('inequality_constraints', types=bool, default=False)
-        # self.supports.declare('equality_constraints', types=bool, default=False)
-        # self.supports.declare('linear_constraints', types=bool, default=False)
-        # self.supports.declare('linear_only_designvars', types=bool, default=False)
-        # self.supports.declare('two_sided_constraints', types=bool, default=False)
-        # self.supports.declare('multiple_objectives', types=bool, default=False)
-        # self.supports.declare('integer_design_vars', types=bool, default=True)
-        # self.supports.declare('gradients', types=bool, default=False)
-        # self.supports.declare('active_set', types=bool, default=False)
-        # self.supports.declare('simultaneous_derivatives', types=bool, default=False)
-        # self.supports.declare('total_jac_sparsity', types=bool, default=False)
-        # self.supports.declare('distributed_design_vars', types=bool, default=True)
-
-        # self.iter_count = 0
-        # self.cite = ""
-
-        # self._coloring_info = coloring_mod.ColoringMeta()
-
-        # self._total_jac_format = 'flat_dict'
-        # self._con_subjacs = {}
-        # self._total_jac = None
-        # self._total_jac_linear = None
-
-        # self._declare_options()
-        # self.options.update(kwargs)
-        # self.result = DriverResult(self)
-        # self._has_scaling = False
 
     def _get_inst_id(self):
         if self._problem is None:
@@ -233,7 +143,14 @@ class OptimizationDriver(Driver):
 
         This is optionally implemented by subclasses of Driver.
         """
-        pass
+        default_desvar_behavior = os.environ.get('OPENMDAO_INVALID_DESVAR_BEHAVIOR', 'warn').lower()
+
+        self.options.declare('invalid_desvar_behavior', values=('warn', 'raise', 'ignore'),
+                             desc='Behavior of driver if the initial value of a design '
+                                  'variable exceeds its bounds. The default value may be'
+                                  'set using the `OPENMDAO_INVALID_DESVAR_BEHAVIOR` environment '
+                                  'variable to one of the valid options.',
+                             default=default_desvar_behavior)
 
     def _setup_comm(self, comm):
         """
@@ -1234,7 +1151,7 @@ class OptimizationDriver(Driver):
             determined automatically.
         """
         if self.supports['simultaneous_derivatives']:
-            if coloring_mod._force_dyn_coloring and coloring is coloring_mod._STD_COLORING_FNAME:
+            if coloring_mod._force_dyn_coloring and coloring is coloring_mod.STD_COLORING_FNAME:
                 # force the generation of a dynamic coloring this time
                 self._coloring_info.dynamic = True
                 self._coloring_info.static = None
@@ -1284,7 +1201,7 @@ class OptimizationDriver(Driver):
 
             if coloring is None and (static is coloring_mod.STD_COLORING_FNAME or
                                      isinstance(static, str)):
-                if static is coloring_mod._STD_COLORING_FNAME:
+                if static is coloring_mod.STD_COLORING_FNAME:
                     fname = self._get_total_coloring_fname(mode='input')
                 else:
                     fname = static
@@ -1488,13 +1405,16 @@ class OptimizationDriver(Driver):
 
         Returns:
         active_cons : dict[str: dict
-            The names of the active constraints. For each active constraint, a dict of the active indices
-            and the active bound (0='equals', -1='lower', 1='upper') is provided.
+            The names of the active constraints. For each active constraint,
+            a dict of the active indices and the active bound (0='equals',
+            -1='lower', 1='upper') is provided.
         active_dvs : list[str]
-            The names of the active design variables. For each active design variable, a dict of the active indices
-            and the active bound (0='equals', -1='lower', 1='upper') is provided. An active design variable bound of
-            'equal' is only possible when assume_dvs_active is True, and the design variables are returned as if they
-            are on an active equality constraint.
+            The names of the active design variables. For each active design
+            variable, a dict of the active indices and the active bound
+            (0='equals', -1='lower', 1='upper') is provided. An active
+            design variable bound of 'equal' is only possible when
+            assume_dvs_active is True, and the design variables are
+            returned as if they are on an active equality constraint.
         """
         active_cons = {}
         active_dvs = {}
@@ -1502,42 +1422,47 @@ class OptimizationDriver(Driver):
         des_vars = self._designvars
         constraints = self._cons
 
-        for constraint in constraints:
+        for constraint, con_options in constraints.items():
             constraint_value = np.copy(prob.get_val(constraint)).ravel()
-            con_size = constraints[constraint]['size']
-            if 'equals' in constraints[constraint] and constraints[constraint]['equals'] is not None:
+            con_size = con_options['size']
+            if con_options.get('equals', None) is not None:
                 active_cons[constraint] = {'indices': np.arange(con_size, dtype=int),
                                            'active_bounds': np.zeros(con_size, dtype=int)}
             else:
-                constraint_upper = constraints[constraint].get("upper", np.inf)
-                constraint_lower = constraints[constraint].get("lower", -np.inf)
+                constraint_upper = con_options.get("upper", np.inf)
+                constraint_lower = con_options.get("lower", -np.inf)
 
                 upper_mask = np.logical_or(constraint_value > constraint_upper,
-                                           np.isclose(constraint_value, constraint_upper, atol=feas_atol, rtol=feas_rtol))
+                                           np.isclose(constraint_value, constraint_upper,
+                                                      atol=feas_atol, rtol=feas_rtol))
                 upper_idxs = np.where(upper_mask)[0]
                 lower_mask = np.logical_or(constraint_value < constraint_lower,
-                                           np.isclose(constraint_value, constraint_lower, atol=feas_atol, rtol=feas_rtol))
+                                           np.isclose(constraint_value, constraint_lower,
+                                                      atol=feas_atol, rtol=feas_rtol))
                 lower_idxs = np.where(lower_mask)[0]
 
                 active_idxs = sorted(np.concatenate((upper_idxs, lower_idxs)))
                 active_bounds = [1 if idx in upper_idxs else -1 for idx in active_idxs]
                 if active_idxs:
-                    active_cons[constraint] = {'indices': active_idxs, 'active_bounds': active_bounds}
+                    active_cons[constraint] = {'indices': active_idxs,
+                                               'active_bounds': active_bounds}
 
-        for des_var in des_vars.keys():
+        for des_var, des_var_options in des_vars.items():
             des_var_value = np.copy(prob.get_val(des_var)).ravel()
-            des_var_upper = np.ravel(des_vars[des_var].get("upper", np.inf))
-            des_var_lower = np.ravel(des_vars[des_var].get("lower", -np.inf))
-            des_var_size = des_vars[des_var]['size']
+            des_var_upper = np.ravel(des_var_options.get("upper", np.inf))
+            des_var_lower = np.ravel(des_var_options.get("lower", -np.inf))
+            des_var_size = des_var_options['size']
             if assume_dvs_active:
                 active_dvs[des_var] = {'indices': np.arange(des_var_size, dtype=int),
                                        'active_bounds': np.zeros(des_var_size, dtype=int)}
             else:
                 upper_mask = np.logical_or(des_var_value > des_var_upper,
-                                           np.isclose(des_var_value, des_var_upper, atol=feas_atol, rtol=feas_rtol))
+                                           np.isclose(des_var_value, des_var_upper,
+                                                      atol=feas_atol, rtol=feas_rtol))
                 upper_idxs = np.where(upper_mask)[0]
                 lower_mask = np.logical_or(des_var_value < des_var_lower,
-                                           np.isclose(des_var_value, des_var_lower, atol=feas_atol, rtol=feas_rtol))
+                                           np.isclose(des_var_value, des_var_lower,
+                                                      atol=feas_atol, rtol=feas_rtol))
                 lower_idxs = np.where(lower_mask)[0]
 
                 active_idxs = sorted(np.concatenate((upper_idxs, lower_idxs)))
@@ -1558,7 +1483,8 @@ class OptimizationDriver(Driver):
         Parameters
         ----------
         active_constraints : Sequence[str]
-            Active constraints/dvs in the optimization, determined using the get_active_cons_and_dvs method.
+            Active constraints/dvs in the optimization, determined using the
+            get_active_cons_and_dvs method.
         multipliers : dict[str: ArrayLike]
             The Lagrange multipliers, in Driver-scaled units.
 
@@ -1601,7 +1527,7 @@ class OptimizationDriver(Driver):
 
         return unscaled_multipliers
 
-    def _compute_lagrange_multipliers(self, driver_scaling=False, feas_tol=1.0E-6):
+    def compute_lagrange_multipliers(self, driver_scaling=False, feas_tol=1.0E-6):
         """
         Get the approximated Lagrange multipliers of one or more constraints.
 
@@ -1626,19 +1552,12 @@ class OptimizationDriver(Driver):
         Returns
         -------
         multipliers : dict[str: ArrayLike]
-            A dictionary with an entry for each active constraint and the associated Lagrange multiplier value.
+            A dictionary with an entry for each active constraint and the
+            associated Lagrange multiplier value.
         active_info : dict[str: dict
-            A dictionary with an entry for each active constraint and its active indices and bounds.
-
-        Raises
-        ------
-        AttributeError
-            If this optimizer does not support gradients.
+            A dictionary with an entry for each active constraint and its
+            active indices and bounds.
         """
-        if not self.supports['gradients']:
-            raise AttributeError('get_lagrange_multipliers is only applicable to ' \
-                                 'optimization drivers which support gradients.')
-
         prob = self._problem()
 
         objective = list(self._objs.keys())[0]
@@ -1648,9 +1567,12 @@ class OptimizationDriver(Driver):
         of_totals = {objective, *constraints.keys()}
         wrt_totals = {*des_vars.keys()}
 
-        active_cons, active_dvs = self._get_active_cons_and_dvs(feas_atol=feas_tol, feas_rtol=feas_tol)
+        active_cons, active_dvs = self._get_active_cons_and_dvs(feas_atol=feas_tol,
+                                                                feas_rtol=feas_tol)
 
-        totals = prob.compute_totals(list(of_totals), list(wrt_totals), driver_scaling=True)
+        totals = prob.compute_totals(list(of_totals),
+                                     list(wrt_totals),
+                                     driver_scaling=True)
 
         grad_f = {inp: totals[objective, inp] for inp in des_vars.keys()}
 
@@ -1673,22 +1595,26 @@ class OptimizationDriver(Driver):
         if n_active > 0:
             # TODO: Convert this to a sparse nonlinear least squares.
             for i, (con_name, active_meta) in enumerate(actives.items()):
-                # If the constraint is a design variable, the constraint gradient wrt des vars is just
-                # an identity matrix sized by the number of active elements in the design variable.
+                # If the constraint is a design variable, the constraint gradient
+                # wrt des vars is just an identity matrix sized by the number of
+                # active elements in the design variable.
                 active_idxs = active_meta['indices']
                 if con_name in des_vars.keys():
                     size = des_vars[con_name]['size']
-                    con_grad = {(con_name, inp): np.eye(size)[active_idxs, ...] if inp == con_name else
-                                np.zeros((size, size))[active_idxs, ...] for inp in des_vars.keys()}
+                    con_grad = {(con_name, inp): np.eye(size)[active_idxs, ...] if inp == con_name
+                                else np.zeros((size, size))[active_idxs, ...]
+                                for inp in des_vars.keys()}
                 else:
-                    con_grad = {(con_name, inp): totals[con_name, inp][active_idxs, ...] for inp in des_vars.keys()}
+                    con_grad = {(con_name, inp): totals[con_name, inp][active_idxs, ...]
+                                for inp in des_vars.keys()}
                 active_jac_blocks.append(list(con_grad.values()))
 
             active_cons_mat = np.block(active_jac_blocks)
         else:
             return {}, actives
 
-        multipliers_vec, optimality_squared, rank, singular_vals = np.linalg.lstsq(active_cons_mat.T, -grad_f_vec, rcond=None)
+        multipliers_vec, optimality_squared, rank, singular_vals = \
+            np.linalg.lstsq(active_cons_mat.T, -grad_f_vec, rcond=None)
 
         multipliers = dict()
         offset = 0
@@ -1725,133 +1651,3 @@ class OptimizationDriver(Driver):
             self._unscale_lagrange_multipliers(multipliers)
 
         return multipliers, actives
-
-    # def compute_sensitivities(self, of=None, wrt=None, feas_tol=1.e-6, fd_step=1.0E-8):
-    #     """
-    #     Compute the sensitivities of the objective and other outputs wrt the desired variables.
-
-    #     If `of` is None, only compute the sensitivity of the objective function.
-
-    #     If `wrt` is None, only compute the sensitivities wrt the design variable bounds.
-
-    #     Argument wrt must be provided and may be one of:
-    #     - The promoted path of a variable whose source is an IndepVarComp.
-    #     - The upper or lower bound on a design variable given as a tuple `('dv_name', 'upper')` or `('dv_name', 'lower')`.
-    #     - The upper, lower, or equality bound on a constraint given as a tuple `('con_name', 'upper')`,
-    #      `('con_name', 'lower')`, or  `('con_name', 'equals')`
-
-    #     Parameters
-    #     ----------
-    #     of : list[str]
-    #         Other inputs to the model, aside from design var and constraint bounds, for which
-    #         the sensitivities should be computed.
-    #     wrt : list[str]
-    #         Other outputs, aside from the objective and design variable values, for which
-    #         the sensitivities should be computed.
-    #     feas_tol : float
-    #         The feasibility tolerance used to determine the active set. If a vehicle violates
-    #         its bound, or satisfies np.isclose(val, bound, atol=feas_tol, rtol=feas_tol),
-    #         it is considered active and its sensitivity will be computed.
-    #     fd_step : float
-    #         The finite-difference step used to compute second derivatives for the sensitivities.
-
-    #     Returns
-    #     -------
-    #     ArrayLike
-    #         A matrix where each row corresponds to an optimal objective or design var value, or
-    #         a value specified by other_of, and each column corresponds to an active constraint bound,
-    #         design variable bound, or value specified by other_wrt.  The value in each element of
-    #         the matrix is the sensitivity of that row value with respect to the column value.
-    #     rows : dict[str: dict]
-    #         A dictionary keyed by row variable name and containing metadata for that
-    #         varaible such as units and indices.
-    #     cols : dict[str: dict]
-    #         A dictionary keyed by column variable name and containing metadata for that
-    #         varaible such as units, active indices, and active bounds.
-
-    #     """
-    #     prob = self._problem()
-    #     # The nominal multipliers
-    #     nom_mult, nom_actives = self._compute_lagrange_multipliers(driver_scaling=False, feas_tol=feas_tol)
-
-    #     if not nom_actives and not wrt:
-    #         raise RuntimeError('Problem has no active constraints and no '
-    #                            'other wrt variables are specified.\n'
-    #                            'No sensitivities computed.')
-
-    #     driver_vars = prob.list_driver_vars(out_stream=None,
-    #                                         desvar_opts=['indices', 'ref0', 'ref', 'shape', 'units', 'lower', 'upper'],
-    #                                         cons_opts=['indices', 'ref0', 'ref', 'shape', 'units', 'lower', 'upper', 'equals'],
-    #                                         objs_opts=['indices', 'ref0', 'ref', 'shape', 'units'],
-    #                                         return_format='dict')
-    #     des_vars = driver_vars['design_vars']
-    #     constraints = driver_vars['constraints']
-    #     objs = driver_vars['objectives']
-
-    #     other_ofs = of if of is not None else []
-    #     other_wrts = wrt if wrt is not None else []
-
-    #     ofs = list(objs.keys()) + list(constraints.keys()) + other_ofs
-    #     wrts = list(des_vars.keys()) + other_wrts
-
-    #     totals = prob.compute_totals(of=ofs, wrt=wrts, driver_scaling=False)
-
-    #     # Set the nominal multiplier for the design variables to 0.0 if its not active
-    #     for dv, meta in des_vars.items():
-    #         if dv not in nom_mult:
-    #             nom_mult[dv] = np.zeros(meta['size'])
-
-    #     # Compute dR_dtheta
-    #     dR_dtheta_cols = []
-    #     for dv_j, dv_j_meta in des_vars.items():
-    #         opt_val = np.copy(dv_j_meta['val'])
-    #         lower_j = dv_j_meta['lower']
-    #         upper_j = dv_j_meta['upper']
-    #         idxs_j = dv_j_meta['indices']
-    #         size_j = dv_j_meta['size']
-
-    #         # Perturb the j'th index of dv_j
-    #         for idx_j in iter_indices(idxs_j, size_j):
-    #             prob.set_val(dv_j_meta['name'], opt_val[idx_j] + fd_step, indices=idx_j)
-    #             pert_mult, pert_actives = self._compute_lagrange_multipliers(driver_scaling=False,
-    #                                                                          feas_tol=feas_tol, assume_dvs_active=True)
-    #             # Make a column vector of the lagrange multiplier associated with each design variable
-    #             col_j = np.vstack([np.atleast_2d(-(pert_mult[dv_i] - nom_mult[dv_i]) / fd_step).T for dv_i in des_vars.keys()])
-    #             dR_dtheta_cols.append(col_j)
-    #             prob.set_val(dv_j_meta['name'], opt_val[idx_j], indices=idx_j)
-
-    #     # This is a hessian, force it to be symmetric to eliminate some roundoff error
-    #     dR_dtheta = np.hstack(dR_dtheta_cols)
-    #     dR_dtheta = 0.5 * (dR_dtheta + dR_dtheta.T)
-
-    #     # Now do the same thing for dR_dp
-    #     dR_dp_cols = []
-
-    #     # Make a column of dR_dp for each parameter
-    #     for wrt_name in other_wrts:
-    #         nom_val = np.copy(prob.get_val(wrt_name))
-    #         size = np.prod(nom_val.shape)
-
-    #         for idx_j in iter_indices(None, size):
-    #             prob.set_val(wrt_name, nom_val[idx_j] + fd_step, indices=idx_j)
-    #             pert_mult, pert_actives = self._compute_lagrange_multipliers(driver_scaling=False,
-    #                                                                          feas_tol=feas_tol,
-    #                                                                          assume_dvs_active=True)
-    #             sub_col = np.vstack([np.atleast_2d(-(pert_mult[dv_name] - nom_mult[dv_name]) / fd_step).T for dv_name in des_vars])
-    #             dR_dp_cols.append(sub_col)
-    #             prob.set_val(wrt_name, nom_val[idx_j], indices=idx_j)
-
-    #     dR_dp = np.hstack(dR_dp_cols)
-
-    #     # Now compute d(theta*)/dp
-    #     dthetastar_dp, optimality_squared, rank, singular_vals = np.linalg.lstsq(dR_dtheta, -dR_dp, rcond=None)
-
-    #     # Make the objective sensitivities the first row (unconstrained case)
-    #     dobj_dp = np.hstack([totals[list(objs.keys())[0], wrt] for wrt in other_wrts])
-
-    #     sensitivity_matrix = np.vstack((dobj_dp, dthetastar_dp))
-
-    #     rows = list(objs.keys()) + list(des_vars.keys()) + other_ofs
-    #     sens_mat_cols = nom_actives | {var: {} for var in other_wrts}
-
-    #     return sensitivity_matrix, rows, sens_mat_cols

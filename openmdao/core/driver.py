@@ -641,46 +641,6 @@ class Driver(object, metaclass=DriverMetaclass):
             msg = "Driver requires objective to be declared"
             raise RuntimeError(msg)
 
-    def _check_for_invalid_desvar_values(self):
-        """
-        Check for design variable values that exceed their bounds.
-
-        This method's behavior is controlled by the OPENMDAO_INVALID_DESVAR environment variable,
-        which may take on values 'ignore', 'raise'', 'warn'.
-        - 'ignore' : Proceed without checking desvar bounds.
-        - 'warn' : Issue a warning if one or more desvar values exceed bounds.
-        - 'raise' : Raise an exception if one or more desvar values exceed bounds.
-
-        These options are case insensitive.
-        """
-        if self.options['invalid_desvar_behavior'] != 'ignore':
-            invalid_desvar_data = []
-            for var, meta in self._designvars.items():
-                _val = self._problem().get_val(var, units=meta['units'], get_remote=True)
-                val = np.array([_val]) if np.ndim(_val) == 0 else _val  # Handle discrete desvars
-                idxs = meta['indices']() if meta['indices'] else None
-                flat_idxs = meta['flat_indices']
-                scaler = meta['scaler'] if meta['scaler'] is not None else 1.
-                adder = meta['adder'] if meta['adder'] is not None else 0.
-                lower = meta['lower'] / scaler - adder
-                upper = meta['upper'] / scaler - adder
-                flat_val = val.ravel()[idxs] if flat_idxs else val[idxs].ravel()
-
-                if (flat_val < lower).any() or (flat_val > upper).any():
-                    invalid_desvar_data.append((var, val, lower, upper))
-            if invalid_desvar_data:
-                s = 'The following design variable initial conditions are out of their ' \
-                    'specified bounds:'
-                for var, val, lower, upper in invalid_desvar_data:
-                    s += f'\n  {var}\n    val: {val.ravel()}' \
-                         f'\n    lower: {lower}\n    upper: {upper}'
-                s += '\nSet the initial value of the design variable to a valid value or set ' \
-                     'the driver option[\'invalid_desvar_behavior\'] to \'ignore\'.'
-                if self.options['invalid_desvar_behavior'] == 'raise':
-                    raise ValueError(s)
-                else:
-                    issue_warning(s, category=DriverWarning)
-
     def _get_vars_to_record(self, obj=None):
         """
         Get variables to record based on recording options.

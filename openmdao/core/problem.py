@@ -1918,12 +1918,12 @@ class Problem(object, metaclass=ProblemMetaclass):
 
         if return_format == 'dict':
             prob_vars = {'design_vars': {k: v for k, v in des_vars},
-                        'constraints': {k: v for k, v in cons_vars},
-                        'objectives': {k: v for k, v in obj_vars}}
+                         'constraints': {k: v for k, v in cons_vars},
+                         'objectives': {k: v for k, v in obj_vars}}
         else:
             prob_vars = {'design_vars': des_vars,
-                        'constraints': cons_vars,
-                        'objectives': obj_vars}
+                         'constraints': cons_vars,
+                         'objectives': obj_vars}
 
         return prob_vars
 

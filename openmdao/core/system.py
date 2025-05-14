@@ -66,7 +66,7 @@ _DEFAULT_COLORING_META = {
     'per_instance': True,  # assume each instance can have a different coloring
     'coloring': None,  # this will contain the actual Coloring object
     'dynamic': False,  # True if dynamic coloring is being used
-    'static': None,  # either _STD_COLORING_FNAME, a filename, or a Coloring object
+    'static': None,  # either STD_COLORING_FNAME, a filename, or a Coloring object
                      # if use_fixed_coloring was called
 }
 

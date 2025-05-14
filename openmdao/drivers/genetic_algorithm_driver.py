@@ -31,13 +31,13 @@ except ModuleNotFoundError:
     lhs = None
 
 from openmdao.core.constants import INF_BOUND
-from openmdao.core.driver import Driver, RecordingDebugging
+from openmdao.drivers.optimization_driver import OptimizationDriver, RecordingDebugging
 from openmdao.utils.concurrent import concurrent_eval
 from openmdao.utils.mpi import MPI
 from openmdao.core.analysis_error import AnalysisError
 
 
-class SimpleGADriver(Driver):
+class SimpleGADriver(OptimizationDriver):
     """
     Driver for a simple genetic algorithm.
 
@@ -111,6 +111,7 @@ class SimpleGADriver(Driver):
         """
         Declare options before kwargs are processed in the init method.
         """
+        super()._declare_options()
         self.options.declare('bits', default={}, types=(dict),
                              desc='Number of bits of resolution. Default is an empty dict, where '
                              'every unspecified variable is assumed to be integer, and the number '

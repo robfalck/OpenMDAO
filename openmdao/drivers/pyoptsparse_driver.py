@@ -245,6 +245,8 @@ class pyOptSparseDriver(OptimizationDriver):
         """
         Declare options before kwargs are processed in the init method.
         """
+        super()._declare_options()
+
         self.options.declare('optimizer', default='SLSQP', values=optlist,
                              desc='Name of optimizers to use')
         self.options.declare('title', default='Optimization using pyOpt_sparse',

@@ -24,13 +24,13 @@ except ModuleNotFoundError:
     lhs = None
 
 from openmdao.core.constants import INF_BOUND
-from openmdao.core.driver import Driver, RecordingDebugging
+from openmdao.drivers.optimization_driver import OptimizationDriver, RecordingDebugging
 from openmdao.utils.concurrent import concurrent_eval
 from openmdao.utils.mpi import MPI
 from openmdao.core.analysis_error import AnalysisError
 
 
-class DifferentialEvolutionDriver(Driver):
+class DifferentialEvolutionDriver(OptimizationDriver):
     """
     Driver for a differential evolution genetic algorithm.
 
@@ -105,6 +105,8 @@ class DifferentialEvolutionDriver(Driver):
         """
         Declare options before kwargs are processed in the init method.
         """
+        super()._declare_options()
+
         self.options.declare('max_gen', default=100,
                              desc='Number of generations before termination.')
         self.options.declare('pop_size', default=0,

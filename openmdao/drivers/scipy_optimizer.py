@@ -173,6 +173,8 @@ class ScipyOptimizeDriver(OptimizationDriver):
         """
         Declare options before kwargs are processed in the init method.
         """
+        super()._declare_options()
+
         self.options.declare('optimizer', 'SLSQP', values=_all_optimizers,
                              desc='Name of optimizer to use')
         self.options.declare('tol', 1.0e-6, lower=0.0,
