@@ -24,7 +24,8 @@ except ModuleNotFoundError:
     lhs = None
 
 from openmdao.core.constants import INF_BOUND
-from openmdao.drivers.optimization_driver import OptimizationDriver, RecordingDebugging
+from openmdao.drivers.optimization_driver import OptimizationDriver
+from openmdao.core.driver import RecordingDebugging
 from openmdao.utils.concurrent_utils import concurrent_eval
 from openmdao.utils.mpi import MPI
 from openmdao.core.analysis_error import AnalysisError

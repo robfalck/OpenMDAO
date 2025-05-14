@@ -1483,44 +1483,6 @@ class Driver(object, metaclass=DriverMetaclass):
         """
         return self._problem().model.get_coloring_fname(mode)
 
-    def scaling_report(self, outfile='driver_scaling_report.html', title=None, show_browser=True,
-                       jac=True):
-        """
-        Generate a self-contained html file containing a detailed connection viewer.
-
-        Optionally pops up a web browser to view the file.
-
-        Parameters
-        ----------
-        outfile : str, optional
-            The name of the output html file.  Defaults to 'driver_scaling_report.html'.
-        title : str, optional
-            Sets the title of the web page.
-        show_browser : bool, optional
-            If True, pop up a browser to view the generated html file. Defaults to True.
-        jac : bool
-            If True, show jacobian information.
-
-        Returns
-        -------
-        dict
-            Data used to create html file.
-        """
-        from openmdao.visualization.scaling_viewer.scaling_report import view_driver_scaling
-
-        # Run the model if it hasn't been run yet.
-        status = -1 if self._problem is None else self._problem()._metadata['setup_status']
-        if status < _SetupStatus.POST_FINAL_SETUP:
-            raise RuntimeError("Either 'run_model' or 'final_setup' must be called before the "
-                               "scaling report can be generated.")
-
-        prob = self._problem()
-        if prob._run_counter < 0:
-            prob.run_model()
-
-        return view_driver_scaling(self, outfile=outfile, show_browser=show_browser, jac=jac,
-                                   title=title)
-
     def _pre_run_model_debug_print(self):
         """
         Optionally print some debugging information before the model runs.
