@@ -5792,7 +5792,7 @@ class System(object, metaclass=SystemMetaclass):
                     cval = ic_cache[abs_name][0]
                     if _is_slicer_op(indices):
                         try:
-                            ic_cache[abs_name] = (value[indices], set_units, self.pathname, name)
+                            ic_cache[abs_name] = (value[indices], set_units, self.pathname, name, call_info)
                         except (IndexError, TypeError):
                             cval[indices] = value
                             ic_cache[abs_name] = (cval, set_units, self.pathname, name, call_info)
@@ -5802,7 +5802,7 @@ class System(object, metaclass=SystemMetaclass):
                 except Exception as err:
                     raise RuntimeError(f"Failed to set value of '{name}': {str(err)}.")
             else:
-                ic_cache[abs_name] = (value, set_units, self.pathname, name)
+                ic_cache[abs_name] = (value, set_units, self.pathname, name, call_info)
 
             for n, dyn in zip(abs_names, has_dyn_shape):
                 if dyn:
