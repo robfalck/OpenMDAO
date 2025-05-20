@@ -22,6 +22,7 @@ from openmdao.utils.assert_utils import assert_near_equal, assert_check_partials
     assert_check_totals, assert_warnings
 from openmdao.utils.general_utils import set_pyoptsparse_opt
 from openmdao.utils.mpi import MPI
+from openmdao.utils.rich_utils import strip_formatting
 from openmdao.utils.testing_utils import use_tempdirs
 
 try:
@@ -1972,7 +1973,7 @@ class TestComponentComplexStep(unittest.TestCase):
                     end += outputs[outname].size
                     outputs[outname] = prod[start:end]
                     start = end
-        
+
         for compact_print in [True, False]:
             with self.subTest(f'{compact_print=}'):
                 prob = om.Problem()
@@ -1985,27 +1986,18 @@ class TestComponentComplexStep(unittest.TestCase):
 
                 ss = StringIO()
                 prob.check_partials(includes=['comp'], compact_print=compact_print, out_stream=ss)
+                lines = ss.getvalue().splitlines()
+                for i in range(len(lines)):
+                    lines[i] = strip_formatting(lines[i])
+
                 if compact_print:
-                    expected = ("| y1            | x0             |  1.0000e+00 |  1.0000e+00 |  1.3978e-10 "
-                                "|  1.0000e+00 |  1.0000e+00 |  1.3978e-10 |  <BAD SPARSITY> |")
+                    self.assertIn('<BAD SPARSITY>', lines[13])
+                    self.assertIn("| y1            | x0             |", lines[13])
                 else:
-                    expected = (
-                        "  comp: 'y1' wrt 'x0'\n"
-                        "\n"
-                        "    Max Absolute Error (Jfwd - Jfd) : 1.397780e-10\n"
-                        "      fwd value: 1.000000e+00\n"
-                        "      fd value: 1.000000e+00 (fd:forward)\n"
-                        "\n"
-                        "    Max Relative Error (Jfwd - Jfd) / Jfd : 1.397780e-10\n"
-                        "      fwd value: 1.000000e+00\n"
-                        "      fd value: 1.000000e+00 (fd:forward)\n"
-                        "\n"
-                        "    Sparsity excludes 1 entries which appear to be non-zero. (Magnitudes exceed 1e-16) *\n"
-                        "      Rows: [1]\n"
-                        "      Cols: [3]\n"
-                    )
-                
-                self.assertIn(expected, ss.getvalue())
+                    self.assertIn("comp: 'y1' wrt 'x0'", lines[58])
+                    self.assertIn("Sparsity excludes 1 entries which appear to be non-zero. (Magnitudes exceed 1e-16) *", lines[66])
+                    self.assertIn("Rows: [1]", lines[67])
+                    self.assertIn("Cols: [3]", lines[68])
 
 
 class ApproxTotalsFeature(unittest.TestCase):

@@ -8,6 +8,8 @@ import argparse
 import importlib.metadata as ilmd
 
 import re
+import subprocess
+
 from openmdao import __version__ as version
 
 try:
@@ -65,6 +67,8 @@ from openmdao.utils.entry_points import _list_installed_setup_parser, _list_inst
 from openmdao.utils.reports_system import _list_reports_setup_parser, _list_reports_cmd, \
     _view_reports_setup_parser, _view_reports_cmd
 from openmdao.visualization.graph_viewer import _graph_setup_parser, _graph_cmd
+from openmdao.visualization.realtime_opt_plot.realtime_opt_plot import \
+    _realtime_opt_plot_setup_parser, _realtime_opt_plot_cmd
 from openmdao.recorders.view_cases import _view_cases_setup_parser, _view_cases_cmd
 
 
@@ -108,22 +112,15 @@ def _view_connections_cmd(options, user_args):
         view_connections(prob, outfile=options.outfile, show_browser=not options.no_browser,
                          show_values=options.show_values, title=title)
 
-    # register the hook
-    if options.show_values:
-        funcname = 'final_setup'
-    else:
-        funcname = 'setup'
-
     def _view_model_w_errors(prob):
         if prob._metadata['saved_errors']:
-            # run the viewer here if we've had setup errors. Normally we'd wait until
-            # after setup or final_setup.
             _viewconns(prob)
             # errors will result in exit at the end of the _check_collected_errors method
 
+    # register the hooks
     hooks._register_hook('_check_collected_errors', 'Problem', pre=_view_model_w_errors)
-    hooks._register_hook(funcname, class_name='Problem', inst_id=options.problem, post=_viewconns,
-                         exit=True)
+    hooks._register_hook('final_setup', 'Problem', inst_id=options.problem,
+                         post=_viewconns, exit=True)
 
     _load_and_exec(options.file[0], user_args)
 
@@ -440,7 +437,7 @@ def _cite_cmd(options, user_args):
         if not MPI or MPI.COMM_WORLD.rank == 0:
             print_citations(prob, classes=options.classes, out_stream=out)
 
-    hooks._register_hook('setup', 'Problem', post=_cite, exit=True)
+    hooks._register_hook('final_setup', 'Problem', post=_cite, exit=True)
     _load_and_exec(options.file[0], user_args)
 
 
@@ -477,6 +474,68 @@ def _list_pre_post_cmd(options, user_args):
     hooks._register_hook('final_setup', class_name='Problem', inst_id=options.problem,
                          post=_list_pre_post, exit=True)
 
+    _load_and_exec(options.file[0], user_args)
+
+
+def _rtplot_setup_parser(parser):
+    """
+    Set up the openmdao subparser for the 'openmdao rtplot' command.
+
+    Parameters
+    ----------
+    parser : argparse subparser
+        The parser we're adding options to.
+    """
+    parser.add_argument('file', nargs=1, help='Python file containing the model.')
+    parser.add_argument('--no-display', action='store_false', dest='show',
+                        help="do not launch browser showing plot.")
+
+
+def _rtplot_cmd(options, user_args):
+    """
+    Return the post_setup hook function for 'openmdao list_pre_post'.
+
+    Parameters
+    ----------
+    options : argparse Namespace
+        Command line options.
+    user_args : list of str
+        Args to be passed to the user script.
+    """
+
+    def _view_realtime_opt_plot(problem):
+        driver = problem.driver
+        if not driver:
+            raise RuntimeError(
+                "Unable to run realtime optimization progress plot because no Driver")
+        if len(problem.driver._rec_mgr._recorders) == 0:
+            raise RuntimeError(
+                "Unable to run realtime optimization progress plot "
+                    "because no case recorder attached to Driver"
+            )
+
+        recorder_filepath = str(problem.driver._rec_mgr._recorders[0]._filepath)
+
+        if options.show:
+            cmd = ['openmdao', 'realtime_opt_plot', '--pid', str(os.getpid()), recorder_filepath]
+        else:
+            cmd = ['openmdao', 'realtime_opt_plot', '--pid', '--no-display',
+                   str(os.getpid()), recorder_filepath]
+        cp = subprocess.Popen(cmd)  # nosec: trusted input
+
+        # Do a quick non-blocking check to see if it immediately failed
+        # This will catch immediate failures but won't wait for the process to finish
+        quick_check = cp.poll()
+        if quick_check is not None and quick_check != 0:
+            # Process already terminated with an error
+            stderr = cp.stderr.read().decode()
+            raise RuntimeError(
+                f"Failed to start up the realtime plot server with code {quick_check}: {stderr}.")
+
+    # register the hook
+    hooks._register_hook('_setup_recording', 'Problem', post=_view_realtime_opt_plot, ncalls=1)
+
+    # run the script
     _load_and_exec(options.file[0], user_args)
 
 
@@ -650,6 +709,16 @@ _command_map = {
         _partial_coloring_setup_parser,
         _partial_coloring_cmd,
         "Compute coloring(s) for specified partial jacobians.",
+    ),
+    'rtplot': (
+        _rtplot_setup_parser,
+        _rtplot_cmd,
+        "Run the realtime optimization progress plot tool once the driver recorder file is started"
+    ),
+    'realtime_opt_plot': (
+        _realtime_opt_plot_setup_parser,
+        _realtime_opt_plot_cmd,
+        "Run the realtime optimization progress plot tool"
     ),
     "scaffold": (
         _scaffold_setup_parser,

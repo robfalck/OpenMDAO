@@ -1,4 +1,3 @@
-# Run OpenMDAO Tests
 name: OpenMDAO Tests
 
 on:
@@ -9,7 +8,7 @@ on:
     branches: [ master ]
 
   # Allow running the workflow manually from the Actions tab
-  # All jobs are excluded by default, desired jobs must be selected
+  # All jobs are included by default and may be deselected if desired
   workflow_dispatch:
 
     inputs:
@@ -24,49 +23,56 @@ on:
         type: boolean
         description: 'Include Ubuntu Baseline in test matrix'
         required: false
-        default: false
+        default: true
 
       MacOS_Baseline:
         type: boolean
         description: 'Include MacOS Baseline in test matrix'
         required: false
-        default: false
+        default: true
 
       MacOS_ARM:
         type: boolean
         description: 'Include MacOS ARM in test matrix'
         required: false
-        default: false
+        default: true
 
       Windows_Baseline:
         type: boolean
         description: 'Include Windows Baseline in test matrix'
         required: false
-        default: false
+        default: true
 
       Ubuntu_Minimal:
         type: boolean
         description: 'Include Ubuntu Minimal in test matrix'
         required: false
-        default: false
+        default: true
 
       Ubuntu_Oldest:
         type: boolean
         description: 'Include Ubuntu Oldest in test matrix'
         required: false
-        default: false
+        default: true
 
-      Build_Docs:
+      Ubuntu_Newer:
         type: boolean
-        description: 'Build docs'
+        description: 'Include Ubuntu Newer in test matrix'
         required: false
-        default: false
+        default: true
 
       debug_enabled:
         type: boolean
         description: 'Run the build with tmate debugging enabled (https://github.com/marketplace/actions/debugging-with-tmate)'
         required: false
         default: false
+
+      use_pypi:
+        type: boolean
+        description: 'Run tests against the published PyPi version of OpenMDAO'
+        required: false
+        default: false
+
 
 run-name:  ${{ inputs.run_name }}
 
@@ -89,13 +95,12 @@ jobs:
             NUMPY: '1.26'
             SCIPY: '1.14'
             PETSc: '3.20'
-            PYOPTSPARSE: 'v2.11.0'
+            PYOPTSPARSE: 'v2.13.0'
             # PAROPT: true
             SNOPT: '7.7'
-            OPTIONAL: '[all]'
+            OPTIONAL: '[docs,doe,jax,notebooks,numba,test,visualization]'
             BANDIT: true
             PEP517: true
-            TESTS: true
             EXCLUDE: ${{ github.event_name == 'workflow_dispatch'  && ! inputs.Ubuntu_Baseline }}
 
           # test baseline versions on MacOS
@@ -105,11 +110,10 @@ jobs:
             NUMPY: '1.26'
             SCIPY: '1.13'
             PETSc: '3.20'
-            PYOPTSPARSE: 'v2.11.0'
+            PYOPTSPARSE: 'v2.13.0'
             # PAROPT: true
             SNOPT: '7.7'
-            OPTIONAL: '[docs,doe,jax,notebooks,test]'
-            TESTS: true
+            OPTIONAL: '[docs,doe,jax,notebooks,numba,test]'
             EXCLUDE: ${{ github.event_name == 'workflow_dispatch'  && ! inputs.MacOS_Baseline }}
 
           # test baseline versions on MacOS/ARM
@@ -119,11 +123,10 @@ jobs:
             NUMPY: '1.26'
             SCIPY: '1.14'
             PETSc: '3.20'
-            # PYOPTSPARSE: 'v2.11.0'
+            # PYOPTSPARSE: 'v2.13.0'
             # PAROPT: true
             # SNOPT: '7.7'
             OPTIONAL: '[all]'
-            TESTS: true
             EXCLUDE: ${{ github.event_name == 'workflow_dispatch'  && ! inputs.MacOS_ARM }}
 
           # test minimal install
@@ -133,8 +136,21 @@ jobs:
             NUMPY: '1.26'
             SCIPY: '1.14'
             OPTIONAL: '[test]'
-            TESTS: true
             EXCLUDE: ${{ github.event_name == 'workflow_dispatch'  && ! inputs.Ubuntu_Minimal }}
+
+          # test newer versions on Ubuntu
+          - NAME: Ubuntu Newer
+            OS: ubuntu-24.04
+            PY: '3.13'
+            NUMPY: '2.2'
+            SCIPY: '1.15'
+            PETSc: '3.23'
+            PYOPTSPARSE: conda-forge
+            # PAROPT: true
+            SNOPT: '7.7'
+            OPTIONAL: '[docs,doe,jax,notebooks,numba,test,visualization]'
+            PEP517: true
+            EXCLUDE: ${{ github.event_name == 'workflow_dispatch'  && ! inputs.Ubuntu_Newer }}
 
           # test oldest supported versions
           - NAME: Ubuntu Oldest
@@ -148,21 +164,7 @@ jobs:
             PYOPTSPARSE: 'v2.10.2'
             SNOPT: '7.2'
             OPTIONAL: '[all]'
-            TESTS: true
             EXCLUDE: ${{ github.event_name == 'workflow_dispatch'  && ! inputs.Ubuntu_Oldest }}
-
-          # build docs (baseline versions)
-          - NAME: Build Docs
-            OS: ubuntu-latest
-            PY: '3.11'
-            NUMPY: '1.26'
-            SCIPY: '1.13'
-            PETSc: '3.19'
-            PYOPTSPARSE: 'v2.11.0'
-            SNOPT: '7.7'
-            OPTIONAL: '[all]'
-            BUILD_DOCS: true
-            EXCLUDE: ${{ github.event_name == 'workflow_dispatch'  && ! inputs.Build_Docs }}
 
     runs-on: ${{ matrix.OS }}
 
@@ -190,7 +192,7 @@ jobs:
           script: core.setFailed('The ${{ matrix.NAME }} job was excluded from the run, exiting...');
 
       - name: Create SSH key
-        if: (matrix.SNOPT || matrix.BUILD_DOCS)
+        if: matrix.SNOPT
         env:
           SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
           SSH_KNOWN_HOSTS: ${{ secrets.SSH_KNOWN_HOSTS }}
@@ -219,7 +221,12 @@ jobs:
           echo "============================================================="
           echo "Install OpenMDAO"
           echo "============================================================="
-          if [[ "${{ matrix.PEP517 }}" == "true" ]]; then
+          if [[  "${{ inputs.use_pypi }}" == "true" ]]; then
+            echo "-----------------------------------------------------------"
+            echo "Installing from PyPi"
+            echo "-----------------------------------------------------------"
+            python -m pip install openmdao${{ matrix.OPTIONAL }}
+          elif [[ "${{ matrix.PEP517 }}" == "true" ]]; then
             pip wheel --no-deps --use-pep517 .
             WHEEL=`find openmdao-*.whl`
             echo "-----------------------------------------------------------"
@@ -230,7 +237,12 @@ jobs:
             python -m pip install .${{ matrix.OPTIONAL }}
           fi
 
-      - name: Install MacOS-specific dependencies
+      - name: Install Ubuntu 24.04 specific dependencies
+        if: matrix.OS == 'ubuntu-24.04'
+        run: |
+          sudo apt install libblas-dev liblapack-dev
+
+      - name: Install MacOS 13 specific dependencies
         if: matrix.OS == 'macos-13'
         run: |
           conda install swig
@@ -265,6 +277,7 @@ jobs:
           echo "============================================================="
           echo "Check MPI and PETSc installation"
           echo "============================================================="
+          export PRTE_MCA_rmaps_default_mapping_policy=:oversubscribe
           export OMPI_MCA_rmaps_base_oversubscribe=1
           export OMPI_MCA_btl=^openib
           echo "-----------------------"
@@ -278,6 +291,7 @@ jobs:
                                  print(x.getArray())"
           echo "-----------------------"
 
+          echo "PRTE_MCA_rmaps_default_mapping_policy=:oversubscribe" >> $GITHUB_ENV
           echo "OMPI_MCA_rmaps_base_oversubscribe=1" >> $GITHUB_ENV
           echo "OMPI_MCA_btl=^openib" >> $GITHUB_ENV
 
@@ -393,7 +407,6 @@ jobs:
 
       - name: Run tests
         id: run_tests
-        if: matrix.TESTS
         env:
           OPENMDAO_CHECK_ALL_PARTIALS: true
         run: |
@@ -409,7 +422,6 @@ jobs:
 
       - name: Submit coverage
         id: coveralls
-        if: matrix.TESTS
         continue-on-error: true
         env:
           COVERALLS_REPO_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -433,71 +445,6 @@ jobs:
           message: |
             Uploading of coverage data to coveralls.io failed.
             ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-
-      - name: Build docs
-        if: matrix.BUILD_DOCS
-        id: build_docs
-        run: |
-          export OPENMDAO_REPORTS=0
-          export PYDEVD_DISABLE_FILE_VALIDATION=1
-
-          cd openmdao/docs
-          if [[ "${{ secrets.SNOPT_LOCATION_72 }}" || "${{ secrets.SNOPT_LOCATION_77 }}" ]]; then
-            echo "============================================================="
-            echo "Building docs with SNOPT examples."
-            echo "============================================================="
-          else
-            echo "============================================================="
-            echo "Disabling SNOPT cells in notebooks."
-            echo "============================================================="
-            python openmdao_book/other/disable_snopt_cells.py
-          fi
-
-          # start ipcluster to run MPI under notebooks
-          ./ipcluster_start.sh
-          sleep 12
-
-          echo "============================================================="
-          echo "Build the docs"
-          echo "============================================================="
-          python build_source_docs.py
-          jupyter-book build -W --keep-going openmdao_book
-          python copy_build_artifacts.py
-
-      - name: Display doc build reports
-        if: failure() && matrix.BUILD_DOCS && steps.build_docs.outcome == 'failure'
-        run: |
-          for f in $(find /home/runner/work/OpenMDAO/OpenMDAO/openmdao/docs/openmdao_book/_build/html/reports -name '*.log'); do
-            echo "============================================================="
-            echo $f
-            echo "============================================================="
-            cat $f
-          done
-
-      - name: Publish docs
-        if: ${{ github.event_name != 'pull_request' && matrix.BUILD_DOCS }}
-        env:
-          DOCS_LOCATION: ${{ secrets.DOCS_LOCATION }}
-        run: |
-          if [[ "${#DOCS_LOCATION}" ]]; then
-            echo "============================================================="
-            echo "Install version of openssl compatible with hosting service"
-            echo "============================================================="
-            conda install -c conda-forge 'openssl=3.0'
-
-            echo "============================================================="
-            echo "Fetch tags to get docs version"
-            echo "============================================================="
-            git fetch --prune --unshallow --tags
-
-            echo "============================================================="
-            echo "Publish docs"
-            echo "============================================================="
-            cd openmdao/docs
-            python upload_doc_version.py openmdao_book/_build/html/ ${{ secrets.DOCS_LOCATION }}
-          else
-            echo "Docs destination not available."
-          fi
 
       - name: Scan for security issues
         if: matrix.BANDIT
@@ -551,16 +498,6 @@ jobs:
             Unit testing failed on `${{ matrix.NAME }}` build.
             ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
 
-      - name: Slack doc build failure
-        if: failure() && steps.build_docs.outcome == 'failure'
-        uses: act10ns/slack@v2.0.0
-        with:
-          webhook-url: ${{ secrets.SLACK_WEBHOOK_URL }}
-          status: ${{ steps.build_docs.outcome }}
-          message: |
-            Doc build failed on `${{ matrix.NAME }}` build.
-            ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-
       - name: Slack security issue
         if: steps.bandit.outcome == 'failure'
         uses: act10ns/slack@v2.0.0
@@ -577,16 +514,10 @@ jobs:
         with:
           script: |
               let test_fail = ${{ steps.run_tests.outcome == 'failure' }};
-              let docs_fail = ${{ steps.build_docs.outcome == 'failure' }};
-              if (test_fail && docs_fail) {
-                  core.setFailed('Tests and doc build failed.');
-              }
-              else if (test_fail) {
+              if (test_fail) {
                   core.setFailed('Tests failed.');
               }
-              else if (docs_fail) {
-                  core.setFailed('Doc build failed.');
-              }
+
 
   windows_tests:
     runs-on: windows-latest
@@ -639,7 +570,7 @@ jobs:
           channels: conda-forge
           conda-remove-defaults: true
 
-      - name: Install OpenDMAO
+      - name: Install OpenMDAO
         run: |
           conda install numpy=${{ matrix.NUMPY }} scipy=${{ matrix.SCIPY }} -q -y
 
@@ -653,7 +584,14 @@ jobs:
           echo "============================================================="
           echo "Install OpenMDAO"
           echo "============================================================="
-          python -m pip install .[all]
+          if ( "${{ inputs.use_pypi }}" -eq "true" ) {
+            echo "-----------------------------------------------------------"
+            echo "Installing from PyPi"
+            echo "-----------------------------------------------------------"
+            python -m pip install openmdao[all]
+          } else {
+            python -m pip install .[all]
+          }
 
       - name: Install pyOptSparse
         if: matrix.PYOPTSPARSE
@@ -688,6 +626,7 @@ jobs:
                     f'Scipy version {scipy.__version__} is not the requested version (${{ matrix.SCIPY }})'"
 
       - name: Run tests
+        id: run_tests
         env:
           OPENMDAO_CHECK_ALL_PARTIALS: true
         run: |

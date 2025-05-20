@@ -467,7 +467,7 @@ class Driver(object, metaclass=DriverMetaclass):
 
                 # For Auto-ivcs, we need to check the distributed metadata on the target instead.
                 if meta['source'].startswith('_auto_ivc.'):
-                    for abs_name in model._var_allprocs_prom2abs_list['input'][dv]:
+                    for abs_name in model._resolver.absnames(dv, 'input'):
                         # we can use abs name to check for discrete vars here because
                         # relative names are absolute names at the model level.
                         if abs_name in discrete_in:
@@ -488,7 +488,7 @@ class Driver(object, metaclass=DriverMetaclass):
 
         # Now determine if later we'll need to allgather cons, objs, or desvars.
         if model.comm.size > 1:
-            loc_vars = set(model._outputs._abs_iter())
+            loc_vars = set(model._outputs)
             # some of these lists could have duplicate src names if aliases are used. We'll
             # fix that when we convert to sets after the allgather.
             remote_dvs = [n for n in _src_name_iter(self._designvars) if n not in loc_vars]
@@ -712,14 +712,12 @@ class Driver(object, metaclass=DriverMetaclass):
 
         problem = self._problem()
         model = problem.model
-
+        resolver = model._resolver
         incl = recording_options['includes']
         excl = recording_options['excludes']
 
         # includes and excludes for outputs are specified using promoted names
         # includes and excludes for inputs are specified using _absolute_ names
-        abs2prom_output = model._var_allprocs_abs2prom['output']
-        abs2prom_inputs = model._var_allprocs_abs2prom['input']
 
         # set of promoted output names and absolute input and residual names
         # used for matching includes/excludes
@@ -737,13 +735,14 @@ class Driver(object, metaclass=DriverMetaclass):
         myresiduals = set()
 
         if recording_options['record_outputs']:
-            match_names.update(abs2prom_output.values())
-            myoutputs = {n for n, prom in abs2prom_output.items() if check_path(prom, incl, excl)}
+            match_names.update(resolver.prom_iter('output'))
+            myoutputs = {n for n, prom in resolver.abs2prom_iter('output')
+                         if check_path(prom, incl, excl)}
 
         if recording_options['record_residuals']:
             match_names.update(model._residuals)
-            myresiduals = [n for n in model._residuals._abs_iter()
-                           if check_path(abs2prom_output[n], incl, excl)]
+            myresiduals = [n for n in model._residuals
+                           if check_path(resolver.abs2prom(n, 'output'), incl, excl)]
 
         if recording_options['record_desvars']:
             myoutputs.update(_src_name_iter(self._designvars))
@@ -755,13 +754,13 @@ class Driver(object, metaclass=DriverMetaclass):
         # inputs (if in options). inputs use _absolute_ names for includes/excludes
         if 'record_inputs' in recording_options:
             if recording_options['record_inputs']:
-                match_names.update(abs2prom_inputs)
-                myinputs = {n for n in abs2prom_inputs if check_path(n, incl, excl)}
+                match_names.update(resolver.abs_iter('input'))
+                myinputs = {n for n in resolver.abs_iter('input') if check_path(n, incl, excl)}
 
-                match_names.update(model._var_allprocs_prom2abs_list['input'])
-                for p in model._var_allprocs_prom2abs_list['input']:
+                match_names.update(model._resolver.prom_iter('input'))
+                for p in model._resolver.prom_iter('input'):
                     if check_path(p, incl, excl):
-                        myoutputs.add(model.get_source(p))
+                        myoutputs.add(model._resolver.source(p))
 
         # check that all exclude/include globs have at least one matching output or input name
         for pattern in excl:
@@ -1428,7 +1427,7 @@ class Driver(object, metaclass=DriverMetaclass):
         self._coloring_info.randomize_seeds = randomize_seeds
         self._coloring_info.direct = direct
 
-    def use_fixed_coloring(self, coloring=coloring_mod._STD_COLORING_FNAME):
+    def use_fixed_coloring(self, coloring=coloring_mod.STD_COLORING_FNAME()):
         """
         Tell the driver to use a precomputed coloring.
 
@@ -1439,7 +1438,8 @@ class Driver(object, metaclass=DriverMetaclass):
             determined automatically.
         """
         if self.supports['simultaneous_derivatives']:
-            if coloring_mod._force_dyn_coloring and coloring is coloring_mod._STD_COLORING_FNAME:
+            if coloring_mod._force_dyn_coloring and isinstance(coloring,
+                                                               coloring_mod.STD_COLORING_FNAME):
                 # force the generation of a dynamic coloring this time
                 self._coloring_info.dynamic = True
                 self._coloring_info.static = None
@@ -1487,18 +1487,17 @@ class Driver(object, metaclass=DriverMetaclass):
         else:
             coloring = info.coloring
 
-            if coloring is None and (static is coloring_mod._STD_COLORING_FNAME or
-                                     isinstance(static, str)):
-                if static is coloring_mod._STD_COLORING_FNAME:
-                    fname = self._get_total_coloring_fname(mode='input')
-                else:
+            if coloring is None and isinstance(static, (str, coloring_mod.STD_COLORING_FNAME)):
+                if isinstance(static, str):
                     fname = static
+                else:
+                    fname = self.get_coloring_fname(mode='input')
 
                 print(f"loading total coloring from file {fname}")
                 coloring = info.coloring = coloring_mod.Coloring.load(fname)
                 info.update(coloring._meta)
 
-                ofname = self._get_total_coloring_fname(mode='output')
+                ofname = self.get_coloring_fname(mode='output')
                 if ((model._full_comm is not None and model._full_comm.rank == 0) or
                         (model._full_comm is None and model.comm.rank == 0)):
                     coloring.save(ofname)
@@ -1518,8 +1517,21 @@ class Driver(object, metaclass=DriverMetaclass):
 
         return coloring
 
-    def _get_total_coloring_fname(self, mode='output'):
-        return self._problem().get_coloring_dir(mode='output') / 'total_coloring.pkl'
+    def get_coloring_fname(self, mode='output'):
+        """
+        Get the filename for the coloring file.
+
+        Parameters
+        ----------
+        mode : str
+            'input' or 'output'.
+
+        Returns
+        -------
+        str
+            The filename for the coloring file.
+        """
+        return self._problem().model.get_coloring_fname(mode)
 
     def scaling_report(self, outfile='driver_scaling_report.html', title=None, show_browser=True,
                        jac=True):
@@ -1661,7 +1673,7 @@ class Driver(object, metaclass=DriverMetaclass):
                               "already been computed.")
 
             if self._coloring_info.dynamic and self._coloring_info.do_compute_coloring():
-                ofname = self._get_total_coloring_fname(mode='output')
+                ofname = self.get_coloring_fname(mode='output')
                 self._coloring_info.coloring = \
                     coloring_mod.dynamic_total_coloring(self,
                                                         run_model=run_model,

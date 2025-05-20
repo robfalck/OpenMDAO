@@ -60,6 +60,9 @@ jax = [
     "jax>=0.4.0",
     "jaxlib>=0.4.0",
 ]
+numba = [
+    "numba",
+]
 notebooks = [
     "ipympl",
     "notebook",
@@ -79,9 +82,10 @@ test = [
 ]
 visualization = [
     "panel",
-    "bokeh>=2.4.0",
+    "bokeh>=3.4.0",
     "colorama",
     "matplotlib",
+    "rich"
 ]
 
 [project.scripts]

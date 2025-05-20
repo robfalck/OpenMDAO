@@ -91,6 +91,18 @@ class ExplicitFuncComp(ExplicitComponent):
                 issue_warning(f"{self.msginfo}: failed jit compile of compute function: {err}. "
                               "Falling back to using non-jitted function.")
 
+    @property
+    def _mode(self):
+        """
+        Return the current system mode.
+
+        Returns
+        -------
+        str
+            The current system mode, 'fwd' or 'rev'.
+        """
+        return self.best_partial_deriv_direction()
+
     def setup(self):
         """
         Define out inputs and outputs.
@@ -189,7 +201,7 @@ class ExplicitFuncComp(ExplicitComponent):
             else:
                 j = [np.asarray(a).reshape((a.shape[0], shape_to_len(a.shape[1:])))
                      for a in jac_reverse(func, argnums, tangents)(*invals)]
-                j = coloring.expand_jac(np.hstack(j), 'rev')
+                j = coloring._expand_jac(np.hstack(j), 'rev').toarray()
         else:
             tangents = self._get_tangents(invals, 'fwd', coloring, argnums)
             if coloring is None:
@@ -210,7 +222,7 @@ class ExplicitFuncComp(ExplicitComponent):
             else:
                 j = [np.asarray(a).reshape((shape_to_len(a.shape[:-1]), a.shape[-1]))
                      for a in jac_forward(func, argnums, tangents)(*invals)]
-                j = coloring.expand_jac(np.vstack(j), 'fwd')
+                j = coloring._expand_jac(np.vstack(j), 'fwd').toarray()
 
         self._jacobian.set_dense_jac(self, j)
 

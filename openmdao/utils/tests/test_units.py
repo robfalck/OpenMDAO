@@ -274,6 +274,17 @@ class TestPhysicalUnit(unittest.TestCase):
             simplified_str = simplify_unit(test_str)
             self.assertEqual(simplified_str, correct_str)
 
+    def test_MMBtu(self):
+        fact = unit_conversion('MMBtu', 'Btu')
+        assert_near_equal(fact[0], 1.0E6)
+
+    def test_suggest_units(self):
+        with self.assertRaises(ValueError) as cm:
+            unit_conversion('lbm', 'kgg')
+        expected = ("The units 'kgg' are invalid. Perhaps "
+                    "you meant one of the following units?: ['kg', 'g']")
+        self.assertEqual(expected, str(cm.exception))
+
     def test_atto_seconds(self):
         # The unit 'as' was bugged because it is a python keyword.
 
@@ -324,6 +335,7 @@ class TestModuleFunctions(unittest.TestCase):
         with warnings.catch_warnings():
             warnings.simplefilter("error")
             p.setup()
+            p.final_setup()
 
         p.run_model()
         assert_near_equal(p.get_val('exec_comp.z'), 15.0)
@@ -340,6 +352,7 @@ class TestModuleFunctions(unittest.TestCase):
         with warnings.catch_warnings():
             warnings.simplefilter("error")
             p.setup()
+            p.final_setup()
 
         p.run_model()
         assert_near_equal(p.get_val('exec_comp.z'), 15.0)
@@ -357,6 +370,7 @@ class TestModuleFunctions(unittest.TestCase):
         with warnings.catch_warnings():
             warnings.simplefilter("error")
             p.setup()
+            p.final_setup()
 
         p.run_model()
         assert_near_equal(p.get_val('exec_comp.z'), 15.0)
@@ -376,6 +390,7 @@ class TestModuleFunctions(unittest.TestCase):
 
         with self.assertRaises(RuntimeError) as cm:
             p.setup()
+            p.final_setup()
         self.assertEqual(str(cm.exception), msg)
 
 class TestUnitless(unittest.TestCase):
@@ -384,6 +399,7 @@ class TestUnitless(unittest.TestCase):
         ivc = p.model.add_subsystem('indeps', om.IndepVarComp(), promotes=['*'])
         ivc.add_output('margin_of_safety', val=0.05, units='unitless')
         p.setup()
+        p.final_setup()
         margin_percent = p.get_val('margin_of_safety', units='percent')[0]
         assert_near_equal(margin_percent, 5)
 
@@ -401,6 +417,7 @@ class TestUnitless(unittest.TestCase):
 
         with self.assertRaises(RuntimeError) as cm:
             p.setup()
+            p.final_setup()
         self.assertEqual(str(cm.exception), msg)
 
 
