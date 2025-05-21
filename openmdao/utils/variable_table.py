@@ -93,13 +93,13 @@ def write_var_table(pathname, var_list, var_type, var_dict,
     #  so that we do the column output in the correct order
     if var_type == 'input':
         out_types = ('val', 'units', 'shape', 'global_shape', 'prom_name', 'desc', 'min', 'max',
-                     'tags')
+                     'tags', 'val_info')
     elif var_type == 'all':
         out_types = ('val', 'io', 'resids', 'units', 'shape', 'global_shape', 'lower', 'upper',
-                     'ref', 'ref0', 'res_ref', 'prom_name', 'desc', 'min', 'max', 'tags')
+                     'ref', 'ref0', 'res_ref', 'prom_name', 'desc', 'min', 'max', 'tags', 'val_info')
     else:
         out_types = ('val', 'resids', 'units', 'shape', 'global_shape', 'lower', 'upper',
-                     'ref', 'ref0', 'res_ref', 'prom_name', 'desc', 'min', 'max', 'tags')
+                     'ref', 'ref0', 'res_ref', 'prom_name', 'desc', 'min', 'max', 'tags', 'val_info')
 
     # Figure out which columns will be displayed.
     for var_meta in var_dict.values():

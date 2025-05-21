@@ -594,19 +594,19 @@ class Problem(object, metaclass=ProblemMetaclass):
         Set all initial conditions that have been saved in cache after setup.
         """
         for abs_name, ic_meta in self.model._initial_condition_cache.items():
-            value, set_units, pathname, name, call_info = ic_meta
+            value, set_units, pathname, name, val_info = ic_meta
             if pathname:
                 system = self.model._get_subsystem(pathname)
                 if system is None:
-                    self.model.set_val(pathname + '.' + name, value, units=set_units)
+                    self.model.set_val(pathname + '.' + name, value, units=set_units, call_info=val_info)
                 else:
-                    system.set_val(name, value, units=set_units)
+                    system.set_val(name, value, units=set_units, call_info=val_info)
             else:
-                self.model.set_val(name, value, units=set_units)
-
-            io_type = 'input' if abs_name in self.model._var_abs2meta['input'] else 'output'
-            self.model._var_abs2meta[io_type][abs_name]['val_info'] = call_info
-            self.model._var_allprocs_abs2meta[io_type][abs_name]['val_info'] = call_info
+                self.model.set_val(name, value, units=set_units, call_info=val_info)
+            # Setting the meta here works, but really need to set it in system.set_val
+            # io_type = 'input' if abs_name in self.model._var_abs2meta['input'] else 'output'
+            # self.model._var_abs2meta[io_type][abs_name]['val_info'] = val_info
+            # self.model._var_allprocs_abs2meta[io_type][abs_name]['val_info'] = val_info
 
         # Clean up cache
         self.model._initial_condition_cache = {}

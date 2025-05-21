@@ -4223,6 +4223,7 @@ class System(object, metaclass=SystemMetaclass):
                   out_stream=_DEFAULT_OUT_STREAM,
                   print_min=False,
                   print_max=False,
+                  val_info=False,
                   return_format='list'):
         """
         Write a list of inputs and outputs sorted by component in execution order.
@@ -4288,6 +4289,8 @@ class System(object, metaclass=SystemMetaclass):
             When true, if the output value is an array, print its smallest value.
         print_max : bool
             When true, if the output value is an array, print its largest value.
+        val_info : bool
+            When true, include information about where the value of the variable was last set.
         return_format : str
             Indicates the desired format of the return value. Can have value of 'list' or 'dict'.
             If 'list', the return value is a list of (name, metadata) tuples.
@@ -4309,8 +4312,8 @@ class System(object, metaclass=SystemMetaclass):
             raise ValueError(f"Invalid value ({badarg}) for return_format, "
                              "must be a string value of 'list' or 'dict'")
 
-        keynames = ['val', 'units', 'shape', 'global_shape', 'desc', 'tags']
-        keyflags = [val, units, shape, global_shape, desc, tags or print_tags]
+        keynames = ['val', 'units', 'shape', 'global_shape', 'desc', 'tags', 'val_info']
+        keyflags = [val, units, shape, global_shape, desc, tags or print_tags, val_info]
 
         keys = [name for i, name in enumerate(keynames) if keyflags[i]]
 
@@ -4318,6 +4321,9 @@ class System(object, metaclass=SystemMetaclass):
             keys.extend(('lower', 'upper'))
         if scaling:
             keys.extend(('ref', 'ref0', 'res_ref'))
+
+        if val_info:
+            keys.extend(('tags',))
 
         if all_procs:
             local = True
@@ -4332,8 +4338,11 @@ class System(object, metaclass=SystemMetaclass):
 
         metavalues = val and self._inputs is None
 
-        keyvals = [metavalues, units, shape, global_shape, desc, tags or print_tags]
+        keyvals = [metavalues, units, shape, global_shape, desc, tags or print_tags, val_info]
         keys = [n for i, n in enumerate(keynames) if keyvals[i]]
+
+        if val_info:
+            keys.extend(('tags',))
 
         inputs = self.get_io_metadata(('input',), keys, includes, excludes,
                                       is_indep_var, is_design_var, tags,
@@ -4421,6 +4430,7 @@ class System(object, metaclass=SystemMetaclass):
 
         if not (all_procs or self.comm.rank == 0):
             out_stream = None
+
         write_var_table(self.pathname, var_list, 'all', var_dict,
                         True, print_arrays, out_stream)
 
@@ -5687,8 +5697,8 @@ class System(object, metaclass=SystemMetaclass):
         call_info : str or None
             Information about the calling file/line used to track where values of variables are set.
             If None, use openmdao.file_utils.get_caller_info to determine this. Libraries that invoke
-            set_val within their own machinery may wish to use get_caller_info to introspect the
-            caller of their API.
+            set_val within their own machinery may wish to use openmdao.utils.file_utils.get_caller_info
+            to introspect the caller of their API.
         """
         try:
             ginputs = self._group_inputs
@@ -5834,6 +5844,12 @@ class System(object, metaclass=SystemMetaclass):
                 # to the promoted name used in the set_val call
                 var_name = name if src_is_auto_ivc else src
                 if model._outputs._contains_abs(src):  # src is local
+                    if src_is_auto_ivc:
+                        # When setting a value connected to an autoivc output,
+                        # also set the val_info on that auto_ivc_output.
+                        all_meta['output'][src]['val_info'] = call_info
+                        if src in loc_meta['output']:
+                            loc_meta['output'][src]['val_info'] = call_info
                     if (model._outputs._abs_get_val(src).size == 0 and
                             src_is_auto_ivc and
                             all_meta['output'][src]['distributed']):
@@ -5908,6 +5924,11 @@ class System(object, metaclass=SystemMetaclass):
                 model._inputs.set_var(abs_name, value, indices)
             elif abs_name in model._discrete_inputs:   # could happen if model is a component
                 model._discrete_inputs[abs_name] = value
+
+            for name in abs_names:
+                io_type = 'input' if name in self._var_abs2meta['input'] else 'output'
+                self._var_abs2meta[io_type][name]['val_info'] = call_info
+                self._var_allprocs_abs2meta[io_type][name]['val_info'] = call_info
 
     def _get_input_from_src(self, name, abs_ins, conns, units=None, indices=None,
                             get_remote=False, rank=None, vec_name='nonlinear', flat=False,

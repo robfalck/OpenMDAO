@@ -80,7 +80,7 @@ def inputs_report(prob, outfile=None, display=True, precision=6, title=None,
     desvars = model.get_design_vars(recurse=True, get_sizes=False, use_prom_ivc=False)
 
     headers = ['Absolute Name', 'Input Name', 'Source Name', 'Source is IVC', 'Source is DV',
-               'Units', 'Shape', 'Tags', 'Val', 'Min Val', 'Max Val', 'Absolute Source', 'Value set at']
+               'Units', 'Shape', 'Tags', 'Val', 'Min Val', 'Max Val', 'Absolute Source', 'Value Source']
     column_meta = [{'header': h} for h in headers]
     column_meta[9]['format'] = '{:.6g}'
     column_meta[10]['format'] = '{:.6g}'
