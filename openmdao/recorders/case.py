@@ -551,6 +551,7 @@ class Case(object):
                   out_stream=_DEFAULT_OUT_STREAM,
                   print_min=False,
                   print_max=False,
+                  val_info=False,
                   return_format='list'):
         """
         Write a list of inputs and outputs sorted by component in execution order.
@@ -612,6 +613,8 @@ class Case(object):
             When true, if the output value is an array, print its smallest value.
         print_max : bool
             When true, if the output value is an array, print its largest value.
+        val_info : bool
+            When true, include information about where the value of the variable was last set.
         return_format : str
             Indicates the desired format of the return value. Can have value of 'list' or 'dict'.
             If 'list', the return value is a list of (name, metadata) tuples.
@@ -627,14 +630,16 @@ class Case(object):
             raise ValueError(f"Invalid value ({badarg}) for return_format, "
                              "must be a string value of 'list' or 'dict'")
 
-        keynames = ['val', 'units', 'shape', 'desc', 'tags']
-        keyflags = [val, units, shape, desc, tags or print_tags]
+        keynames = ['val', 'units', 'shape', 'desc', 'tags', 'val_info']
+        keyflags = [val, units, shape, desc, tags or print_tags, 'val_info']
         keys = [name for i, name in enumerate(keynames) if keyflags[i]]
 
         if bounds:
             keys.extend(('lower', 'upper'))
         if scaling:
             keys.extend(('ref', 'ref0', 'res_ref'))
+        if val_info:
+            keys.extend(('tags',))
 
         outputs = self.get_io_metadata('output', keys, includes, excludes,
                                        is_indep_var, is_design_var, tags)

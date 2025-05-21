@@ -40,7 +40,6 @@ class ListVarsTest(unittest.TestCase):
 
         self.assertEqual(str(cm.exception), msg)
 
-
     def test_err_not_recorded(self):
         prob = ParaboloidProblem()
 
@@ -363,6 +362,23 @@ class ListVarsTest(unittest.TestCase):
         case = om.CaseReader(prob.get_outputs_dir() / 'list_vars.db').get_case(0)
 
         io_vars = case.list_vars(units=True, out_stream=None, return_format='dict')
+
+        self.assertEqual(io_vars, expected)
+
+    def test_list_vars_val_info(self):
+        prob = om.Problem(RectangleGroup())
+        prob.setup()
+        prob.model.add_recorder(om.SqliteRecorder('list_vars.db'))
+
+        prob.set_val('length', 3.)
+        prob.set_val('width', 2.)
+        prob.run_model()
+
+        expected = prob.model.list_vars(units=True, return_format='dict', val_info=True)
+
+        case = om.CaseReader(prob.get_outputs_dir() / 'list_vars.db').get_case(0)
+
+        io_vars = case.list_vars(units=True, return_format='dict', val_info=True)
 
         self.assertEqual(io_vars, expected)
 

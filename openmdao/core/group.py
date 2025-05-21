@@ -4728,7 +4728,7 @@ class Group(System):
                 else:
                     auto2tgt[src] = [abs_in]
 
-        for ivc_out_name, abs_in_names in auto2tgt.items():
+        for _, abs_in_names in auto2tgt.items():
             all_meta_in = self._var_allprocs_abs2meta['input']
             loc_meta_in = self._var_abs2meta['input']
             for abs_in in abs_in_names:
