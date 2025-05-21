@@ -3446,7 +3446,7 @@ class Group(System):
                     if recorder not in self._auto_ivc_recorders:
                         self._auto_ivc_recorders.append(recorder)
 
-    def connect(self, src_name, tgt_name, src_indices=None, flat_src_indices=None, call_info=None):
+    def connect(self, src_name, tgt_name, src_indices=None, flat_src_indices=None):
         """
         Connect source src_name to target tgt_name in this namespace.
 
@@ -3464,11 +3464,6 @@ class Group(System):
             If True, each entry of src_indices is assumed to be an index into the
             flattened source.  Otherwise it must be a tuple or list of size equal
             to the number of dimensions of the source.
-        call_info : str or None
-            Information about the calling file/line used to track where variables are connected.
-            If None, use openmdao.file_utils.get_caller_info to determine this. Libraries that invoke
-            connect within their own machinery may wish to use openmdao.utils.file_utils.get_caller_info
-            to introspect the caller of their API.
         """
         # if src_indices argument is given, it should be valid
         if isinstance(src_indices, str):
