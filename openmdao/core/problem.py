@@ -2544,6 +2544,16 @@ class Problem(object, metaclass=ProblemMetaclass):
 
             return coloring
 
+    def get_func(self, args=None, returns=None,
+                 design_vars=True, constraints=True, objectives=True, driver_scaling=False,
+                 implicit_outputs=False, residuals=False, solver_scaling=False):
+        from openmdao.core.function import Function
+        return Function(self, args, returns, design_vars, constraints, objectives,
+                        driver_scaling, implicit_outputs, residuals, solver_scaling)
+
+
+
+
 
 def _fix_check_data(data):
     """
