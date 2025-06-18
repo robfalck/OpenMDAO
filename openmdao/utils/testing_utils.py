@@ -308,8 +308,8 @@ def _fix_comp_check_data(data):
     data : dict
         Dictionary containing derivative information keyed by subjac.
     """
-    names = ['J_fd', 'abs error', 'rel error', 'magnitude', 'directional_fd_fwd',
-             'directional_fd_rev']
+    names = ['J_fd', 'tol violation', 'magnitude', 'directional_fd_fwd', 'directional_fd_rev',
+             'vals_at_max_error', 'abs error', 'rel error']
 
     for name in names:
         if name in data:
@@ -367,8 +367,13 @@ def compare_prob_vs_comp_check_partials(probdata, compdata, comp):
             probval2 = probval[key2]
             compval2 = compval[key2]
 
-            if key2 == 'J_fd' or key2 == 'J_fwd':
+            if key2 in ('J_fd', 'J_fwd', 'denom_idx'):
                 assert_near_equal(probval2, compval2, 1e-6, 1e-6)
+            elif key2 in ('rows', 'cols'):
+                if probval2 is None:
+                    assert probval2 is compval2
+                else:
+                    assert np.all(probval2 == compval2)
             else:
                 for i in range(3):
                     p = probval2[i]

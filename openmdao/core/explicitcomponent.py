@@ -4,6 +4,7 @@ import numpy as np
 from itertools import chain
 
 from openmdao.jacobians.dictionary_jacobian import DictionaryJacobian
+from openmdao.utils.coloring import _ColSparsityJac
 from openmdao.core.component import Component
 from openmdao.vectors.vector import _full_slice
 from openmdao.utils.class_util import overrides_method
@@ -107,15 +108,13 @@ class ExplicitComponent(Component):
             Distributed sizes if var is distributed else None
         """
         start = end = 0
-        local_ins = self._var_abs2meta['input']
         toidx = self._var_allprocs_abs2idx
         sizes = self._var_sizes['input']
         for wrt, meta in self._var_abs2meta['input'].items():
             if wrt_matches is None or wrt in wrt_matches:
                 end += meta['size']
-                vec = self._inputs if wrt in local_ins else None
                 dist_sizes = sizes[:, toidx[wrt]] if meta['distributed'] else None
-                yield wrt, start, end, vec, _full_slice, dist_sizes
+                yield wrt, start, end, self._inputs, _full_slice, dist_sizes
                 start = end
 
     def _setup_residuals(self):
@@ -301,8 +300,8 @@ class ExplicitComponent(Component):
         Compute outputs. The model is assumed to be in a scaled state.
         """
         with Recording(self.pathname + '._solve_nonlinear', self.iter_count, self):
-            with self._unscaled_context(outputs=[self._outputs], residuals=[self._residuals]):
-                self._residuals.set_val(0.0)
+            self._residuals.set_val(0.0)
+            with self._unscaled_context(outputs=[self._outputs]):
                 self._compute_wrapper()
 
             # Iteration counter is incremented in the Recording context manager at exit.
@@ -528,17 +527,16 @@ class ExplicitComponent(Component):
         if self.compute_primal is None:
             return
 
-        returns = \
-            self.compute_primal(*self._get_compute_primal_invals(inputs, discrete_inputs))
+        returns = self.compute_primal(*self._get_compute_primal_invals(inputs, discrete_inputs))
 
         if not isinstance(returns, _tuplist):
             returns = (returns,)
 
-        if not discrete_outputs:
-            outputs.set_vals(returns)
-        else:
+        if discrete_outputs:
             outputs.set_vals(returns[:outputs.nvars()])
             self._discrete_outputs.set_vals(returns[outputs.nvars():])
+        else:
+            outputs.set_vals(returns)
 
     def compute_partials(self, inputs, partials, discrete_inputs=None):
         """
@@ -590,7 +588,7 @@ class ExplicitComponent(Component):
         """
         return True
 
-    def _get_compute_primal_invals(self, inputs, discrete_inputs):
+    def _get_compute_primal_invals(self, inputs=None, discrete_inputs=None):
         """
         Yield the inputs expected by the compute_primal method.
 
@@ -606,6 +604,11 @@ class ExplicitComponent(Component):
         any
             Inputs expected by the compute_primal method.
         """
+        if inputs is None:
+            inputs = self._inputs
+        if discrete_inputs is None:
+            discrete_inputs = self._discrete_inputs
+
         yield from inputs.values()
         if discrete_inputs:
             yield from discrete_inputs.values()
@@ -624,3 +627,29 @@ class ExplicitComponent(Component):
                                                                   self._discrete_inputs)]
         else:
             return list(chain(self._var_rel_names['input'], self._discrete_inputs))
+
+    def compute_fd_sparsity(self, method='fd', num_full_jacs=2, perturb_size=1e-9):
+        """
+        Use finite difference to compute a sparsity matrix.
+
+        Parameters
+        ----------
+        method : str
+            The type of finite difference to perform. Valid options are 'fd' for forward difference,
+            or 'cs' for complex step.
+        num_full_jacs : int
+            Number of times to repeat jacobian computation using random perturbations.
+        perturb_size : float
+            Size of the random perturbation.
+
+        Returns
+        -------
+        coo_matrix
+            The sparsity matrix.
+        """
+        jac = _ColSparsityJac(self)
+        for _ in self._perturbation_iter(num_full_jacs, perturb_size,
+                                         (self._inputs,), (self._outputs, self._residuals)):
+            self._apply_nonlinear()
+            self.compute_fd_jac(jac=jac, method=method)
+        return jac.get_sparsity()

@@ -141,8 +141,16 @@ class DictionaryJacobian(Jacobian):
         is_explicit = system.is_explicit()
         do_randomize = self._randgen is not None and system._problem_meta['randomize_subjacs']
 
+        do_reset = False
         with system._unscaled_context(outputs=[d_outputs], residuals=[d_residuals]):
             for abs_key in self._iter_abs_keys(system):
+                if abs_key not in subjacs_info:
+                    # for components that compute sparsity at first linearization, some subjacs
+                    # will be determined to be zero and removed from subjacs_info., so we need to
+                    # update our iteration keys.
+                    do_reset = True
+                    continue
+
                 res_name, other_name = abs_key
 
                 if other_name in d_out_names:
@@ -217,6 +225,9 @@ class DictionaryJacobian(Jacobian):
                                 elif other_name in d_inp_names:
                                     d_inputs._abs_set_val(other_name, left_vec)
 
+            if do_reset:
+                self._iter_keys = None  # subjacs_info has been reduced, so update iter keys
+
 
 class _CheckingJacobian(DictionaryJacobian):
     """
@@ -226,9 +237,10 @@ class _CheckingJacobian(DictionaryJacobian):
     nonzero values found in the column being set.
     """
 
-    def __init__(self, system):
+    def __init__(self, system, uncovered_threshold=1.0E-16):
         super().__init__(system)
         self._subjacs_info = self._subjacs_info.copy()
+        self._uncovered_threshold = uncovered_threshold
 
         # Convert any scipy.sparse subjacs to OpenMDAO's interal COO specification.
         for key, subjac in self._subjacs_info.items():
@@ -237,8 +249,6 @@ class _CheckingJacobian(DictionaryJacobian):
                 self._subjacs_info[key]['rows'] = coo_val.row
                 self._subjacs_info[key]['cols'] = coo_val.col
                 self._subjacs_info[key]['val'] = coo_val.data
-
-        self._errors = []
 
     def __iter__(self):
         for key, _ in self.items():
@@ -304,7 +314,8 @@ class _CheckingJacobian(DictionaryJacobian):
         The column is assumed to be the same size as a column of the jacobian.
 
         If the column has any nonzero values that are outside of specified sparsity patterns for
-        any of the subjacs, an exception will be raised.
+        any of the subjacs, the information will be saved in subjacs_info so we can report it
+        during the derivative test.
 
         Parameters
         ----------
@@ -355,9 +366,9 @@ class _CheckingJacobian(DictionaryJacobian):
                     arr = scratch[start:end]
                     arr[:] = column[start:end]
                     arr[row_inds] = 0.  # zero out the rows that are covered by sparsity
-                    nzs = np.nonzero(arr)[0]
+                    nzs = np.where(np.abs(arr) > self._uncovered_threshold)[0]
                     if nzs.size > 0:
-                        self._errors.append(f"{system.msginfo}: User specified sparsity (rows/cols)"
-                                            f" for subjac '{of}' wrt '{wrt}' is incorrect. There "
-                                            f"are non-covered nonzeros in column {loc_idx} at "
-                                            f"row(s) {nzs}.")
+                        if 'uncovered_nz' not in subjac:
+                            subjac['uncovered_nz'] = []
+                            subjac['uncovered_threshold'] = self._uncovered_threshold
+                        subjac['uncovered_nz'].extend(list(zip(nzs, loc_idx * np.ones_like(nzs))))

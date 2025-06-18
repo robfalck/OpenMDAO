@@ -2,6 +2,7 @@
 import os
 import re
 import sys
+import textwrap
 from types import TracebackType
 import unittest
 from contextlib import contextmanager
@@ -21,7 +22,7 @@ from openmdao.utils.array_utils import shape_to_len
 _float_inf = float('inf')
 
 
-def ensure_compatible(name, value, shape=None, indices=None):
+def ensure_compatible(name, value, shape=None, indices=None, default_shape=(1,)):
     """
     Make value compatible with the specified shape or the shape of indices.
 
@@ -35,6 +36,8 @@ def ensure_compatible(name, value, shape=None, indices=None):
         The expected or desired shape of the value.
     indices : Indexer or None
         The indices into a source variable.
+    default_shape : tuple
+        The default shape to use if shape is not provided.
 
     Returns
     -------
@@ -78,12 +81,18 @@ def ensure_compatible(name, value, shape=None, indices=None):
 
     if shape is None:
         # shape is not determined, assume the shape of value was intended
-        value = np.atleast_1d(value)
+        if np.isscalar(value):
+            value = np.full(default_shape, value)
+        else:
+            value = np.asarray(value).reshape(default_shape)
         shape = value.shape
     else:
         # shape is determined, if value is scalar assign it to array of shape
         # otherwise make sure value is an array of the determined shape
-        if np.ndim(value) == 0 or value.shape == (1,):
+        if np.ndim(value) == 0:
+            if shape != ():
+                value = np.full(shape, value)
+        elif value.shape == (1,):
             value = np.full(shape, value)
         else:
             value = np.atleast_1d(value).astype(np.float64)
@@ -398,7 +407,7 @@ def pattern_filter(patterns, var_iter, name_index=None):
     Yields
     ------
     str
-        Variable name that matches a pattern.
+        Variable name or corresponding tuple where the name matches a pattern.
     """
     if '*' in patterns:
         yield from var_iter
@@ -648,6 +657,48 @@ def printoptions(*args, **kwds):
         yield np.get_printoptions()
     finally:
         np.set_printoptions(**opts)
+
+
+@contextmanager
+def indent_context(stream, indent='   '):
+    """
+    Context manager for indenting all std output.
+
+    Parameters
+    ----------
+    stream : stream
+        The stream to write indented output to.
+    indent : str
+        The string to use for indentation.
+
+    Yields
+    ------
+    str
+        The current stdout.
+    """
+    save_stdout = sys.stdout
+    save_stderr = sys.stderr
+
+    # buffer all of stdout so we can indent it all
+    sys.stdout = StringIO()
+    sys.stderr = sys.stdout
+
+    try:
+        yield sys.stdout
+    except Exception:
+        # not sure what happened, so just print the whole thing without indentation
+        print(sys.stdout.getvalue(), file=save_stdout)
+        errs = sys.stderr.getvalue()
+        if errs:
+            print(errs, file=save_stderr)
+        raise
+    else:
+        # nothing went wrong so do indentation
+        if stream is not None:
+            stream.write(textwrap.indent(sys.stdout.getvalue(), indent))
+    finally:
+        sys.stderr = save_stderr
+        sys.stdout = save_stdout
 
 
 def _nothing():
@@ -1212,16 +1263,16 @@ def get_connection_owner(system, tgt):
 
     model = system._problem_meta['model_ref']()
     src = model._conn_global_abs_in2out[tgt]
-    abs2prom = model._var_allprocs_abs2prom
+    resolver = model._resolver
 
-    if src in abs2prom['output'] and tgt in abs2prom['input'][tgt]:
-        if abs2prom['input'][tgt] != abs2prom['output'][src]:
+    if resolver.is_abs(src, 'output') and resolver.is_abs(tgt, 'input'):
+        if resolver.abs2prom(tgt, 'input') != resolver.abs2prom(src, 'output'):
             # connection is explicit
             for g in model.system_iter(include_self=True, recurse=True, typ=Group):
                 if g._manual_connections:
-                    tprom = g._var_allprocs_abs2prom['input'][tgt]
+                    tprom = g._resolver.abs2prom(tgt, 'input')
                     if tprom in g._manual_connections:
-                        return g, g._var_allprocs_abs2prom['output'][src], tprom
+                        return g, g._resolver.abs2prom(src, 'output'), tprom
 
     return system, src, tgt
 
@@ -1291,12 +1342,12 @@ class LocalRangeIterable(object):
         all_abs2meta = system._var_allprocs_abs2meta['output']
         if vname in all_abs2meta:
             sizes = system._var_sizes['output']
-            slices = system._outputs.get_slice_dict()
+            vec = system._outputs
             abs2meta = system._var_abs2meta['output']
         else:
             all_abs2meta = system._var_allprocs_abs2meta['input']
             sizes = system._var_sizes['input']
-            slices = system._inputs.get_slice_dict()
+            vec = system._inputs
             abs2meta = system._var_abs2meta['input']
 
         if all_abs2meta[vname]['distributed']:
@@ -1313,10 +1364,11 @@ class LocalRangeIterable(object):
             self._var_size = all_abs2meta[vname]['global_size']
         else:
             self._iter = self._serial_iter
+            start, stop = vec.get_range(vname)
             if use_vec_offset:
-                self._inds = range(slices[vname].start, slices[vname].stop)
+                self._inds = range(start, stop)
             else:
-                self._inds = range(slices[vname].stop - slices[vname].start)
+                self._inds = range(stop - start)
             self._var_size = all_abs2meta[vname]['global_size']
 
     def __repr__(self):
@@ -1819,3 +1871,18 @@ def call_depth2indent(tabsize=2, offset=-1):
         A string of spaces.
     """
     return ' ' * ((len(stack()) + offset) * tabsize)
+
+
+def print_with_line_numbers(text, **kwargs):
+    """
+    Print a string with each line preceded by its line number.
+
+    Parameters
+    ----------
+    text : str
+        The text to print with line numbers.
+    **kwargs : dict
+        Keyword arguments to pass to print.
+    """
+    for i, line in enumerate(text.splitlines(), 1):
+        print(f"{i:5d} | {line}", **kwargs)

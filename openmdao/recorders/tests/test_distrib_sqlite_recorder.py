@@ -12,7 +12,7 @@ from openmdao.utils.mpi import MPI
 import openmdao.api as om
 
 from openmdao.utils.array_utils import evenly_distrib_idxs
-from openmdao.utils.file_utils import get_work_dir
+from openmdao.utils.file_utils import _get_work_dir
 from openmdao.recorders.tests.sqlite_recorder_test_utils import \
     assertDriverIterDataRecorded, assertProblemDataRecorded
 from openmdao.recorders.tests.recorder_test_utils import run_driver
@@ -240,8 +240,8 @@ class DistributedRecorderTest(unittest.TestCase):
             expected_outputs[src] = val
 
         # includes for outputs are specified as promoted names but we need absolute names
-        prom2abs = model._var_allprocs_prom2abs_list['output']
-        abs_includes = [prom2abs[n][0] for n in prob.driver.recording_options['includes']]
+        prom2abs = model._resolver.prom2abs
+        abs_includes = [prom2abs(n, 'output') for n in prob.driver.recording_options['includes']]
 
         # Absolute path names of includes on this rank
         rrank = model.comm.rank
@@ -408,7 +408,7 @@ class DistributedRecorderTest(unittest.TestCase):
 
         def run_parallel():
             # process cases.sql in parallel
-            cr = om.CaseReader(os.path.join(get_work_dir(), 'test_record_on_one_proc_out/cases.sql'))
+            cr = om.CaseReader(os.path.join(_get_work_dir(), 'test_record_on_one_proc_out/cases.sql'))
 
             cases = cr.list_cases()
             self.assertEqual(len(cases), 9)

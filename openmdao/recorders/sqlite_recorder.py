@@ -176,7 +176,7 @@ class SqliteRecorder(CaseRecorder):
         self._pickle_version = pickle_version
         self._filepath = str(filepath)
 
-        self._use_outputs_dir = not (os.path.sep in str(filepath) or '/' in str(filepath))
+        self._use_outputs_dir = not (os.path.sep in self._filepath or '/' in self._filepath)
 
         self._database_initialized = False
         self._started = set()
@@ -193,6 +193,7 @@ class SqliteRecorder(CaseRecorder):
             The communicator for the recorder (should be the comm for the Problem).
         """
         filepath = None
+        self.connection = self.metadata_connection = None
 
         if MPI and comm and comm.size > 1:
             if self._record_on_proc:
@@ -351,7 +352,7 @@ class SqliteRecorder(CaseRecorder):
                              ': {0}'.format(recording_requester))
 
         if self._use_outputs_dir:
-            self._filepath = system.get_outputs_dir() / self._filepath
+            self._filepath = system.get_outputs_dir(mkdir=True) / self._filepath
 
         if not self._database_initialized:
             self._initialize_database(comm)
@@ -381,11 +382,11 @@ class SqliteRecorder(CaseRecorder):
                 objectives = driver._objs
 
             # merge current abs2prom and prom2abs with this system's version
-            self._abs2prom['input'].update(system._var_allprocs_abs2prom['input'])
-            self._abs2prom['output'].update(system._var_allprocs_abs2prom['output'])
-            for v, abs_names in system._var_allprocs_prom2abs_list['input'].items():
+            self._abs2prom['input'].update(system._resolver.abs2prom_iter('input'))
+            self._abs2prom['output'].update(system._resolver.abs2prom_iter('output'))
+            for v, abs_names in system._resolver.prom2abs_iter('input'):
                 if v not in self._prom2abs['input']:
-                    self._prom2abs['input'][v] = abs_names
+                    self._prom2abs['input'][v] = abs_names.copy()
                 else:
                     lst = self._prom2abs['input'][v]
                     old = set(lst)
@@ -394,7 +395,7 @@ class SqliteRecorder(CaseRecorder):
                             lst.append(name)
 
             # for outputs, there can be only one abs name per promoted name
-            for v, abs_names in system._var_allprocs_prom2abs_list['output'].items():
+            for v, abs_names in system._resolver.prom2abs_iter('output'):
                 self._prom2abs['output'][v] = abs_names
 
             for name, meta in system.abs_meta_iter('output', local=False, discrete=True):

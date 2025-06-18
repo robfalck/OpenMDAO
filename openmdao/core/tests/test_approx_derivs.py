@@ -1,6 +1,7 @@
 """ Testing for group finite differencing."""
 import time
 import unittest
+from io import StringIO
 
 from packaging.version import Version
 
@@ -21,6 +22,7 @@ from openmdao.utils.assert_utils import assert_near_equal, assert_check_partials
     assert_check_totals, assert_warnings
 from openmdao.utils.general_utils import set_pyoptsparse_opt
 from openmdao.utils.mpi import MPI
+from openmdao.utils.rich_utils import strip_formatting
 from openmdao.utils.testing_utils import use_tempdirs
 
 try:
@@ -1940,6 +1942,7 @@ class TestComponentComplexStep(unittest.TestCase):
                      [0, 1, 0, 1, 1, 0, 1]], dtype=int)
 
                 self.add_input('x0', val=np.ones(4))
+
                 self.add_input('x1', val=np.ones(2))
                 self.add_input('x2', val=np.ones(1))
 
@@ -1971,19 +1974,30 @@ class TestComponentComplexStep(unittest.TestCase):
                     outputs[outname] = prod[start:end]
                     start = end
 
-        prob = om.Problem()
-        model = prob.model
-        model.add_subsystem('comp', BadSparsityComp())
+        for compact_print in [True, False]:
+            with self.subTest(f'{compact_print=}'):
+                prob = om.Problem()
+                model = prob.model
+                model.add_subsystem('comp', BadSparsityComp())
 
-        prob.setup(check=False, mode='fwd')
-        prob.set_solver_print(level=0)
-        prob.run_model()
+                prob.setup(check=False, mode='fwd')
+                prob.set_solver_print(level=0)
+                prob.run_model()
 
-        with self.assertRaises(Exception) as cm:
-            prob.check_partials(includes=['comp'])
+                ss = StringIO()
+                prob.check_partials(includes=['comp'], compact_print=compact_print, out_stream=ss)
+                lines = ss.getvalue().splitlines()
+                for i in range(len(lines)):
+                    lines[i] = strip_formatting(lines[i])
 
-        self.assertEqual(cm.exception.args[0], "'comp' <class BadSparsityComp>: User specified sparsity (rows/cols) for subjac 'comp.y1' wrt 'comp.x0' is incorrect. There are non-covered nonzeros in column 3 at row(s) [1].")
-
+                if compact_print:
+                    self.assertIn('<BAD SPARSITY>', lines[13])
+                    self.assertIn("| y1            | x0             |", lines[13])
+                else:
+                    self.assertIn("comp: 'y1' wrt 'x0'", lines[58])
+                    self.assertIn("Sparsity excludes 1 entries which appear to be non-zero. (Magnitudes exceed 1e-16) *", lines[66])
+                    self.assertIn("Rows: [1]", lines[67])
+                    self.assertIn("Cols: [3]", lines[68])
 
 
 class ApproxTotalsFeature(unittest.TestCase):
