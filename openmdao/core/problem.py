@@ -7,6 +7,7 @@ import sys
 import pprint
 import os
 from copy import deepcopy
+from typing import Sequence, Optional
 import weakref
 import pathlib
 import textwrap
@@ -24,6 +25,7 @@ from openmdao.core.constants import _SetupStatus
 from openmdao.core.component import Component
 from openmdao.core.driver import Driver, record_iteration
 from openmdao.core.explicitcomponent import ExplicitComponent
+from openmdao.core.function import Function
 from openmdao.core.system import System, _iter_derivs
 from openmdao.core.group import Group
 from openmdao.core.total_jac import _TotalJacInfo
@@ -2544,10 +2546,47 @@ class Problem(object, metaclass=ProblemMetaclass):
 
             return coloring
 
-    def get_func(self, args=None, returns=None,
-                 design_vars=True, constraints=True, objectives=True, driver_scaling=False,
-                 implicit_outputs=False, residuals=False, solver_scaling=False):
-        from openmdao.core.function import Function
+    def get_func(self,
+                 args: Optional[Sequence[str]]=None,
+                 returns: Optional[Sequence[str]]=None,
+                 design_vars: bool=True,
+                 constraints: bool=True,
+                 objectives: bool=True,
+                 driver_scaling: bool=False,
+                 implicit_outputs: bool=False,
+                 residuals: bool=False,
+                 solver_scaling: bool=True,
+                 flatten_args: bool=True,
+                 flatten_returns: bool=True):
+        """
+        Provide a callable interface to the Problem for use
+
+        Parameters
+        ----------
+            args
+                Promoted variable paths to be used as arguments of the function.
+            returns
+                Promoted variable paths to be used as returned by the function.
+            design_vars
+                If True, include declared design variables in the arguments.
+            constraints
+                If True, include declared constraints in the returned values.
+            objectives
+                If True, include declared objectives in the returned values.
+            driver_scaling
+                If True, accept design variables and return outputs with driver
+                scaling applied.
+            implicit_outputs
+                If True, include impicit outputs in the returned values.
+            residuals
+                If True, include residuals in the returned values.
+            solver_scaling
+                If True, include solver scaling on implicit outputs and residuals.
+            flatten_args
+                If True, args shall be provided as a single, C-order-flattened vector.
+            flatten_returns
+                If True, returns shall be returned as a single, C-order-flattened vector.
+        """
         return Function(self, args, returns, design_vars, constraints, objectives,
                         driver_scaling, implicit_outputs, residuals, solver_scaling)
 
