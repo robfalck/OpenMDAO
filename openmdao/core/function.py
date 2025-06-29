@@ -1,7 +1,48 @@
 from collections.abc import Iterable
 from openmdao.core.constants import _DEFAULT_OUT_STREAM
+from openmdao.utils.array_utils import array_hash
+
 
 import numpy as np
+
+def _expanded_indices(x: np.ndarray, indexer) -> list[tuple]:
+    """
+    Given an array `x` and an indexer, return a list of all index tuples (i, j, ...)
+    corresponding to the elements selected by x[indexer].
+
+    Parameters:
+    - x: np.ndarray
+    - indexer: any valid numpy index expression
+
+    Returns:
+    - list of tuples, each tuple is a multi-index into x
+    """
+    # Create an index grid matching the shape of x
+    all_indices = np.indices(x.shape, sparse=False)
+
+    # Convert each index grid into a flat 1D array
+    flat_indices = [arr.ravel() for arr in all_indices]
+
+    # Zip them to form a full list of multi-indices
+    all_tuples = list(zip(*flat_indices))
+
+    # Reshape flat index map to match x.shape
+    index_map = np.empty(x.shape, dtype=object)
+    index_map.ravel()[:] = all_tuples
+
+    # Apply indexer to index_map
+    selected = index_map[indexer].ravel(order='C')
+
+    # Convert to Python ints, and drop tuple for 1D
+    result = []
+    for tup in selected:
+        if isinstance(tup, tuple):
+            py_tuple = tuple(int(i) for i in tup)
+            result.append(py_tuple if x.ndim > 1 else py_tuple[0])
+        else:
+            result.append(int(tup))
+
+    return result
 
 
 def _create_arg_or_return_dict(args=None, arg_type='args'):
@@ -86,6 +127,7 @@ class Function:
         self._problem = problem
         self._flatten_args = flatten_args
         self._flatten_returns = flatten_returns
+        self._x_hash = None
 
         responses = problem.model.get_responses(recurse=True, use_prom_ivc=True)
         cons = {k: v for k, v in responses.items() if v['type'] == 'con'}
@@ -113,15 +155,25 @@ class Function:
             meta['size'] = np.size(self._problem.get_val(arg)[meta['indices']].ravel())
             self._x_size += meta['size']
 
-    def _set_vals(self, *args):
-        """
-
-        """
-
     def list_args(self, out_stream=_DEFAULT_OUT_STREAM):
         """
         Return a
         """
+        args = []
+        if self._flatten_args:
+            for arg, meta in self._args.items():
+                x_val = self._problem.get_val(arg, units=meta['units'])
+                idxs = _expanded_indices(x_val, meta['indices'])
+                # idxs = [idx.item() for idx in idxs]
+                args.append(arg + str(idxs))
+            print('x index : model variable[index]')
+            print('-------   ---------------------')
+            for i, arg in enumerate(args):
+                print(f' {i:6d} : {arg:<s}')
+
+        else:
+            pass
+        print(args)
 
     def get_x(self):
         """
@@ -161,26 +213,30 @@ class Function:
             return np.concatenate([f.ravel() for f in ret_val]).ravel()
         return ret_val
 
-    def __call__(self, *args):
+    def _process_args(self, *args):
         if self._flatten_args:
             x = np.asarray(args[0])
             if np.size(x) != self._x_size:
                 raise ValueError(f'Function expected x to contain {self._x_size} elements but it contains {np.size(x)}.')
+        else:
+            x = np.concatenate([np.asarray(f, dtype=float).ravel() for f in args[:self._x_size]]).ravel()
+
+        return x
+
+    def __call__(self, *args):
+        x = self._process_args(*args)
+        if (x_hash := array_hash(x)) != self._x_hash:
             self.set_x(x)
-
-        self._problem.run_model()
-
+            self._problem.run_model()
+            self._x_hash = x_hash
         return self.get_f()
 
-
-    def derivs(self, *args):
-        if self._flatten_args:
-            x = np.asarray(args[0])
-            if np.size(x) != self._x_size:
-                raise ValueError(f'Function expected x to contain {self._x_size} elements but it contains {np.size(x)}.')
+    def jac(self, *args):
+        x = self._process_args(*args)
+        if (x_hash := array_hash(x)) != self._x_hash:
             self.set_x(x)
+            self._problem.run_model()
+            self._x_hash = x_hash
 
-        self._problem.run_model()
-
-        totals = self._problem.compute_totals()
+        totals = self._problem.compute_totals(return_format='array' if self._flatten_returns else 'flat_dict')
         return(totals)

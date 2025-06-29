@@ -2592,11 +2592,8 @@ class Problem(object, metaclass=ProblemMetaclass):
                 If True, returns shall be returned as a single, C-order-flattened vector.
         """
         return Function(self, args, returns, design_vars, constraints, objectives,
-                        driver_scaling, implicit_outputs, residuals, solver_scaling)
-
-
-
-
+                        driver_scaling, implicit_outputs, residuals, solver_scaling,
+                        flatten_args=flatten_args, flatten_returns=flatten_returns)
 
 def _fix_check_data(data):
     """
