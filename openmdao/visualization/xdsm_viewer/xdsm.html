@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Editable XDSM Diagram</title>
+  <script src="https://d3js.org/d3.v7.min.js"></script>
+  <style>
+    svg { border: 1px solid #ccc; }
+
+    .node text.title {
+      font-weight: bold;
+      font-size: 12px;
+    }
+
+    .node text.label {
+      font-size: 11px;
+    }
+
+    .driver rect { fill: #ffe082; }
+    .group rect  { fill: #81d4fa; }
+    .component rect { fill: #aed581; }
+
+    .link {
+      fill: none;
+      stroke: #666;
+      stroke-width: 1.5px;
+      marker-end: url(#arrow);
+    }
+  </style>
+</head>
+<body>
+
+<svg width="1000" height="600"></svg>
+
+<script>
+const graph = {
+  nodes: [
+    { id: "driver", title: "Optimizer", label: "Drives the model", type: "driver" },
+    { id: "model", title: "Model", label: "Top-level system", type: "group" },
+    { id: "model.sub1", title: "Comp A", label: "Computes f(x)", type: "component" },
+    { id: "model.sub2", title: "Comp B", label: "Computes g(y)", type: "component" }
+  ],
+  links: [
+    { source: "driver", target: "model" },
+    { source: "model", target: "model.sub1" },
+    { source: "model", target: "model.sub2" },
+    { source: "model.sub1", target: "model.sub2", outputVar: "f_x", inputVar: "g_y" }
+  ]
+};
+
+const svg = d3.select("svg");
+
+const dx = 180, dy = 120;
+graph.nodes.forEach((node, i) => {
+  node.x = 100 + i * dx;
+  node.y = 100 + i * dy;
+});
+
+// Arrowhead marker
+svg.append("defs").append("marker")
+  .attr("id", "arrow")
+  .attr("viewBox", "0 -5 10 10")
+  .attr("refX", 20)
+  .attr("refY", 0)
+  .attr("markerWidth", 6)
+  .attr("markerHeight", 6)
+  .attr("orient", "auto")
+  .append("path")
+  .attr("d", "M0,-5L10,0L0,5")
+  .attr("fill", "#666");
+
+// Draw links
+svg.selectAll(".link")
+  .data(graph.links)
+  .enter()
+  .append("line")
+    .attr("class", "link")
+    .attr("x1", d => getNode(d.source).x)
+    .attr("y1", d => getNode(d.source).y)
+    .attr("x2", d => getNode(d.target).x)
+    .attr("y2", d => getNode(d.target).y);
+
+// Draw variable labels as parallelograms on links with vars
+svg.selectAll(".var-label-group")
+  .data(graph.links.filter(l => l.outputVar && l.inputVar))
+  .enter()
+  .append("g")
+    .attr("class", "var-label-group")
+  .each(function(d) {
+    const g = d3.select(this);
+
+    const sourceNode = getNode(d.source);
+    const targetNode = getNode(d.target);
+
+    // Midpoint coordinates of the link line
+    const mx = (sourceNode.x + targetNode.x) / 2;
+    const my = (sourceNode.y + targetNode.y) / 2;
+
+    const width = 110;
+    const height = 25;
+    const skewX = 20;  // how "slanted" the parallelogram is
+
+    // Parallelogram points (clockwise)
+    // top-left, top-right, bottom-right, bottom-left
+    const points = [
+      [mx - width / 2 + skewX, my - height / 2],
+      [mx + width / 2 + skewX, my - height / 2],
+      [mx + width / 2 - skewX, my + height / 2],
+      [mx - width / 2 - skewX, my + height / 2]
+    ].map(p => p.join(",")).join(" ");
+
+    // Draw parallelogram
+    g.append("polygon")
+      .attr("points", points)
+      .attr("fill", "#eee")
+      .attr("stroke", "#666")
+      .attr("stroke-width", 1.2);
+
+    // Output var label (left side)
+    g.append("text")
+      .attr("x", mx - width / 4)
+      .attr("y", my + 5)
+      .attr("text-anchor", "middle")
+      .attr("font-size", "11px")
+      .text(d.outputVar);
+
+    // Input var label (right side)
+    g.append("text")
+      .attr("x", mx + width / 4)
+      .attr("y", my + 5)
+      .attr("text-anchor", "middle")
+      .attr("font-size", "11px")
+      .text(d.inputVar);
+  });
+
+
+// Draw nodes
+const nodeGroup = svg.selectAll(".node")
+  .data(graph.nodes)
+  .enter()
+  .append("g")
+    .attr("class", d => `node ${d.type}`)
+    .attr("transform", d => `translate(${d.x},${d.y})`)
+    .on("dblclick", (event, d) => editNode(d));
+
+nodeGroup.each(function(d) {
+  const g = d3.select(this);
+
+  // Draw shape
+  if (d.type === "driver") {
+    g.append("rect")
+      .attr("x", -60)
+      .attr("y", -30)
+      .attr("width", 120)
+      .attr("height", 60)
+      .attr("rx", 30)
+      .attr("ry", 30);
+  } else {
+    g.append("rect")
+      .attr("x", -60)
+      .attr("y", -30)
+      .attr("width", 120)
+      .attr("height", 60)
+      .attr("rx", 6)
+      .attr("ry", 6);
+  }
+
+  // Title (bold, centered)
+  g.append("text")
+    .attr("class", "title")
+    .attr("x", 0)
+    .attr("y", -5)
+    .attr("text-anchor", "middle")
+    .text(d.title);
+
+  // Label (normal, centered)
+  g.append("text")
+    .attr("class", "label")
+    .attr("x", 0)
+    .attr("y", 15)
+    .attr("text-anchor", "middle")
+    .text(d.label);
+
+});
+
+function getNode(id) {
+  return graph.nodes.find(n => n.id === id);
+}
+
+// Edit node title/label on double click
+function editNode(d) {
+  const newTitle = prompt("Edit title:", d.title);
+  if (newTitle !== null) d.title = newTitle;
+
+  const newLabel = prompt("Edit description:", d.label);
+  if (newLabel !== null) d.label = newLabel;
+
+  // Update text in the diagram
+  const g = d3.selectAll(".node").filter(n => n.id === d.id);
+  g.select("text.title").text(d.title);
+  g.select("text.label").text(d.label);
+}
+</script>
+
+</body>
+</html>

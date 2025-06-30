@@ -1,5 +1,6 @@
 
 import openmdao.api as om
+import networkx as nx
 
 from typing import Sequence
 
@@ -10,6 +11,37 @@ try:
     from pyxdsm.XDSM import XDSM, SOLVER, OPT, FUNC, GROUP
 except ImportError:
     XDSM = None
+
+
+def get_xdsm_graph(group):
+    G = nx.DiGraph()
+    for subsys in group.system_iter(include_self=True, recurse=True, depth_first=True):
+        if isinstance(subsys, om.ParallelGroup):
+            sys_type = 'parallel_group'
+            nl_solver = subsys.nonlinear_solver.SOLVER
+        elif isinstance(subsys, om.Group):
+            sys_type = 'group'
+            nl_solver = subsys.nonlinear_solver.SOLVER
+        elif isinstance(subsys, om.ImplicitComponent):
+            sys_type = 'implicit_comp'
+            nl_solver = 'N/A'
+        elif isinstance(subsys, om.ExplicitComponent):
+            sys_type = 'explicit_comp'
+            nl_solver = 'N/A'
+        else:
+            raise ValueError('Unrecognized system type for subsys {subsys.pathname}')
+        G.add_node(subsys.pathname,
+                   sys_type=sys_type,
+                   nl_solver=nl_solver)
+
+        glen = group.pathname.count('.') + 1 if group.pathname else 0
+        for in_abs, src_abs in group._conn_global_abs_in2out.items():
+            src_sys = src_abs.split('.', glen + 1)[glen]
+            tgt_sys = in_abs.split('.', glen + 1)[glen]
+            if src_sys != tgt_sys:
+                G.add_edge(src_sys, tgt_sys)
+
+    return G
 
 
 def _make_legal_node_name(s):
