@@ -1,4 +1,296 @@
 ***********************************
+# Release Notes for OpenMDAO 3.39.0
+
+May 23, 2025
+
+OpenMDAO 3.39.0 introduces an app for real-time monitoring of optimization process. Use `python -m openmdao realtime_opt_plot {recorder file}` to get a visualization of the change of the optimziation variables over the course of the optimization in real time.
+
+Continuing with the trend of adding tools to introspect models, System now provides a `list_options` method quickly see all options supported by a system and its children.
+
+Optimization drivers can now provide Lagrange multipliers using the `driver.compute_lagrange_multipliers` method.
+This method assumes the optimization has successfully converged. It then determines which design variable bounds and constraints are active, and provides the corresponding Lagrange multiplers by solving the first order KKT conditions. The multipliers provide the sensitivty of the objective value to changes in the active bounds.
+
+## Backwards Incompatible API Changes
+
+- Hybrid-promoted names are no longer supported for accessing variables at a higher level.
+
+  For example, consider a variable with the absolute name: `traj.phases.climb.states.altitude`
+
+  This variable is promoted in states and phases to give the promoted name: `traj.climb.altitude`
+
+  Previously, the hybrid-promoted name was also valid: `traj.phases.climb.altitude`
+
+  This name is formed from the relative promoted name in the climb group, and appending the remaining absolute path to the left. These names required some additional complexity to maintain a cross-reference, and didn't provide any benefit aside from allowing the user to be less precise with variables. In this release, all hybrid-promoted names have been removed. They should be replaced with valid promoted or absolute names in calls to openmdao API methods.
+- `pyOptSparseDriver` will now raise an `ImportError` instead of a `RuntimeError` if `pyoptsparse` is not installed. [#3516](https://github.com/OpenMDAO/OpenMDAO/pull/3516)
+- Renamed `openmdao.utils.concurrent` to `openmdao.utils.concurrent_utils` [#3518](https://github.com/OpenMDAO/OpenMDAO/pull/3518)
+
+## New Features
+
+- Modified name2abs_names so that set_val and get_val make suggestions … [#3488](https://github.com/OpenMDAO/OpenMDAO/pull/3488)
+- Updated the jax docs and updated JaxImplicitComponent to be consistent with JaxExplicitComponent [#3489](https://github.com/OpenMDAO/OpenMDAO/pull/3489)
+
+- Added colorized printout to check_totals(compact_print=False) [#3493](https://github.com/OpenMDAO/OpenMDAO/pull/3493)
+- Added real-time plotting of optimization progress [#3494](https://github.com/OpenMDAO/OpenMDAO/pull/3494)
+- Improved how the expansion of colored jacobians works for jax components. [#3503](https://github.com/OpenMDAO/OpenMDAO/pull/3503)
+- Some internal refactoring of Vector classes and name resolution functionality in Systems [#3512](https://github.com/OpenMDAO/OpenMDAO/pull/3512)
+- Added a simple method to output a list of options on a system. [#3519](https://github.com/OpenMDAO/OpenMDAO/pull/3519)
+- Added ability to return a copy with get_val [#3522](https://github.com/OpenMDAO/OpenMDAO/pull/3522)
+- Added MMBtu as a valid physical unit for our imperial-using HVAC users. [#3529](https://github.com/OpenMDAO/OpenMDAO/pull/3529)
+- Added compute_lagrange_multipliers method to Driver. [#3530](https://github.com/OpenMDAO/OpenMDAO/pull/3530)
+
+## Bug Fixes
+
+- Updated some tests to use consistent printoptions across numpy versions [#3492](https://github.com/OpenMDAO/OpenMDAO/pull/3492)
+- Fixed an issue with check_partials reports not being generated correctly without rich. [#3502](https://github.com/OpenMDAO/OpenMDAO/pull/3502)
+- Fixed a bug that caused openmdao to do output/residual scaling when not necessary. [#3506](https://github.com/OpenMDAO/OpenMDAO/pull/3506)
+- Fixed bugs with src_indices and promotion [#3514](https://github.com/OpenMDAO/OpenMDAO/pull/3514)
+
+
+## Miscellaneous
+
+- Publish docs to openmdao.org on release event [#3504](https://github.com/OpenMDAO/OpenMDAO/pull/3504)
+- Fixed typo in docs [#3500](https://github.com/OpenMDAO/OpenMDAO/pull/3500)
+- Updated min version for bokeh [#3508](https://github.com/OpenMDAO/OpenMDAO/pull/3508)
+- Added a workflow to publish to PyPi when a release is made on GitHub [#3509](https://github.com/OpenMDAO/OpenMDAO/pull/3509)
+- Fixed a PEP issue [#3523](https://github.com/OpenMDAO/OpenMDAO/pull/3523)
+- Updated some tests to use assert_warning [#3525](https://github.com/OpenMDAO/OpenMDAO/pull/3525)
+- Replaced view[0] with view.item() in Vector to get true scalars instead of numpy scalar arrays [#3524](https://github.com/OpenMDAO/OpenMDAO/pull/3524)
+- Added an option to the GitHub tests workflow to test the PyPI release [#3527](https://github.com/OpenMDAO/OpenMDAO/pull/3527)
+
+
+***********************************
+# Release Notes for OpenMDAO 3.38.0
+
+Mar 14, 2025
+
+OpenMDAO introduces a few new features that users may find valuable, as well as fixing some bugs related to the new JaxExplicitComponent.
+
+Derivatives checks now use a criteria like `numpy.allclose` to combine absolute and relative tolerances when checking derivative accuracy.
+This may change the behavior of some derivative checks that were previously passing but near the tolerance.
+See [#3465](https://github.com/OpenMDAO/OpenMDAO/pull/3465) for more information.
+
+In an ongoing effort to reduce the amount of boilerplate code required, OpenMDAO now provides:
+
+- Dynamically shaped variables are no longer required to be connected to an explicit shape at any point.
+
+This shape can be determined after setup using set_val. Note that the shape of inputs (changes in the number of dimensions)
+can affect the sparsity pattern, so the use of the `setup_partials` method is necessary here. This feature also pairs well
+with JaxExplicitComponent, since the component will use Jax's automatic differentiation to determine its partials.
+
+- JaxExplicitComponent now automatically declares the necessary partials.
+
+In the previous release, user's could rely on AD but still had to explicitly declare which partials existed within the component.
+This is no longer necessary. Jax components can also use `declare_coloring(method='jax')` to compute their internal derivatives with
+a smaller number of jacobian-vector-products or vector-jacobian-products, but in practice we find that this usually doesn't reduce
+execution speed.
+
+See the Bug Fixes section below for various other improvements in this release.
+
+## New Features
+
+- Added work_dir as an option to problem, [#3455](https://github.com/OpenMDAO/OpenMDAO/pull/3455)
+- Calling set_val can now set shapes of dynamically shaped variables (shape_by_conn) [#3458](https://github.com/OpenMDAO/OpenMDAO/pull/3458)
+- Derivative checks are now like numpy.allclose [#3465](https://github.com/OpenMDAO/OpenMDAO/pull/3465)
+- Improved handling of scalar Component inputs and outputs. [#3482](https://github.com/OpenMDAO/OpenMDAO/pull/3482)
+
+## Bug Fixes
+
+- Fixed an issue where Case._get_units was not retrieving units of aliases [#3463](https://github.com/OpenMDAO/OpenMDAO/pull/3463)
+- Fixed issue with attempting to assign .shape attribute of np.generic objects during `get_val`. [#3471](https://github.com/OpenMDAO/OpenMDAO/pull/3471)
+- `openmdao` commands now correctly use the script name to name the output directory [#3469](https://github.com/OpenMDAO/OpenMDAO/pull/3469)
+- Modifying ImplicitComponent to respect run_root_only option for solve_linear [#3475](https://github.com/OpenMDAO/OpenMDAO/pull/3475)
+- Fixed an issue where backtracking line searches were not respecting bounds added during configure. [#3477](https://github.com/OpenMDAO/OpenMDAO/pull/3477)
+- Fix for OpenMDAO jax related ordering bug found when running a dymos model that was causing total derivatives to be incorrect in some cases. [#3478](https://github.com/OpenMDAO/OpenMDAO/pull/3478)
+
+## Miscellaneous
+
+- When running under testflo, sets OPENMDAO_WORKDIR to a temp dir if it's not already set [#3466](https://github.com/OpenMDAO/OpenMDAO/pull/3466)
+- Updated the `latest` GitHub workflow to just test with NumPy 2.x and latest pyOptSparse [#3474](https://github.com/OpenMDAO/OpenMDAO/pull/3474)
+- Added numba as optional dependency for some performance-sensitive areas. [#3479](https://github.com/OpenMDAO/OpenMDAO/pull/3479)
+- Added an ARM image [#3481](https://github.com/OpenMDAO/OpenMDAO/pull/3481)
+
+***********************************
+# Release Notes for OpenMDAO 3.37.0
+
+Feb 21, 2025
+
+OpenMDAO 3.37.0 introduces a new AnalysisDriver, which is intended to eventually replace DOEDriver, but allow for users to more easily specify what variables they wish to change when evaluating a model.
+See the documentation for more explanation of how to use it.
+
+In JaxExplicitComponent and JaxImplicitComponent, the user now has the ability to specify the name of the argument corresponding to the OpenMDAO input name using the `primal_name` option.  This is necessary in cases where the OpenMDAO input/output name is not a legal Python variable name.
+
+When using JaxExplicitComponent, users no longer are required to explicitly declare the partials.
+The component will determine the appropriate derivatives itself. In addition, `declare_coloring`
+can now be used in JaxExplicitComponent to compute the derivatives more quickly. Note that this
+feature is still in development and may not give a significant improvement over uncolored derivative calculation.
+
+From a performance perspective, an unnecessary nonlinear solve was removed when performing a hot start.
+
+## New Features
+
+- Added AnalysisDriver [#3365](https://github.com/OpenMDAO/OpenMDAO/pull/3365)
+- Added `is_undefined` function for MPI-safe and array-compatible checks. [#3423](https://github.com/OpenMDAO/OpenMDAO/pull/3423)
+- Updated check_partials and check_totals to measure absolute and relative err in the same way that np.assert_allclose does [#3442](https://github.com/OpenMDAO/OpenMDAO/pull/3442)
+- Make printout of sparsity summary subject to the 'show_summary' flag. [#3427](https://github.com/OpenMDAO/OpenMDAO/pull/3427)
+- Implemented automatic sparsity detection and coloring for Jax explicit components [#3451](https://github.com/OpenMDAO/OpenMDAO/pull/3451)
+- Added a smooth_round function to om.jax [#3457](https://github.com/OpenMDAO/OpenMDAO/pull/3457)
+
+## Bug Fixes
+
+- Fixed an issue with the dependency check for parallel derivative coloring [#3419](https://github.com/OpenMDAO/OpenMDAO/pull/3419)
+- Modified assert_check_partials to use numpy.assert_allclose [#3424](https://github.com/OpenMDAO/OpenMDAO/pull/3424)
+- Fixed a NumPy 2.x compatibility issue in FiniteDifference [#3429](https://github.com/OpenMDAO/OpenMDAO/pull/3429)
+- Addressed change in `numpy.testing.allclose` error message in NumPy 2.x [#3438](https://github.com/OpenMDAO/OpenMDAO/pull/3438)
+- Fix for computed sparsity when some subjacs are zero. [#3430](https://github.com/OpenMDAO/OpenMDAO/pull/3430)
+- Removed unnecessary NL solve when performing a hot start. [#3432](https://github.com/OpenMDAO/OpenMDAO/pull/3432)
+- Added name mapping from component names to valid python names for use in compute_primal method [#3444](https://github.com/OpenMDAO/OpenMDAO/pull/3444)
+- _CheckingJacobian no longer raises if the sparsity pattern is bad [#3450](https://github.com/OpenMDAO/OpenMDAO/pull/3450)
+- Updated the list of disallowed variable names for ExecComp [#3456](https://github.com/OpenMDAO/OpenMDAO/pull/3456)
+- Fix bug in list_driver_vars where the bounds are wrong if it is called twice with driver_scaling=False. [#3461](https://github.com/OpenMDAO/OpenMDAO/pull/3461)
+
+## Miscellaneous
+
+- Updated Ubuntu images used by GitHub test workflows [#3425](https://github.com/OpenMDAO/OpenMDAO/pull/3425)
+- Updated latest GitHub workflow to use a known working version of PETSc [#3446](https://github.com/OpenMDAO/OpenMDAO/pull/3446)
+- Added an image definition and GitHub workflow to publish an image [#3454](https://github.com/OpenMDAO/OpenMDAO/pull/3454)
+
+
+***********************************
+# Release Notes for OpenMDAO 3.36.0
+
+Dec 13, 2024
+
+OpenMDAO 3.36.0 introduces `JaxExplicitComponent` and `JaxImplicitComponent`, which make working with Jax and using
+its algorithmic differentiation capability far easier than before. While Jax is not yet a mandatory dependency for
+OpenMDAO, we strongly urge users to start experimenting with it because it can dramatically speed up development time.
+
+The jacobian coloring algorithm, used to more efficiently compute total derivatives for models with sparse
+total jacobians, was overhauled in a way that should be more consistent and more performant than before.
+
+OpenMDAO now provides a dashboard utility for examining the contents of recording database files.
+
+In another significant change, AutoIVC outputs can now be recorded more easily. Recording items by the promoted name
+will always record the _output_, while specifying an input by absolute name will result in it being recorded as an input.
+Since OpenMDAO no longer has "dangling" inputs, recording by absolute name is only really necessary when debugging the
+input values as seen by a component.
+
+## New Features
+
+- Added JaxExplicitComponent and JaxImplicitComponent [#3359](https://github.com/OpenMDAO/OpenMDAO/pull/3359)
+- Added timing to output from Problem checks [#3371](https://github.com/OpenMDAO/OpenMDAO/pull/3371)
+- Added 'recordable_only' option to OptionsDictionary items method. [#3379](https://github.com/OpenMDAO/OpenMDAO/pull/3379)
+- Updated code & test workflow for Python 3.13 compatibility [#3388](https://github.com/OpenMDAO/OpenMDAO/pull/3388)
+- Added a command line tool to display a dashboard of the contents of case recorder files [#3400](https://github.com/OpenMDAO/OpenMDAO/pull/3400)
+- Updated `list_driver_vars` to scale upper and lower bounds when `driver_scaling` is False [#3406](https://github.com/OpenMDAO/OpenMDAO/pull/3406)
+- Fixed bug that occurred when recording inputs by absolute name. [#3410](https://github.com/OpenMDAO/OpenMDAO/pull/3410)
+
+## Bug Fixes
+
+- Removed unnecessary shape correction of jacobian when doing bidirectional coloring and fixed bidirectional coloring bug [#3369](https://github.com/OpenMDAO/OpenMDAO/pull/3369)
+- Fix for index typo in System._abs_get_val method and removed redundant code [#3375](https://github.com/OpenMDAO/OpenMDAO/pull/3375)
+- Updated PSQP exit criteria for pyOptSparseDriver [#3383](https://github.com/OpenMDAO/OpenMDAO/pull/3383)
+- BugFix: OpenMDAO Summary Report with discrete inputs [#3384](https://github.com/OpenMDAO/OpenMDAO/pull/3384)
+- Fixed an option serialization test [#3386](https://github.com/OpenMDAO/OpenMDAO/pull/3386)
+- Fixed error when using set_input_defaults with a different but acceptable default value shape. [#3391](https://github.com/OpenMDAO/OpenMDAO/pull/3391)
+
+## Miscellaneous
+
+- Update pyOptSparse citation [#3380](https://github.com/OpenMDAO/OpenMDAO/pull/3380)
+- InputResidsComp cleanup [#3382](https://github.com/OpenMDAO/OpenMDAO/pull/3382)
+- Added additional documentation for the `set_input_defaults` function [#3387](https://github.com/OpenMDAO/OpenMDAO/pull/3387)
+- Fixed docstring for InterpND extrapolate option [#3398](https://github.com/OpenMDAO/OpenMDAO/pull/3398)
+- A couple of performance fixes. [#3401](https://github.com/OpenMDAO/OpenMDAO/pull/3401)
+- Cleaned up documentation to clarify that commands like "pip install" are meant to be run at the command prompt. [#3404](https://github.com/OpenMDAO/OpenMDAO/pull/3404)
+- Fixed the search function in the documentation [#3405](https://github.com/OpenMDAO/OpenMDAO/pull/3405)
+-  Changed language in the 'check unconnected inputs' config check to avoid confusion [#3407](https://github.com/OpenMDAO/OpenMDAO/pull/3407)
+- Suppress an annoying warning when recorder setup happens multiple times. [#3408](https://github.com/OpenMDAO/OpenMDAO/pull/3408)
+- Fixed link in first_analysis.ipynb [#3414](https://github.com/OpenMDAO/OpenMDAO/pull/3414)
+- Fixed link in models_with_solvers_implicit.ipynb [#3415](https://github.com/OpenMDAO/OpenMDAO/pull/3415)
+
+***********************************
+# Release Notes for OpenMDAO 3.35.0
+
+Oct 1, 2024
+
+OpenMDAO 3.35.0 includes a significant change in the way outputs from a particular OpenMDAO execution are handled. These changes are summarized in [POEM 097](https://github.com/OpenMDAO/POEMs/pull/198). Previously, outputs from a run were stored in various locations, including the current working directory, and a reports directory. Derivative coloring files were stored in a coloring_dir folder in the current working directory, and all of these could be overridden by running different OpenMDAO scripts in the same directory on the user's computer.
+
+- OpenMDAO now puts all output files and coloring files associated with a given execution in a folder named after the problem. One can control the name of this folder by setting a name for a given problem.
+- Subproblems are stored in folders under the parent problem.
+- The user may specify a coloring directory that contains "input" coloring files, to be loaded. The coloring algorithm will always save coloring files for the current problem in the problems output folder.
+- The top-level directory under which these run directories are placed is controlled with the `OPENMDAO_WORKDIR` environment variable, which defaults to the current working directory.
+
+** Note that these changes can cause a huge number of output directories to be placed into the users hard drive when running many OpenMDAO problems, such as when running tests **
+
+We recommend users run tests using temporary directories (see our @use_tempdirs decorator for tests).
+
+Additionally, we now provide an `openmdao.api.clean_outputs()` method as well as a command line form `openmdao clean` or `python -m openmdao clean`.  See the help for these commands for more information, but they'll make your life a bit less chaotic.
+
+In other highlights...
+
+- We now support numpy 2.0.
+- A new implicit component, `InputResidsComp` has been added. This is probably the simplest possible use case for an implicit component, where the residuals are given as inputs.
+- We've added a new `setup_residuals` method in `ImplicitComponent`, which like `setup_partials`, delays the addition of residuals until the shape of inputs and outputs are known.
+- The OpenMDAO command-line tools are accessible via the more pythonic `python -m openmdao` command. We also added a `--view_reports` option to the `openmdao` command to quickly bring up the reports associated with the given script.
+- The `add_input` method now allows the user to specify `require_connection=True`, which will result in an error if the input is left unconnected.
+- Python 3.8 reaches end-of-life this month (October 2024), and our minimum supported Python version is increased to 3.9.
+
+## New Features
+
+- POEM 097 Implementation, Part 1 [#3287](https://github.com/OpenMDAO/OpenMDAO/pull/3287)
+- Added the 'list_vars' method to the Case  object [#3293](https://github.com/OpenMDAO/OpenMDAO/pull/3293)
+- Added InputResidsComp to the list of components. Added `setup_residuals` method for compatibility with dynamic shaping. [#3295](https://github.com/OpenMDAO/OpenMDAO/pull/3295)
+- POEM 097 Implementation - Part 2 [#3298](https://github.com/OpenMDAO/OpenMDAO/pull/3298)
+- POEM 097 - Part 3 [#3314](https://github.com/OpenMDAO/OpenMDAO/pull/3314)
+- Added `openmdao clean` command line utility and `openmdao.api.clean_outputs` function. [#3318](https://github.com/OpenMDAO/OpenMDAO/pull/3318) [#3329](https://github.com/OpenMDAO/OpenMDAO/pull/3329)
+- Added better error msg when a distributed variable is part of an invalid connection or is unconnected [#3321](https://github.com/OpenMDAO/OpenMDAO/pull/3321)
+- Duplicate problem names are now a warning, not an error [#3340](https://github.com/OpenMDAO/OpenMDAO/pull/3340)
+- Removed outdated checks and warnings regarding changes to distributed components [#3348](https://github.com/OpenMDAO/OpenMDAO/pull/3348)
+- Added a `--view_reports` option to the `openmdao` command [#3349](https://github.com/OpenMDAO/OpenMDAO/pull/3349)
+- Added a `require_connection` argument to `add_input` [#3353](https://github.com/OpenMDAO/OpenMDAO/pull/3353)
+- Added access to the OpenMDAO command-line tools through `python -m openmdao` [#3356](https://github.com/OpenMDAO/OpenMDAO/pull/3356)
+- Updated oldest supported python version to 3.9 [#3358](https://github.com/OpenMDAO/OpenMDAO/pull/3358)
+- Removed deprecation warning for non-pythonic option names [#3362](https://github.com/OpenMDAO/OpenMDAO/pull/3362)
+
+## Bug Fixes
+
+- Prob.load_case discrete input fix [#3289](https://github.com/OpenMDAO/OpenMDAO/pull/3289)
+- Scaling report was causing an extra call to compute totals if there were linear constraints [#3296](https://github.com/OpenMDAO/OpenMDAO/pull/3296)
+- Fixed path to SNOPT output file in analysis error documentation [#3301](https://github.com/OpenMDAO/OpenMDAO/pull/3301)
+- Fixed issue with ScipyOptimizeDriver introduced in the scaling report PR [#3307](https://github.com/OpenMDAO/OpenMDAO/pull/3307)
+- Fix for case when no objective is declared and all constraints are linear [#3311](https://github.com/OpenMDAO/OpenMDAO/pull/3311)
+- Fix a bug in NLGBS where aitken relaxation was not applied on the first iteration. [#3315](https://github.com/OpenMDAO/OpenMDAO/pull/3315)
+- Updated Case list methods to handle missing residuals data [#3334](https://github.com/OpenMDAO/OpenMDAO/pull/3334)
+- Fixed a bug in testing utils [#3335](https://github.com/OpenMDAO/OpenMDAO/pull/3335)
+- Fix transformation of b-splines onto [0, 1] in InterpND. [#3338](https://github.com/OpenMDAO/OpenMDAO/pull/3338)
+- Fix for bug in code for linear only desvars in pyoptsparse driver that turned off coloring in some cases. [#3343](https://github.com/OpenMDAO/OpenMDAO/pull/3343)
+- Fix confusing warning during prob.setup(check=True) when recorder is attached to problem. [#3368](https://github.com/OpenMDAO/OpenMDAO/pull/3368)
+- Fix for bug when using array ref/ref0 values on a connected input with src_indices. [#3370](https://github.com/OpenMDAO/OpenMDAO/pull/3370)
+- Fix for index typo in System._abs_get_val method and removed redundant code. [#3375](https://github.com/OpenMDAO/OpenMDAO/pull/3375)
+
+## Miscellaneous
+
+- Updated a couple of tests to pass the NumPy 2.x compatibility check [#3291](https://github.com/OpenMDAO/OpenMDAO/pull/3291)
+- Addressed a couple of issues that were causing the 'latest' test workflow to fail [#3319](https://github.com/OpenMDAO/OpenMDAO/pull/3319)
+- Added code linting with Ruff to the test workflow [#3323](https://github.com/OpenMDAO/OpenMDAO/pull/3323)
+- Addressed a NumPy 2.1 deprecated keyword argument [#3325](https://github.com/OpenMDAO/OpenMDAO/pull/3325)
+- Added a pre-commit configuration to enable automatic linting with ruff [#3326](https://github.com/OpenMDAO/OpenMDAO/pull/3326) [#3333](https://github.com/OpenMDAO/OpenMDAO/pull/3333)
+- Updated test workflow to trigger pycycle tests [#3328](https://github.com/OpenMDAO/OpenMDAO/pull/3328)
+- Remove references to conda in the docs [#3330](https://github.com/OpenMDAO/OpenMDAO/pull/3330)
+- Added sub-cycle information to the 'solvers' config check and fixed 'openmdao view_reports' command line tool. [#3331](https://github.com/OpenMDAO/OpenMDAO/pull/3331)
+- A couple of things to cut down on the number of outfiles directories left lying around after running tests [#3332](https://github.com/OpenMDAO/OpenMDAO/pull/3332)
+- Cleanup of the earlier outfiles PR and added some stuff to support debugging [#3336](https://github.com/OpenMDAO/OpenMDAO/pull/3336)
+- Fixed the update_poem workflow [#3341](https://github.com/OpenMDAO/OpenMDAO/pull/3341)
+- Changed the N2 to display "Jacobian" when hovering over an input-to-output "connection" within a component, instead of "Connections" [#3345](https://github.com/OpenMDAO/OpenMDAO/pull/3345)
+- Changed 'SNOPT' to 'SLSQP' for pyoptsparse driver tests when debugging and forgot to put it back [#3346](https://github.com/OpenMDAO/OpenMDAO/pull/3346)
+- Changed header text from white to black in optimization report [#3350](https://github.com/OpenMDAO/OpenMDAO/pull/3350)
+- Added promoted name to error message when distributed input is not connected [#3351](https://github.com/OpenMDAO/OpenMDAO/pull/3351)
+- Added docs for OPENMDAO_WORKDIR environment variable. [#3352](https://github.com/OpenMDAO/OpenMDAO/pull/3352)
+- Remove --with-deps argument from playwright install [#3354](https://github.com/OpenMDAO/OpenMDAO/pull/3354)
+- Updated GitHub workflows [#3361](https://github.com/OpenMDAO/OpenMDAO/pull/3361)
+- Added logic to prevent calling some unsafe functions in SqliteCaseReader [#3363](https://github.com/OpenMDAO/OpenMDAO/pull/3363)
+- Re-enabled a test that was previously unreliable on CI [#3367](https://github.com/OpenMDAO/OpenMDAO/pull/3367)
+
+***********************************
 # Release Notes for OpenMDAO 3.34.2
 
 July 25, 2024

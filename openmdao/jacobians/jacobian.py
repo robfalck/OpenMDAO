@@ -6,7 +6,6 @@ import numpy as np
 from scipy.sparse import issparse
 
 from openmdao.core.constants import INT_DTYPE
-from openmdao.utils.name_maps import key2abs_key
 from openmdao.matrices.matrix import sparse_types
 
 SUBJAC_META_DEFAULTS = {
@@ -60,12 +59,13 @@ class Jacobian(object):
         self._col2name_ind = None
 
     def _get_abs_key(self, key):
-        if key in self._abs_keys:
+        try:
             return self._abs_keys[key]
-        abskey = key2abs_key(self._system(), key)
-        if abskey is not None:
-            self._abs_keys[key] = abskey
-        return abskey
+        except KeyError:
+            abskey = self._system()._resolver.any2abs_key(key)
+            if abskey is not None:
+                self._abs_keys[key] = abskey
+            return abskey
 
     def _abs_key2shape(self, abs_key):
         """
@@ -90,6 +90,26 @@ class Jacobian(object):
         else:
             sz = abs2meta['output'][wrt]['size']
         return (abs2meta['output'][of]['size'], sz)
+
+    def get_metadata(self, key):
+        """
+        Get metadata for the given key.
+
+        Parameters
+        ----------
+        key : (str, str)
+            Promoted or relative name pair of sub-Jacobian.
+
+        Returns
+        -------
+        dict
+            Metadata dict for the given key.
+        """
+        try:
+            return self._subjacs_info[self._get_abs_key(key)]
+        except KeyError:
+            msg = '{}: Variable name pair ("{}", "{}") not found.'
+            raise KeyError(msg.format(self.msginfo, key[0], key[1]))
 
     def __contains__(self, key):
         """
@@ -121,10 +141,9 @@ class Jacobian(object):
         ndarray or spmatrix or list[3]
             sub-Jacobian as an array, sparse mtx, or AIJ/IJ list or tuple.
         """
-        abs_key = self._get_abs_key(key)
-        if abs_key in self._subjacs_info:
-            return self._subjacs_info[abs_key]['val']
-        else:
+        try:
+            return self._subjacs_info[self._get_abs_key(key)]['val']
+        except KeyError:
             msg = '{}: Variable name pair ("{}", "{}") not found.'
             raise KeyError(msg.format(self.msginfo, key[0], key[1]))
 
@@ -253,7 +272,7 @@ class Jacobian(object):
         mode : str
             'fwd' or 'rev'.
         """
-        pass
+        raise NotImplementedError(f"Class {type(self).__name__} does not implement _apply.")
 
     def _randomize_subjac(self, subjac, key):
         """
@@ -285,7 +304,6 @@ class Jacobian(object):
         # to be overly conservative.
         subjac_info = self._subjacs_info[key]
         if 'sparsity' in subjac_info:
-            assert subjac_info['rows'] is None
             rows, cols, shape = subjac_info['sparsity']
             r = np.zeros(shape)
             val = self._randgen.random(len(rows))
@@ -366,6 +384,30 @@ class Jacobian(object):
                     if match_inds.size > 0:
                         subjac['val'][match_inds] = column[start:end][subjac['rows'][match_inds]]
 
+    def set_csc_jac(self, system, jac):
+        """
+        Assign a CSC jacobian to this jacobian.
+
+        Parameters
+        ----------
+        system : System
+            The system that owns this jacobian.
+        jac : csc_matrix
+            CSC jacobian.
+        """
+        ofiter = list(system._jac_of_iter())
+        for wrt, wstart, wend, _, _, _ in system._jac_wrt_iter():
+            wjac = jac[:, wstart:wend]
+            for of, start, end, _, _ in ofiter:
+                key = (of, wrt)
+                if key in self._subjacs_info:
+                    subjac = self.get_metadata(key)
+                    if subjac['cols'] is None:  # dense
+                        subjac['val'][:, :] = wjac[start:end, :]
+                    else:  # our COO format
+                        subj = wjac[start:end, :]
+                        subjac['val'][:] = subj[subjac['rows'], subjac['cols']]
+
     def set_dense_jac(self, system, jac):
         """
         Assign a dense jacobian to this jacobian.
@@ -388,7 +430,7 @@ class Jacobian(object):
             for wrt, wstart, wend, _, _, _ in wrtiter:
                 key = (of, wrt)
                 if key in self._subjacs_info:
-                    subjac = self._subjacs_info[key]
+                    subjac = self.get_metadata(key)
                     if subjac['cols'] is None:  # dense
                         subjac['val'][:, :] = jac[start:end, wstart:wend]
                     else:  # our COO format

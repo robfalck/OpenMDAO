@@ -8,6 +8,7 @@ import os
 import weakref
 
 import numpy as np
+import scipy.sparse as sp
 
 from openmdao.core.group import Group
 from openmdao.core.total_jac import _TotalJacInfo
@@ -15,7 +16,7 @@ from openmdao.core.constants import INT_DTYPE, _SetupStatus
 from openmdao.recorders.recording_manager import RecordingManager
 from openmdao.recorders.recording_iteration_stack import Recording
 from openmdao.utils.record_util import create_local_meta, check_path, has_match
-from openmdao.utils.general_utils import _src_name_iter
+from openmdao.utils.general_utils import _src_name_iter, DriverMetaclass
 from openmdao.utils.mpi import MPI
 from openmdao.utils.options_dictionary import OptionsDictionary
 import openmdao.utils.coloring as coloring_mod
@@ -189,7 +190,7 @@ class DriverResult():
         return _track_time
 
 
-class Driver(object):
+class Driver(object, metaclass=DriverMetaclass):
     """
     Top-level container for the systems and drivers.
 
@@ -257,6 +258,8 @@ class Driver(object):
         DriverResult object containing information for use in the optimization report.
     _has_scaling : bool
         If True, scaling has been set for this driver.
+    _filtered_vars_to_record : dict or None
+        Variables to record based on recording options.
     """
 
     def __init__(self, **kwargs):
@@ -354,6 +357,7 @@ class Driver(object):
         self.options.update(kwargs)
         self.result = DriverResult(self)
         self._has_scaling = False
+        self._filtered_vars_to_record = None
 
     def _get_inst_id(self):
         if self._problem is None:
@@ -464,7 +468,7 @@ class Driver(object):
 
                 # For Auto-ivcs, we need to check the distributed metadata on the target instead.
                 if meta['source'].startswith('_auto_ivc.'):
-                    for abs_name in model._var_allprocs_prom2abs_list['input'][dv]:
+                    for abs_name in model._resolver.absnames(dv, 'input'):
                         # we can use abs name to check for discrete vars here because
                         # relative names are absolute names at the model level.
                         if abs_name in discrete_in:
@@ -485,7 +489,7 @@ class Driver(object):
 
         # Now determine if later we'll need to allgather cons, objs, or desvars.
         if model.comm.size > 1:
-            loc_vars = set(model._outputs._abs_iter())
+            loc_vars = set(model._outputs)
             # some of these lists could have duplicate src names if aliases are used. We'll
             # fix that when we convert to sets after the allgather.
             remote_dvs = [n for n in _src_name_iter(self._designvars) if n not in loc_vars]
@@ -709,14 +713,12 @@ class Driver(object):
 
         problem = self._problem()
         model = problem.model
-
+        resolver = model._resolver
         incl = recording_options['includes']
         excl = recording_options['excludes']
 
         # includes and excludes for outputs are specified using promoted names
         # includes and excludes for inputs are specified using _absolute_ names
-        abs2prom_output = model._var_allprocs_abs2prom['output']
-        abs2prom_inputs = model._var_allprocs_abs2prom['input']
 
         # set of promoted output names and absolute input and residual names
         # used for matching includes/excludes
@@ -729,27 +731,20 @@ class Driver(object):
 
         # includes and excludes for outputs are specified using _promoted_ names
         # vectors are keyed on absolute name, discretes on relative/promoted name
-        myinputs = myoutputs = myresiduals = []
+        myinputs = set()
+        myoutputs = set()
+        myresiduals = set()
 
         if recording_options['record_outputs']:
-            match_names = match_names | set(abs2prom_output.values())
-            myoutputs = [n for n, prom in abs2prom_output.items() if check_path(prom, incl, excl)]
+            match_names.update(resolver.prom_iter('output'))
+            myoutputs = {n for n, prom in resolver.abs2prom_iter('output')
+                         if check_path(prom, incl, excl)}
 
-            model_outs = model._outputs
+        if recording_options['record_residuals']:
+            match_names.update(model._residuals)
+            myresiduals = [n for n in model._residuals
+                           if check_path(resolver.abs2prom(n, 'output'), incl, excl)]
 
-            if model._var_discrete['output']:
-                # if we have discrete outputs then residual name set doesn't match output one
-                if recording_options['record_residuals']:
-                    myresiduals = [n for n in myoutputs if model_outs._contains_abs(n)]
-            elif recording_options['record_residuals']:
-                myresiduals = myoutputs
-
-        elif recording_options['record_residuals']:
-            match_names = match_names | set(model._residuals.keys())
-            myresiduals = [n for n in model._residuals._abs_iter()
-                           if check_path(abs2prom_output[n], incl, excl)]
-
-        myoutputs = set(myoutputs)
         if recording_options['record_desvars']:
             myoutputs.update(_src_name_iter(self._designvars))
         if recording_options['record_objectives'] or recording_options['record_responses']:
@@ -760,8 +755,13 @@ class Driver(object):
         # inputs (if in options). inputs use _absolute_ names for includes/excludes
         if 'record_inputs' in recording_options:
             if recording_options['record_inputs']:
-                match_names = match_names | set(abs2prom_inputs.keys())
-                myinputs = [n for n in abs2prom_inputs if check_path(n, incl, excl)]
+                match_names.update(resolver.abs_iter('input'))
+                myinputs = {n for n in resolver.abs_iter('input') if check_path(n, incl, excl)}
+
+                match_names.update(model._resolver.prom_iter('input'))
+                for p in model._resolver.prom_iter('input'):
+                    if check_path(p, incl, excl):
+                        myoutputs.add(model._resolver.source(p))
 
         # check that all exclude/include globs have at least one matching output or input name
         for pattern in excl:
@@ -769,7 +769,7 @@ class Driver(object):
                 issue_warning(f"{obj.msginfo}: No matches for pattern '{pattern}' in "
                               "recording_options['excludes'].")
         for pattern in incl:
-            if not has_match(pattern, match_names):
+            if pattern != '*' and not has_match(pattern, match_names):
                 issue_warning(f"{obj.msginfo}: No matches for pattern '{pattern}' in "
                               "recording_options['includes'].")
 
@@ -786,8 +786,9 @@ class Driver(object):
         """
         Set up case recording.
         """
-        self._filtered_vars_to_record = self._get_vars_to_record()
-        self._rec_mgr.startup(self, self._problem().comm)
+        if self._rec_mgr.has_recorders():
+            self._filtered_vars_to_record = self._get_vars_to_record()
+            self._rec_mgr.startup(self, self._problem().comm)
 
     def _run(self):
         """
@@ -1378,7 +1379,8 @@ class Driver(object):
                          min_improve_pct=coloring_mod._DEF_COMP_SPARSITY_ARGS['min_improve_pct'],
                          show_summary=coloring_mod._DEF_COMP_SPARSITY_ARGS['show_summary'],
                          show_sparsity=coloring_mod._DEF_COMP_SPARSITY_ARGS['show_sparsity'],
-                         use_scaling=coloring_mod._DEF_COMP_SPARSITY_ARGS['use_scaling']):
+                         use_scaling=coloring_mod._DEF_COMP_SPARSITY_ARGS['use_scaling'],
+                         randomize_subjacs=True, randomize_seeds=False, direct=True):
         """
         Set options for total deriv coloring.
 
@@ -1401,6 +1403,13 @@ class Driver(object):
             If True, display sparsity with coloring info after generating coloring.
         use_scaling : bool
             If True, use driver scaling when generating the sparsity.
+        randomize_subjacs : bool
+            If True, use random subjacobians corresponding to their declared sparsity patterns.
+        randomize_seeds : bool
+            If True, use random seeds when computing the sparsity.
+        direct : bool
+            If using bidirectional coloring, use the direct method when computing the column
+            adjacency matrix instead of the substitution method.
         """
         self._coloring_info.coloring = None
         self._coloring_info.num_full_jacs = num_full_jacs
@@ -1415,8 +1424,11 @@ class Driver(object):
         self._coloring_info.show_summary = show_summary
         self._coloring_info.show_sparsity = show_sparsity
         self._coloring_info.use_scaling = use_scaling
+        self._coloring_info.randomize_subjacs = randomize_subjacs
+        self._coloring_info.randomize_seeds = randomize_seeds
+        self._coloring_info.direct = direct
 
-    def use_fixed_coloring(self, coloring=coloring_mod._STD_COLORING_FNAME):
+    def use_fixed_coloring(self, coloring=coloring_mod.STD_COLORING_FNAME()):
         """
         Tell the driver to use a precomputed coloring.
 
@@ -1427,7 +1439,8 @@ class Driver(object):
             determined automatically.
         """
         if self.supports['simultaneous_derivatives']:
-            if coloring_mod._force_dyn_coloring and coloring is coloring_mod._STD_COLORING_FNAME:
+            if coloring_mod._force_dyn_coloring and isinstance(coloring,
+                                                               coloring_mod.STD_COLORING_FNAME):
                 # force the generation of a dynamic coloring this time
                 self._coloring_info.dynamic = True
                 self._coloring_info.static = None
@@ -1475,18 +1488,17 @@ class Driver(object):
         else:
             coloring = info.coloring
 
-            if coloring is None and (static is coloring_mod._STD_COLORING_FNAME or
-                                     isinstance(static, str)):
-                if static is coloring_mod._STD_COLORING_FNAME:
-                    fname = self._get_total_coloring_fname(mode='input')
-                else:
+            if coloring is None and isinstance(static, (str, coloring_mod.STD_COLORING_FNAME)):
+                if isinstance(static, str):
                     fname = static
+                else:
+                    fname = self.get_coloring_fname(mode='input')
 
                 print(f"loading total coloring from file {fname}")
                 coloring = info.coloring = coloring_mod.Coloring.load(fname)
                 info.update(coloring._meta)
 
-                ofname = self._get_total_coloring_fname(mode='output')
+                ofname = self.get_coloring_fname(mode='output')
                 if ((model._full_comm is not None and model._full_comm.rank == 0) or
                         (model._full_comm is None and model.comm.rank == 0)):
                     coloring.save(ofname)
@@ -1506,8 +1518,21 @@ class Driver(object):
 
         return coloring
 
-    def _get_total_coloring_fname(self, mode='output'):
-        return self._problem().get_coloring_dir(mode='output') / 'total_coloring.pkl'
+    def get_coloring_fname(self, mode='output'):
+        """
+        Get the filename for the coloring file.
+
+        Parameters
+        ----------
+        mode : str
+            'input' or 'output'.
+
+        Returns
+        -------
+        str
+            The filename for the coloring file.
+        """
+        return self._problem().model.get_coloring_fname(mode)
 
     def scaling_report(self, outfile='driver_scaling_report.html', title=None, show_browser=True,
                        jac=True):
@@ -1649,7 +1674,7 @@ class Driver(object):
                               "already been computed.")
 
             if self._coloring_info.dynamic and self._coloring_info.do_compute_coloring():
-                ofname = self._get_total_coloring_fname(mode='output')
+                ofname = self.get_coloring_fname(mode='output')
                 self._coloring_info.coloring = \
                     coloring_mod.dynamic_total_coloring(self,
                                                         run_model=run_model,
@@ -1662,6 +1687,319 @@ class Driver(object):
         Set additional attributes and information to the DriverResult.
         """
         pass
+
+    def _get_active_cons_and_dvs(self, feas_atol=1.e-6, feas_rtol=1.e-6, assume_dvs_active=False):
+        """
+        Obtain the constraints and design varaibles which are active.
+
+        Active means the constraint or design variable is on the bound (or close enough
+        that it satisfies np.isclose(val, bound, atol=feas_atol, rtol=feas_rtol))
+
+        Parameters
+        ----------
+        feas_atol : float
+            Feasibility absolute tolerance
+        feas_rtol : float
+            Feasibility relative tolerance
+        assume_dvs_active : bool
+            Override to force design variables to be treated as active.
+
+        Returns
+        -------
+        active_cons : dict[str: dict]
+            The names of the active constraints. For each active constraint,
+            a dict of the active indices and the active bound (0='equals',
+            -1='lower', 1='upper') is provided. These are the active indices
+            _of_ the constraint "indices".
+        active_dvs : list[str]
+            The names of the active design variables. For each active design
+            variable, a dict of the active indices and the active bound
+            (0='equals', -1='lower', 1='upper') is provided. An active
+            design variable bound of 'equal' is only possible when
+            assume_dvs_active is True, and the design variables are
+            returned as if they are on an active equality constraint.
+            These are the active indices _of_ the design var indices.
+        """
+        active_cons = {}
+        active_dvs = {}
+        des_vars = self._designvars
+        constraints = self._cons
+
+        # We obtain the driver scaled values so that feasibility check is performed
+        # with driver scaling.
+        dv_vals = self.get_design_var_values(driver_scaling=True)
+        con_vals = self.get_constraint_values(driver_scaling=True)
+
+        for constraint, con_options in constraints.items():
+            constraint_value = con_vals[constraint]
+            con_size = con_options['size']
+
+            if con_options.get('equals', None) is not None:
+                # Equality constraint, all indices active
+                active_cons[constraint] = {'indices': np.arange(con_size, dtype=int),
+                                           'active_bounds': np.zeros(con_size, dtype=int)}
+            else:
+                # Inequality constraint, determine active indices and bounds
+                constraint_upper = con_options.get("upper", np.inf)
+                constraint_lower = con_options.get("lower", -np.inf)
+
+                if np.all(np.isinf(constraint_upper)):
+                    upper_idxs = np.empty()
+                else:
+                    upper_mask = np.logical_or(constraint_value > constraint_upper,
+                                               np.isclose(constraint_value, constraint_upper,
+                                                          atol=feas_atol, rtol=feas_rtol))
+                    upper_idxs = np.where(upper_mask)[0]
+
+                if np.all(np.isinf(constraint_lower)):
+                    lower_idxs = np.empty()
+                else:
+                    lower_mask = np.logical_or(constraint_value < constraint_lower,
+                                               np.isclose(constraint_value, constraint_lower,
+                                                          atol=feas_atol, rtol=feas_rtol))
+                    lower_idxs = np.where(lower_mask)[0]
+
+                active_idxs = sorted(np.concatenate((upper_idxs, lower_idxs)))
+                active_bounds = [1 if idx in upper_idxs else -1 for idx in active_idxs]
+                if active_idxs:
+                    active_cons[constraint] = {'indices': active_idxs,
+                                               'active_bounds': active_bounds}
+
+        for des_var, des_var_options in des_vars.items():
+            des_var_value = dv_vals[des_var]
+            des_var_size = des_var_options['size']
+            des_var_upper = np.ravel(des_var_options.get("upper", np.inf))
+            des_var_lower = np.ravel(des_var_options.get("lower", -np.inf))
+
+            if assume_dvs_active:
+                active_dvs[des_var] = {'indices': np.arange(des_var_size, dtype=int),
+                                       'active_bounds': np.zeros(des_var_size, dtype=int)}
+            else:
+                upper_mask = np.logical_or(des_var_value > des_var_upper,
+                                           np.isclose(des_var_value, des_var_upper,
+                                                      atol=feas_atol, rtol=feas_rtol))
+                upper_idxs = np.where(upper_mask)[0]
+                lower_mask = np.logical_or(des_var_value < des_var_lower,
+                                           np.isclose(des_var_value, des_var_lower,
+                                                      atol=feas_atol, rtol=feas_rtol))
+                lower_idxs = np.where(lower_mask)[0]
+
+                active_idxs = sorted(np.concatenate((upper_idxs, lower_idxs)))
+                active_bounds = [1 if idx in upper_idxs else -1 for idx in active_idxs]
+                if active_idxs:
+                    active_dvs[des_var] = {'indices': np.asarray(active_idxs, dtype=int),
+                                           'active_bounds': np.asarray(active_bounds, dtype=int)}
+
+        return active_cons, active_dvs
+
+    def _unscale_lagrange_multipliers(self, multipliers, assume_dv=False):
+        """
+        Unscale the Lagrange multipliers from optimizer scaling to physical/model scaling.
+
+        This method assumes that the optimizer is in a converged state, satisfying both the
+        primal constraints as well as the optimality conditions.
+
+        Parameters
+        ----------
+        active_constraints : Sequence[str]
+            Active constraints/dvs in the optimization, determined using the
+            get_active_cons_and_dvs method.
+        multipliers : dict[str: ArrayLike]
+            The Lagrange multipliers, in Driver-scaled units.
+        assume_dv : bool
+            This function can unscale the multipliers of either design variables or constraints.
+            Since variables can be both a design variable and a constraint, this flag
+            disambiguates the type of multiplier we're handling so the appropriate scaling
+            factors can be used.
+
+        Returns
+        -------
+        dict
+            The Lagrange multipliers in model/physical units.
+        """
+        if len(self._objs) != 1:
+            raise ValueError('Lagrange Multplier estimation requires that there '
+                             f'be a single objective, but there are {len(self._objs)}.')
+
+        obj_meta = list(self._objs.values())[0]
+        obj_ref = obj_meta['ref']
+        obj_ref0 = obj_meta['ref0']
+
+        if obj_ref is None:
+            obj_ref = 1.0
+        if obj_ref0 is None:
+            obj_ref0 = 0.0
+
+        obj_scaler = obj_meta['total_scaler'] or 1.0
+
+        unscaled_multipliers = {}
+
+        for name, val in multipliers.items():
+            if name in self._designvars and assume_dv:
+                scaler = self._designvars[name]['total_scaler']
+            else:
+                scaler = self._responses[name]['total_scaler']
+            scaler = scaler or 1.0
+
+            unscaled_multipliers[name] = val * scaler / obj_scaler
+
+        return unscaled_multipliers
+
+    def compute_lagrange_multipliers(self, driver_scaling=False, feas_tol=1.0E-6,
+                                     use_sparse_solve=True):
+        """
+        Get the approximated Lagrange multipliers of one or more constraints.
+
+        This method assumes that the optimizer is in a converged state, satisfying both the
+        primal constraints as well as the optimality conditions.
+
+        The estimation of which constraints are active depends upon the feasibility tolerance
+        specified. This applies to the driver-scaled values of the constraints, and should be
+        the same as that used by the optimizer, if available.
+
+        Parameters
+        ----------
+        driver_scaling : bool
+            If False, return the Lagrange multipliers estimates in their physical units.
+            If True, return the Lagrange multiplier estimates in a driver-scaled state.
+        feas_tol : float or None
+            The feasibility tolerance under which the optimization was run. If None, attempt
+            to determine this automatically based on the specified optimizer settings.
+        use_sparse_solve : bool
+            If True, use scipy.sparse.linalg.lstsq to solve for the multipliers. Otherwise, numpy
+            will be used with dense arrays.
+
+        Returns
+        -------
+        active_desvars : dict[str: dict]
+            A dictionary with an entry for each active design variable.
+            For each active design variable, the corresponding dictionary
+            provides the 'multipliers', active 'indices', and 'active_bounds'.
+        active_cons : dict[str: dict]
+            A dictionary with an entry for each active constraint.
+            For each active constraint, the corresponding dictionary
+            provides the 'multipliers', active 'indices', and 'active_bounds'.
+        """
+        if not self.supports['optimization']:
+            raise NotImplementedError('Lagrange multipliers are only available for '
+                                      'drivers which support optimization.')
+
+        prob = self._problem()
+
+        obj_name = list(self._objs.keys())[0]
+        constraints = self._cons
+        des_vars = self._designvars
+
+        of_totals = {obj_name, *constraints.keys()}
+
+        active_cons, active_dvs = self._get_active_cons_and_dvs(feas_atol=feas_tol,
+                                                                feas_rtol=feas_tol)
+
+        # Active cons and dvs provide the active indices in the design vars and constraints.
+        # But these design vars and constraints may themselves be indices of a larger
+        # variable.
+        totals = prob.compute_totals(list(of_totals),
+                                     list(des_vars),
+                                     driver_scaling=True)
+
+        grad_f = {inp: totals[obj_name, inp] for inp in des_vars.keys()}
+
+        n = sum([grad_f_val.size for grad_f_val in grad_f.values()])
+
+        grad_f_vec = np.zeros((n))
+        offset = 0
+        for grad_f_val in grad_f.values():
+            inp_size = grad_f_val.size
+            grad_f_vec[offset:offset + inp_size] = grad_f_val
+            offset += inp_size
+
+        active_jac_blocks = []
+
+        if not active_cons and not active_dvs:
+            return {}, {}
+
+        for (dv_name, active_meta) in active_dvs.items():
+            # For active design variable bounds, the constraint gradient
+            # wrt des vars is just an identity matrix sized by the number of
+            # active elements in the design variable.
+            active_idxs = active_meta['indices']
+
+            size = des_vars[dv_name]['size']
+            con_grad = {(dv_name, inp): np.eye(size)[active_idxs, ...] if inp == dv_name
+                        else np.zeros((size, dv_meta['size']))[active_idxs, ...]
+                        for (inp, dv_meta) in des_vars.items()}
+
+            if use_sparse_solve:
+                active_jac_blocks.append([sp.csr_matrix(cg) for cg in con_grad.values()])
+            else:
+                active_jac_blocks.append(list(con_grad.values()))
+
+        for (con_name, active_meta) in active_cons.items():
+            # If the constraint is a design variable, the constraint gradient
+            # wrt des vars is just an identity matrix sized by the number of
+            # active elements in the design variable.
+            active_idxs = active_meta['indices']
+            if con_name in des_vars.keys():
+                size = des_vars[con_name]['size']
+                con_grad = {(con_name, inp): np.eye(size)[active_idxs, ...] if inp == con_name
+                            else np.zeros((size, dv_meta['size']))[active_idxs, ...]
+                            for (inp, dv_meta) in des_vars.items()}
+            else:
+                con_grad = {(con_name, inp): totals[con_name, inp][active_idxs, ...]
+                            for inp in des_vars.keys()}
+            if use_sparse_solve:
+                active_jac_blocks.append([sp.csr_matrix(cg) for cg in con_grad.values()])
+            else:
+                active_jac_blocks.append(list(con_grad.values()))
+
+        if use_sparse_solve:
+            active_cons_mat = sp.block_array(active_jac_blocks)
+        else:
+            active_cons_mat = np.block(active_jac_blocks)
+
+        if use_sparse_solve:
+            lstsq_sol = sp.linalg.lsqr(active_cons_mat.T, -grad_f_vec)
+        else:
+            lstsq_sol = np.linalg.lstsq(active_cons_mat.T, -grad_f_vec, rcond=None)
+        multipliers_vec = lstsq_sol[0]
+
+        dv_multipliers = dict()
+        con_multipliers = dict()
+        offset = 0
+
+        dv_vals = self.get_design_var_values()
+        con_vals = self.get_constraint_values()
+
+        for desvar, act_info in active_dvs.items():
+            act_idxs = act_info['indices']
+            active_size = len(act_idxs)
+            mult_vals = multipliers_vec[offset:offset + active_size]
+            dv_multipliers[desvar] = np.zeros_like(dv_vals[desvar])
+            dv_multipliers[desvar].flat[act_idxs] = mult_vals
+            offset += active_size
+
+        for constraint, act_info in active_cons.items():
+            act_idxs = act_info['indices']
+            active_size = len(act_idxs)
+            mult_vals = multipliers_vec[offset:offset + active_size]
+            if constraint in des_vars:
+                con_multipliers[constraint] = np.zeros_like(dv_vals[constraint])
+            else:
+                con_multipliers[constraint] = np.zeros_like(con_vals[constraint])
+            con_multipliers[constraint].flat[act_idxs] = mult_vals
+            offset += active_size
+
+        if not driver_scaling:
+            dv_multipliers = self._unscale_lagrange_multipliers(dv_multipliers, assume_dv=True)
+            con_multipliers = self._unscale_lagrange_multipliers(con_multipliers, assume_dv=False)
+
+        for key, val in dv_multipliers.items():
+            active_dvs[key]['multipliers'] = val
+
+        for key, val in con_multipliers.items():
+            active_cons[key]['multipliers'] = val
+
+        return active_dvs, active_cons
 
 
 class SaveOptResult(object):
@@ -1787,6 +2125,8 @@ def record_iteration(requester, prob, case_name):
     # Get the data to record (collective calls that get across all ranks)
     model = prob.model
     parallel = rec_mgr._check_parallel() if model.comm.size > 1 else False
+    do_gather = rec_mgr._check_gather()
+    local = parallel and not do_gather
 
     inputs, outputs, residuals = model.get_nonlinear_vectors()
     discrete_inputs = model._discrete_inputs
@@ -1795,15 +2135,19 @@ def record_iteration(requester, prob, case_name):
     opts = requester.recording_options
     data = {'input': {}, 'output': {}, 'residual': {}}
     filt = requester._filtered_vars_to_record
+    if filt is None:  # recorder is not initialized
+        # this will raise the proper exception
+        rec_mgr.record_iteration(requester, data, requester._get_recorder_metadata(case_name))
+        return
 
     if opts['record_inputs'] and (inputs._names or len(discrete_inputs) > 0):
-        data['input'] = model._retrieve_data_of_kind(filt, 'input', 'nonlinear', parallel)
+        data['input'] = model._retrieve_data_of_kind(filt, 'input', 'nonlinear', local)
 
     if opts['record_outputs'] and (outputs._names or len(discrete_outputs) > 0):
-        data['output'] = model._retrieve_data_of_kind(filt, 'output', 'nonlinear', parallel)
+        data['output'] = model._retrieve_data_of_kind(filt, 'output', 'nonlinear', local)
 
     if opts['record_residuals'] and residuals._names:
-        data['residual'] = model._retrieve_data_of_kind(filt, 'residual', 'nonlinear', parallel)
+        data['residual'] = model._retrieve_data_of_kind(filt, 'residual', 'nonlinear', local)
 
     from openmdao.core.problem import Problem
     if isinstance(requester, Problem):

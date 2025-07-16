@@ -8,6 +8,7 @@ import numpy as np
 
 import openmdao.api as om
 from openmdao.core.driver import Driver
+from openmdao.devtools.debug import config_summary
 from openmdao.visualization.n2_viewer.n2_viewer import _get_viewer_data
 from openmdao.test_suite.components.sellar import StateConnection, \
      SellarDis1withDerivatives, SellarDis2withDerivatives
@@ -380,8 +381,8 @@ class DiscreteTestCase(unittest.TestCase):
             "varname  val    prom_name",
             "-------  -----  ---------",
             "_auto_ivc",
-            "  v0    [10.]  _auto_ivc.v0",
-            "  v1    11     _auto_ivc.v1",
+            "  v0    [10.]  expl.a",
+            "  v1    11     x",
             "expl",
             "  b    [20.]  expl.b",
             "  y    2      expl.y",
@@ -496,8 +497,9 @@ class DiscreteTestCase(unittest.TestCase):
 
         model.connect('indep.x', 'comp.x')
 
+        prob.setup()
         with self.assertRaises(Exception) as ctx:
-            prob.setup()
+            prob.final_setup()
         self.assertEqual(str(ctx.exception),
             "\nCollected errors for problem 'float_to_discrete_error':"
             "\n   <model> <class Group>: Can't connect continuous output 'indep.x' to discrete "
@@ -512,9 +514,9 @@ class DiscreteTestCase(unittest.TestCase):
         model.add_subsystem('comp', om.ExecComp("y=2.0*x"))
 
         model.connect('indep.x', 'comp.x')
-
+        prob.setup()
         with self.assertRaises(Exception) as ctx:
-            prob.setup()
+            prob.final_setup()
         self.assertEqual(str(ctx.exception),
             "\nCollected errors for problem 'discrete_to_float_error':"
             "\n   <model> <class Group>: Can't connect discrete output 'indep.x' to continuous "
@@ -530,8 +532,9 @@ class DiscreteTestCase(unittest.TestCase):
 
         model.connect('indep.x', 'comp.x')
 
+        prob.setup()
         with self.assertRaises(Exception) as ctx:
-            prob.setup()
+            prob.final_setup()
         self.assertEqual(str(ctx.exception),
             "\nCollected errors for problem 'discrete_mismatch_error':"
             "\n   <model> <class Group>: Type 'str' of output 'indep.x' is incompatible with "
@@ -673,6 +676,7 @@ class DiscreteTestCase(unittest.TestCase):
 
         with self.assertRaises(Exception) as cm:
             prob.setup()
+            prob.final_setup()
 
         msg = ("\nCollected errors for problem 'connection_to_output':"
                "\n   <model> <class Group>: Attempted to connect from 'C1.y' to 'C2.y', "
@@ -690,6 +694,7 @@ class DiscreteTestCase(unittest.TestCase):
 
         with self.assertRaises(Exception) as cm:
             prob.setup()
+            prob.final_setup()
 
         msg = ("\nCollected errors for problem 'connection_from_input':"
                "\n   <model> <class Group>: Attempted to connect from 'C1.x' to 'C2.x', "
@@ -783,6 +788,7 @@ class DiscreteTestCase(unittest.TestCase):
                                      'global_size': 1,
                                      'has_src_indices': False,
                                      'prom_name': 'comp.a',
+                                     'require_connection': False,
                                      'shape': (1,),
                                      'shape_by_conn': False,
                                      'size': 1,
@@ -1071,6 +1077,8 @@ class DiscreteFeatureTestCase(unittest.TestCase):
         prob.run_model()
 
         assert_near_equal(prob.get_val('comp.x'), 3., 1e-4)
+
+        config_summary(prob)
 
 
 if __name__ == "__main__":

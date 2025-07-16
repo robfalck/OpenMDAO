@@ -338,7 +338,7 @@ class TestParallelGroupsMPI2(TestParallelGroups):
         if MPI:
             msg = ("Problem .*: The `distributed_vector_class` argument must be a distributed vector "
                    "class like `PETScVector` when running in parallel under MPI but 'DefaultVector' "
-                   "was specified which is not distributed\.")
+                   r"was specified which is not distributed\.")
             with self.assertRaisesRegex(ValueError, msg):
                 prob.setup(check=False, mode='fwd', distributed_vector_class=om.DefaultVector)
         else:
@@ -361,7 +361,7 @@ class TestParallelGroupsMPI2(TestParallelGroups):
             self.assertEqual(len(testlogger.get('error')), 1)
             self.assertTrue(testlogger.contains('warning',
                                                 "Only want to see this on rank 0"))
-            self.assertEqual(len(testlogger.get('info')), len(_default_checks) + 1)
+            self.assertEqual(len(testlogger.get('info')), 2*len(_default_checks) + 1)
             self.assertTrue(msg in testlogger.get('error')[0])
             for info in testlogger.get('info'):
                 if msg in info:
@@ -456,7 +456,8 @@ class TestParallelListStates(unittest.TestCase):
 
         p.setup()
         p.final_setup()
-        self.assertEqual(sorted(p.model._list_states_allprocs()), ['par.C1.x', 'par.C2.x', 'par.C4.x'])
+        self.assertEqual(sorted(p.model._list_states_allprocs()),
+                         ['par.C1.x', 'par.C2.x', 'par.C4.x'])
 
 
 class ExComp(om.ExplicitComponent):
@@ -686,6 +687,7 @@ class TestDesvarResponseOrdering(unittest.TestCase):
         model.add_subsystem('phases', MyPhases())
 
         prob.setup()
+        prob.final_setup()
 
         dvs = prob.model.get_design_vars(recurse=True, get_sizes=True, use_prom_ivc=True)
         cons = prob.model.get_constraints(recurse=True, get_sizes=True, use_prom_ivc=False)

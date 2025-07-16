@@ -84,7 +84,7 @@ DEFAULT_OPT_SETTINGS['IPOPT'] = {
 }
 
 CITATIONS = """@article{Wu_pyoptsparse_2020,
-    author = {Neil Wu and Gaetan Kenway and Charles A. Mader and John Jasa and
+    author = {Ella Wu and Gaetan Kenway and Charles A. Mader and John Jasa and
      Joaquim R. R. A. Martins},
     title = {{pyOptSparse:} A {Python} framework for large-scale constrained
      nonlinear optimization of sparse systems},
@@ -191,7 +191,7 @@ class pyOptSparseDriver(Driver):
         """
         if pyoptsparse is None:
             # pyoptsparse is not installed
-            raise RuntimeError('pyOptSparseDriver is not available, pyOptsparse is not installed.')
+            raise ImportError('pyOptSparseDriver is not available, pyOptsparse is not installed.')
 
         if isinstance(pyoptsparse, Exception):
             # there is some other issue with the pyoptsparse installation
@@ -373,8 +373,8 @@ class pyOptSparseDriver(Driver):
 
         # Only need initial run if we have linear constraints or if we are using an optimizer that
         # doesn't perform one initially.
-        model_ran = False
-        if optimizer in run_required or linear_constraints:
+        model_ran = bool(self.options['hotstart_file'])
+        if not model_ran and (optimizer in run_required or linear_constraints):
             with RecordingDebugging(self._get_name(), self.iter_count, self) as rec:
                 self._run_solve_nonlinear()
                 rec.abs = 0.0
@@ -411,11 +411,14 @@ class pyOptSparseDriver(Driver):
         # Add all objectives
         objs = self.get_objective_values()
         for name in objs:
-            opt_prob.addObj(model._get_prom_name(name))
+            opt_prob.addObj(name)
             self._nl_responses.append(name)
 
         lin_dvs = self._get_lin_dvs()
         nl_dvs = self._get_nl_dvs()
+
+        # compute dynamic simul deriv coloring
+        problem.get_total_coloring(self._coloring_info, run_model=not model_ran)
 
         # Calculate and save derivatives for any linear constraints.
         if linear_constraints:
@@ -439,9 +442,6 @@ class pyOptSparseDriver(Driver):
                             # convert to 'coo' format here to avoid an emphatic warning
                             # by pyoptsparse.
                             jacdct[n] = {'coo': [mat.row, mat.col, mat.data], 'shape': mat.shape}
-
-        # # compute dynamic simul deriv coloring
-        problem.get_total_coloring(self._coloring_info, run_model=not model_ran)
 
         bad_resps = [n for n in relevance._no_dv_responses if n in self._cons]
         bad_cons = [n for n, m in self._cons.items() if m['source'] in bad_resps]
@@ -533,7 +533,7 @@ class pyOptSparseDriver(Driver):
 
         # Need to tell optimizer where to put its .out files
         if self.options['output_dir'] in (None, _DEFAULT_REPORTS_DIR):
-            output_dir = str(self._problem().get_outputs_dir())
+            output_dir = str(self._problem().get_outputs_dir(mkdir=True))
         else:
             output_dir = str(self.options['output_dir'])
 
@@ -629,7 +629,7 @@ class pyOptSparseDriver(Driver):
         # framework is left in the right final state
         dv_dict = sol.getDVs()
         for name in self._designvars:
-            self.set_design_var(name, dv_dict[model._get_prom_name(name)])
+            self.set_design_var(name, dv_dict[name])
 
         with RecordingDebugging(self._get_name(), self.iter_count, self) as rec:
             try:
@@ -651,6 +651,9 @@ class pyOptSparseDriver(Driver):
             # These are various failed statuses.
             if optimizer == 'IPOPT':
                 if exit_status not in {0, 1}:
+                    self.fail = True
+            elif optimizer == 'PSQP':
+                if exit_status not in {1, 2, 3, 4}:
                     self.fail = True
             else:
                 # exit status may be the empty string for optimizers that don't support it
@@ -702,7 +705,7 @@ class pyOptSparseDriver(Driver):
 
         try:
             for name in self._designvars:
-                self.set_design_var(name, dv_dict[model._get_prom_name(name)])
+                self.set_design_var(name, dv_dict[name])
 
             # print("Setting DV")
             # print(dv_dict)
@@ -711,8 +714,6 @@ class pyOptSparseDriver(Driver):
             if self._user_termination_flag:
                 func_dict = self.get_objective_values()
                 func_dict.update(self.get_constraint_values(lintype='nonlinear'))
-                # convert func_dict to use promoted names
-                func_dict = model._prom_names_dict(func_dict)
                 return func_dict, 2
 
             # Execute the model
@@ -752,9 +753,6 @@ class pyOptSparseDriver(Driver):
         if fail > 0 and self._fill_NANs:
             for name in func_dict:
                 func_dict[name].fill(np.nan)
-
-        # convert func_dict to use promoted names
-        func_dict = model._prom_names_dict(func_dict)
 
         # print("Functions calculated")
         # print(dv_dict)
@@ -859,18 +857,15 @@ class pyOptSparseDriver(Driver):
             for okey in self._nl_responses:
                 if okey not in sens_dict:
                     sens_dict[okey] = {}
-                oval = func_dict[model._get_prom_name(okey)]
+                oval = func_dict[okey]
                 osize = len(oval)
                 for ikey in nl_dvs.keys():
-                    ival = dv_dict[model._get_prom_name(ikey)]
+                    ival = dv_dict[ikey]
                     isize = len(ival)
                     if ikey not in sens_dict[okey] or self._fill_NANs:
                         sens_dict[okey][ikey] = np.zeros((osize, isize))
                         if self._fill_NANs:
                             sens_dict[okey][ikey].fill(np.nan)
-
-        # convert sens_dict to use promoted names
-        sens_dict = model._prom_names_jac(sens_dict)
 
         # print("Derivatives calculated")
         # print(dv_dict)

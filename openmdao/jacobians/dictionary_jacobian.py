@@ -139,12 +139,19 @@ class DictionaryJacobian(Jacobian):
         iflat = d_inputs._abs_get_val
         subjacs_info = self._subjacs_info
         is_explicit = system.is_explicit()
-        randgen = self._randgen
+        do_randomize = self._randgen is not None and system._problem_meta['randomize_subjacs']
 
+        do_reset = False
         with system._unscaled_context(outputs=[d_outputs], residuals=[d_residuals]):
             for abs_key in self._iter_abs_keys(system):
+                if abs_key not in subjacs_info:
+                    # for components that compute sparsity at first linearization, some subjacs
+                    # will be determined to be zero and removed from subjacs_info., so we need to
+                    # update our iteration keys.
+                    do_reset = True
+                    continue
+
                 res_name, other_name = abs_key
-                ofvec = rflat(res_name) if res_name in d_res_names else None
 
                 if other_name in d_out_names:
                     wrtvec = oflat(other_name)
@@ -153,27 +160,30 @@ class DictionaryJacobian(Jacobian):
                 else:
                     wrtvec = None
 
+                ofvec = rflat(res_name) if res_name in d_res_names else None
+
+                if fwd and is_explicit and res_name is other_name and wrtvec is not None:
+                    # skip the matvec mult completely for identity subjacs
+                    ofvec -= wrtvec
+                    continue
+
+                if abs_key in self._key_owner and abs_key in system._cross_keys:
+                    wrtowner = system._owning_rank[other_name]
+                    if system.comm.rank == wrtowner:
+                        system.comm.bcast(wrtvec, root=wrtowner)
+                    else:
+                        wrtvec = system.comm.bcast(None, root=wrtowner)
+
                 if fwd:
-                    if is_explicit and res_name is other_name and wrtvec is not None:
-                        # skip the matvec mult completely for identity subjacs
-                        ofvec -= wrtvec
-                        continue
                     left_vec = ofvec
                     right_vec = wrtvec
                 else:  # rev
                     left_vec = wrtvec
                     right_vec = ofvec
 
-                if abs_key in self._key_owner and abs_key in system._cross_keys:
-                    wrtowner = system._owning_rank[other_name]
-                    if system.comm.rank == wrtowner:
-                        system.comm.bcast(right_vec, root=wrtowner)
-                    else:
-                        right_vec = system.comm.bcast(None, root=wrtowner)
-
                 if left_vec is not None and right_vec is not None:
                     subjac_info = subjacs_info[abs_key]
-                    if randgen:
+                    if do_randomize:
                         subjac = self._randomize_subjac(subjac_info['val'], abs_key)
                     else:
                         subjac = subjac_info['val']
@@ -197,8 +207,7 @@ class DictionaryJacobian(Jacobian):
                         if fwd:
                             left_vec += subjac.dot(right_vec)
                         else:  # rev
-                            subjac = subjac.transpose()
-                            left_vec += subjac.dot(right_vec)
+                            left_vec += subjac.T.dot(right_vec)
 
                 if abs_key in self._key_owner:
                     owner = self._key_owner[abs_key]
@@ -206,14 +215,18 @@ class DictionaryJacobian(Jacobian):
                         system.comm.bcast(left_vec, root=owner)
                     elif owner is not None:
                         left_vec = system.comm.bcast(None, root=owner)
-                        if fwd:
-                            if res_name in d_res_names:
-                                d_residuals._abs_set_val(res_name, left_vec)
-                        else:  # rev
-                            if other_name in d_out_names:
-                                d_outputs._abs_set_val(other_name, left_vec)
-                            elif other_name in d_inp_names:
-                                d_inputs._abs_set_val(other_name, left_vec)
+                        if left_vec is not None:
+                            if fwd:
+                                if res_name in d_res_names:
+                                    d_residuals._abs_set_val(res_name, left_vec)
+                            else:  # rev
+                                if other_name in d_out_names:
+                                    d_outputs._abs_set_val(other_name, left_vec)
+                                elif other_name in d_inp_names:
+                                    d_inputs._abs_set_val(other_name, left_vec)
+
+            if do_reset:
+                self._iter_keys = None  # subjacs_info has been reduced, so update iter keys
 
 
 class _CheckingJacobian(DictionaryJacobian):
@@ -224,9 +237,10 @@ class _CheckingJacobian(DictionaryJacobian):
     nonzero values found in the column being set.
     """
 
-    def __init__(self, system):
+    def __init__(self, system, uncovered_threshold=1.0E-16):
         super().__init__(system)
         self._subjacs_info = self._subjacs_info.copy()
+        self._uncovered_threshold = uncovered_threshold
 
         # Convert any scipy.sparse subjacs to OpenMDAO's interal COO specification.
         for key, subjac in self._subjacs_info.items():
@@ -235,8 +249,6 @@ class _CheckingJacobian(DictionaryJacobian):
                 self._subjacs_info[key]['rows'] = coo_val.row
                 self._subjacs_info[key]['cols'] = coo_val.col
                 self._subjacs_info[key]['val'] = coo_val.data
-
-        self._errors = []
 
     def __iter__(self):
         for key, _ in self.items():
@@ -302,7 +314,8 @@ class _CheckingJacobian(DictionaryJacobian):
         The column is assumed to be the same size as a column of the jacobian.
 
         If the column has any nonzero values that are outside of specified sparsity patterns for
-        any of the subjacs, an exception will be raised.
+        any of the subjacs, the information will be saved in subjacs_info so we can report it
+        during the derivative test.
 
         Parameters
         ----------
@@ -352,10 +365,10 @@ class _CheckingJacobian(DictionaryJacobian):
 
                     arr = scratch[start:end]
                     arr[:] = column[start:end]
-                    arr[row_inds] = 0.
-                    nzs = np.nonzero(arr)
-                    if nzs[0].size > 0:
-                        self._errors.append(f"{system.msginfo}: User specified sparsity (rows/cols)"
-                                            f" for subjac '{of}' wrt '{wrt}' is incorrect. There "
-                                            f"are non-covered nonzeros in column {loc_idx} at "
-                                            f"row(s) {nzs[0]}.")
+                    arr[row_inds] = 0.  # zero out the rows that are covered by sparsity
+                    nzs = np.where(np.abs(arr) > self._uncovered_threshold)[0]
+                    if nzs.size > 0:
+                        if 'uncovered_nz' not in subjac:
+                            subjac['uncovered_nz'] = []
+                            subjac['uncovered_threshold'] = self._uncovered_threshold
+                        subjac['uncovered_nz'].extend(list(zip(nzs, loc_idx * np.ones_like(nzs))))

@@ -3,6 +3,7 @@ import numpy as np
 
 import openmdao.api as om
 from openmdao.utils.assert_utils import assert_near_equal, assert_check_totals
+from openmdao.utils.testing_utils import use_tempdirs
 
 class Inner(om.Group):
     def setup(self):
@@ -105,14 +106,11 @@ class SrcIndicesTestCase(unittest.TestCase):
         assert_near_equal(p.model.get_val('a'), 99.)
         assert_near_equal(p.model.get_val('b'), 2.)
         assert_near_equal(p['g1.y'], 101.)
-        assert_near_equal(p['g1.a'], 99.)
         assert_near_equal(p.model.g1.get_val('y'), 101.)
         assert_near_equal(p.model.g1.get_val('a'), 99.)
         assert_near_equal(p['g1.c1.a0'], 99.)
         assert_near_equal(p['g1.c1.b'], 2.)
-        assert_near_equal(p['g1.g2.y'], [101.] * 4)
         assert_near_equal(p.model.g1.g2.get_val('y'), [101.] * 4)
-        assert_near_equal(p['g1.g2.a'], [99.] * 4)
         assert_near_equal(p.model.g1.g2.get_val('a'), [99.] * 4)
         assert_near_equal(p['g1.g2.c2.a'], [99.] * 4)
         assert_near_equal(p['g1.g2.c2.y'], [101.] * 4)
@@ -315,6 +313,7 @@ class SrcIndicesTestCase(unittest.TestCase):
 
         with self.assertRaises(Exception) as cm:
             p.setup()
+            p.final_setup()
 
         self.assertEqual(cm.exception.args[0],
            "\nCollected errors for problem 'src_shape_mismatch':"
@@ -346,6 +345,7 @@ class SrcIndicesTestCase(unittest.TestCase):
         p.model.set_input_defaults('x', src_shape=src_shape)
         with self.assertRaises(Exception) as cm:
             p.setup()
+            p.final_setup()
 
         self.assertEqual(cm.exception.args[0],
             "\nCollected errors for problem 'src_indices_on_promotes':"
@@ -432,11 +432,12 @@ class SrcIndicesFeatureTestCase(unittest.TestCase):
         p.run_model()
 
         assert_near_equal(p['x'], inp)
-        assert_near_equal(p['G.x'], inp[:, :-1])
+        assert_near_equal(p.model.G.get_val('x'), inp[:, :-1])
         assert_near_equal(p['G.g1.C1.y'], inp[:, :-1][:, 1]*3.)
         assert_near_equal(p['G.g2.C2.y'], inp[:, :-1].flatten()[[1,5]]*2.)
 
 
+@use_tempdirs
 class SrcIndicesMPITestCase(unittest.TestCase):
     N_PROCS = 2
 
@@ -498,6 +499,7 @@ class SrcIndicesSerialMultipoint2(unittest.TestCase):
         p.run_model()
 
 
+@use_tempdirs
 class Multipoint2TooManyProcs(SrcIndicesSerialMultipoint2):
     N_PROCS = 3
 
@@ -528,14 +530,16 @@ class SrcIndicesSerialMultipoint3(unittest.TestCase):
         assert_check_totals(p.check_totals(of=['par.g1.C1.y', 'par.g2.C2.y', 'par.g3.C3.y'], wrt=['par.x']))
 
 
+@use_tempdirs
 class Multipoint3SameProcs(SrcIndicesSerialMultipoint3):
     N_PROCS = 3
 
 
+@use_tempdirs
 class Multipoint3TooManyProcs(SrcIndicesSerialMultipoint3):
     N_PROCS = 4
 
-
+@use_tempdirs
 class DoubleNestedParallelMultipointTestCase(unittest.TestCase):
     N_PROCS = 6
 

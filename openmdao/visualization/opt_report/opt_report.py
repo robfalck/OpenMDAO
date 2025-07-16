@@ -24,7 +24,6 @@ except ImportError:
 
 from openmdao.core.constants import INF_BOUND
 from openmdao.utils.mpi import MPI
-from openmdao.utils.om_warnings import issue_warning, DriverWarning
 from openmdao.visualization.tables.table_builder import generate_table
 
 
@@ -115,9 +114,6 @@ def opt_report(prob, outfile=None):
     """
     driver = prob.driver
     if not driver.supports['optimization']:
-        driver_class = type(driver).__name__
-        issue_warning(f"The optimizer report is not applicable for Driver type '{driver_class}', "
-                      "which does not support optimization", category=DriverWarning)
         return
 
     # only create report on rank 0
@@ -126,11 +122,7 @@ def opt_report(prob, outfile=None):
     if not outfile:
         outfile = _default_optimizer_report_filename
 
-    outfilepath = pathlib.Path(prob.get_reports_dir(force=True)).joinpath(outfile)
-
     driver_scaling = True
-
-    get_prom_name = prob.model._get_prom_name
 
     # Collect the entire array of array valued desvars and constraints (ignore indices)
     objs_vals = {}
@@ -142,26 +134,20 @@ def opt_report(prob, outfile=None):
     cons_meta = {}
 
     with prob.model._scaled_context_all():
-        for abs_name, meta in driver._objs.items():
-            prom_name = get_prom_name(abs_name)
+        for prom_name, meta in driver._objs.items():
             objs_meta[prom_name] = meta
             objs_vals[prom_name] = \
-                driver.get_objective_values(driver_scaling=driver_scaling)[abs_name]
+                driver.get_objective_values(driver_scaling=driver_scaling)[prom_name]
 
-        for abs_name, meta in driver._designvars.items():
-            prom_name = get_prom_name(abs_name)
+        for prom_name, meta in driver._designvars.items():
             desvars_meta[prom_name] = meta
             desvars_vals[prom_name] = \
-                driver.get_design_var_values(driver_scaling=driver_scaling)[abs_name]
+                driver.get_design_var_values(driver_scaling=driver_scaling)[prom_name]
 
-        for abs_name, meta in prob.driver._cons.items():
-            if meta.get('alias') is not None:
-                prom_name = abs_name
-            else:
-                prom_name = get_prom_name(abs_name)
+        for prom_name, meta in prob.driver._cons.items():
             cons_meta[prom_name] = meta
             cons_vals[prom_name] = \
-                driver.get_constraint_values(driver_scaling=driver_scaling)[abs_name]
+                driver.get_constraint_values(driver_scaling=driver_scaling)[prom_name]
 
     header_html = _make_header_table(prob)
 
@@ -178,12 +164,12 @@ def opt_report(prob, outfile=None):
 
     driver_info_html = _make_opt_value_table(driver)
 
-    this_dir = os.path.dirname(os.path.abspath(__file__))
-
     if create:
+        this_dir = os.path.dirname(os.path.abspath(__file__))
         with open(os.path.join(this_dir, _optimizer_report_template), 'r', encoding='utf-8') as f:
             template = f.read()
 
+        outfilepath = pathlib.Path(prob.get_reports_dir(force=True)).joinpath(outfile)
         with open(outfilepath, 'w') as f:
             s = template.format(title=prob._name, header=header_html, objs=objs_html,
                                 desvars=desvars_html, cons=cons_html, driver=driver_info_html,

@@ -108,6 +108,7 @@ class ListVarsTest(unittest.TestCase):
             list_autoivcs=True,
             print_min=True,
             print_max=True,
+            print_mean=True,
             out_stream=None
         )
         prob_case.list_inputs(
@@ -120,6 +121,7 @@ class ListVarsTest(unittest.TestCase):
             print_tags=True,
             print_min=True,
             print_max=True,
+            print_mean=True,
             out_stream=None
         )
         prob_case.list_outputs(
@@ -136,6 +138,7 @@ class ListVarsTest(unittest.TestCase):
             list_autoivcs=True,
             print_min=True,
             print_max=True,
+            print_mean=True,
             out_stream=None
         )
 
@@ -151,6 +154,7 @@ class ListVarsTest(unittest.TestCase):
             list_autoivcs=True,
             print_min=True,
             print_max=True,
+            print_mean=True,
             out_stream=None
         )
         drvr_case.list_inputs(
@@ -163,6 +167,7 @@ class ListVarsTest(unittest.TestCase):
             print_tags=True,
             print_min=True,
             print_max=True,
+            print_mean=True,
             out_stream=None
         )
         drvr_case.list_outputs(
@@ -179,6 +184,7 @@ class ListVarsTest(unittest.TestCase):
             list_autoivcs=True,
             print_min=True,
             print_max=True,
+            print_mean=True,
             out_stream=None
         )
 
@@ -194,6 +200,7 @@ class ListVarsTest(unittest.TestCase):
             list_autoivcs=True,
             print_min=True,
             print_max=True,
+            print_mean=True,
             out_stream=None
         )
         modl_case.list_inputs(
@@ -206,6 +213,7 @@ class ListVarsTest(unittest.TestCase):
             print_tags=True,
             print_min=True,
             print_max=True,
+            print_mean=True,
             out_stream=None
         )
         modl_case.list_outputs(
@@ -222,6 +230,7 @@ class ListVarsTest(unittest.TestCase):
             list_autoivcs=True,
             print_min=True,
             print_max=True,
+            print_mean=True,
             out_stream=None
         )
 
@@ -469,6 +478,55 @@ class ListVarsTest(unittest.TestCase):
 
                 assert_near_equal(sorted(case_vars), sorted(model_vars),
                                   f"Return value comparison failed for {kwargs=}")
+
+    def test_list_autoivcs(self):
+        """
+        Run list_outputs and list_vars with list_autoivcs=True. Verify that the promoted
+        name of the autoivc outputs are correct.
+        """
+        from openmdao.test_suite.components.sellar_feature import SellarMDAWithUnits
+
+        model = SellarMDAWithUnits()
+        model.add_subsystem('indep', om.IndepVarComp('foo', 1.0))
+        model.add_design_var('z', lower=np.array([-10.0, 0.0]),
+                                  upper=np.array([10.0, 10.0]))
+        model.add_design_var('x', lower=0.0, upper=10.0)
+        model.add_objective('obj')
+        model.add_constraint('con1', upper=0.0)
+        model.add_constraint('con2', upper=0.0)
+
+        prob = om.Problem(model)
+        prob.setup()
+
+        model.add_recorder(om.SqliteRecorder('list_vars.db'))
+
+        prob.set_solver_print(0)
+        prob.run_model()
+        prob.cleanup()
+
+        case = om.CaseReader(prob.get_outputs_dir() / 'list_vars.db').get_case(0)
+
+        model_outputs = prob.model.list_outputs(list_autoivcs=True, out_stream=None)
+        case_outputs = case.list_outputs(list_autoivcs=True, out_stream=None)
+        model_vars = prob.model.list_vars(list_autoivcs=True, out_stream=None)
+        case_vars = case.list_vars(list_autoivcs=True, out_stream=None)
+
+        no_auto_ivcs = []
+        for method, listed_vars in {'model.list_outputs': model_outputs,
+                                    'case.list_outputs': case_outputs,
+                                    'model.list_vars': model_vars,
+                                    'case.list_vars': case_vars}.items():
+            includes_auto_ivcs = False
+            for abs_name, meta in listed_vars:
+                if meta['prom_name'].startswith('_auto_ivc.'):
+                    self.fail(f'In {method} AutoIVC promoted name for {abs_name} starts '
+                              f'with _auto_ivc: {meta["prom_name"]}')
+                if abs_name.startswith('_auto_ivc.'):
+                    includes_auto_ivcs = True
+            if not includes_auto_ivcs:
+                no_auto_ivcs.append(method)
+
+        self.assertTrue(len(no_auto_ivcs) == 0, 'Not all methods return AutoIVCs' + str(no_auto_ivcs))
 
 
 if __name__ == '__main__':

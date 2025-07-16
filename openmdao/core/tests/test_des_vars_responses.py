@@ -4,7 +4,7 @@ import unittest
 import numpy as np
 
 import openmdao.api as om
-from openmdao.utils.assert_utils import assert_near_equal
+from openmdao.utils.assert_utils import assert_near_equal, assert_check_totals
 from openmdao.utils.mpi import MPI
 from openmdao.test_suite.components.sellar import SellarDerivatives, SellarDis1withDerivatives, \
      SellarDis2withDerivatives
@@ -36,6 +36,7 @@ class TestDesVarsResponses(unittest.TestCase):
         prob.model.add_constraint('con2')
 
         prob.setup()
+        prob.final_setup()
 
         des_vars = prob.model.get_design_vars()
         obj = prob.model.get_objectives()
@@ -59,6 +60,7 @@ class TestDesVarsResponses(unittest.TestCase):
         prob.model.add_response('con2', type_="con")
 
         prob.setup()
+        prob.final_setup()
 
         des_vars = prob.model.get_design_vars()
         responses = prob.model.get_responses(use_prom_ivc=True)
@@ -84,6 +86,7 @@ class TestDesVarsResponses(unittest.TestCase):
         prob.model.add_constraint('con2')
 
         prob.setup()
+        prob.final_setup()
 
         des_vars = prob.model.get_design_vars()
         obj = prob.model.get_objectives()
@@ -109,6 +112,7 @@ class TestDesVarsResponses(unittest.TestCase):
         prob.model.add_constraint('con2')
 
         prob.setup()
+        prob.final_setup()
 
         des_vars = prob.model.get_design_vars()
         obj = prob.model.get_objectives()
@@ -135,6 +139,7 @@ class TestDesVarsResponses(unittest.TestCase):
         prob.model.add_constraint('con2')
 
         prob.setup()
+        prob.final_setup()
 
         des_vars = prob.model.get_design_vars()
         obj = prob.model.get_objectives()
@@ -185,6 +190,7 @@ class TestDesVarsResponses(unittest.TestCase):
         con_comp2.add_constraint('con2')
 
         prob.setup()
+        prob.final_setup()
 
         des_vars = prob.model.get_design_vars()
         obj = prob.model.get_objectives()
@@ -366,7 +372,7 @@ class TestDesvarOnModel(unittest.TestCase):
         with self.assertRaises(RuntimeError) as context:
             prob.final_setup()
 
-        self.assertEqual(str(context.exception),
+        self.assertEqual(context.exception.args[0], 
            "<model> <class SellarDerivatives>: Output not found for design variable 'junk'.")
 
     def test_desvar_affine_and_scaleradder(self):
@@ -423,6 +429,7 @@ class TestDesvarOnModel(unittest.TestCase):
         prob.model.add_constraint('con2')
 
         prob.setup()
+        prob.final_setup()
 
         des_vars = prob.model.get_design_vars()
 
@@ -449,6 +456,7 @@ class TestDesvarOnModel(unittest.TestCase):
         prob.model.add_constraint('con2', scaler=1e6)
 
         prob.setup()
+        prob.final_setup()
 
         des_vars = prob.model.get_design_vars()
 
@@ -512,7 +520,7 @@ class TestConstraintOnModel(unittest.TestCase):
         with self.assertRaises(Exception) as context:
             prob.final_setup()
 
-        self.assertEqual(str(context.exception),
+        self.assertEqual(context.exception.args[0], 
            "<model> <class SellarDerivatives>: Output not found for response 'junk'.")
 
     def test_constraint_affine_and_scaleradder(self):
@@ -569,6 +577,7 @@ class TestConstraintOnModel(unittest.TestCase):
         prob.model.add_constraint('con2')
 
         prob.setup()
+        prob.final_setup()
 
         constraints = prob.model.get_constraints()
 
@@ -858,7 +867,7 @@ class TestObjectiveOnModel(unittest.TestCase):
         with self.assertRaises(RuntimeError) as context:
             prob.final_setup()
 
-        self.assertEqual(str(context.exception),
+        self.assertEqual(context.exception.args[0],
                          "<model> <class SellarDerivatives>: Output not found for response 'junk'.")
 
     def test_objective_affine_and_scaleradder(self):
@@ -916,6 +925,7 @@ class TestObjectiveOnModel(unittest.TestCase):
         prob.model.add_objective('con2')
 
         prob.setup()
+        prob.final_setup()
 
         objectives = prob.model.get_objectives()
 
@@ -1048,7 +1058,7 @@ class TestObjectiveOnModel(unittest.TestCase):
         p.run_model()
         # Formerly a KeyError
         derivs = p.check_totals(compact_print=True, out_stream=None)
-        assert_near_equal(0.0, derivs['y', 'x']['abs error'][1])
+        assert_check_totals(derivs)
 
 
 if __name__ == '__main__':

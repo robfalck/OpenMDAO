@@ -67,22 +67,6 @@ def _check_var_name(comp, name):
                         "it's a reserved keyword.")
 
 
-def _add_options(comp):
-    """
-    Add function component specific options to the given component.
-
-    Parameters
-    ----------
-    comp : ImplicitFuncComp or ExplicitFuncComp
-        The function component having options added.
-    """
-    comp.options.declare('use_jax', types=bool, default=False,
-                         desc='If True, use jax to compute derivatives.')
-    comp.options.declare('use_jit', types=bool, default=False,
-                         desc='If True, attempt to use jit on the function. This is ignored if '
-                              'use_jax is False.')
-
-
 def jac_forward(fun, argnums, tangents):
     """
     Similar to the jax.jacfwd function but allows specification of the tangent matrix.
@@ -241,3 +225,21 @@ def _get_tangents(vals, direction, coloring=None, argnums=None, trans=None):
         tangents = tangents[0]
 
     return tangents
+
+
+def _ensure_iter(val):
+    """
+    Turn the given value into an iterator if it is not already.
+
+    Parameters
+    ----------
+    val : object
+        The value to be iterated over.
+
+    Returns
+    -------
+    tuple or iterable
+    """
+    if isinstance(val, tuple):
+        return val
+    return val,

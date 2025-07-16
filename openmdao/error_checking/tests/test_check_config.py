@@ -4,8 +4,8 @@ from tempfile import TemporaryFile
 import numpy as np
 
 import openmdao.api as om
-from openmdao.test_suite.components.sellar import SellarDis1, SellarDis2
-from openmdao.error_checking.check_config import get_sccs_topo
+from openmdao.test_suite.components.sellar import SellarDis1, SellarDis2, SellarDerivativesGrouped
+from openmdao.error_checking.check_config import get_sccs_topo, _all_non_redundant_checks
 from openmdao.utils.assert_utils import assert_warning, assert_no_warning
 from openmdao.utils.logger_utils import TestLogger
 from openmdao.utils.testing_utils import use_tempdirs
@@ -17,6 +17,17 @@ class MyComp(om.ExecComp):
 
 
 class TestCheckConfig(unittest.TestCase):
+
+    def test_log_messages(self):
+        p = om.Problem(SellarDerivativesGrouped())
+
+        testlogger = TestLogger()
+        p.setup(check='all', logger=testlogger)
+        p.final_setup()
+
+        for check in sorted(_all_non_redundant_checks):
+            testlogger.find_in('info', f'checking {check}...')
+            testlogger.find_match_in('info', f'    {check} check complete (* sec).')
 
     def test_dataflow_1_level(self):
         p = om.Problem()
@@ -409,7 +420,7 @@ class TestCheckConfig(unittest.TestCase):
         prob.final_setup()
 
         expected_warning = (
-            "The following inputs are not connected:\n"
+            "The following inputs are connected to Auto IVC output variables:\n"
             "  cycle.d1.y2 (cycle.d1.y2)\n"
             "  x (cycle.d1.x)\n"
             "  x (obj_cmp.x)\n"
@@ -548,6 +559,36 @@ class TestCheckConfig(unittest.TestCase):
         testlogger.find_in('warning', msg4)
         testlogger.find_in('warning', msg5)
 
+    def test_sparsity(self):
+        p = om.Problem()
+        root = p.model
+
+        root.add_subsystem("C1", om.ExecComp("y = 2.*x", shape=10))
+        root.add_subsystem("C2", om.ExecComp("y = 3.*x", shape=10, has_diag_partials=True))
+
+        root.connect("C1.y", "C2.x")
+
+        testlogger = TestLogger()
+        p.setup(check=['sparsity'], logger=testlogger)
+        p.run_model()
+        full = ''.join(testlogger.get('warning'))
+        self.assertTrue("'C1' <class ExecComp>:" in full)
+        self.assertTrue("(D)eclared sparsity pattern != (c)omputed sparsity pattern for sub-jacobian (y, x) with shape (10, 10) and 10.00% nonzeros:" in full)
+        arraystr = """
+C.........  0
+.C........  1
+..C.......  2
+...C......  3
+....C.....  4
+.....C....  5
+......C...  6
+.......C..  7
+........C.  8
+.........C  9
+""".strip()
+        self.assertTrue(arraystr in full)
+        self.assertFalse("'C2'" in full)
+
 @use_tempdirs
 class TestRecorderCheckConfig(unittest.TestCase):
 
@@ -563,6 +604,17 @@ class TestRecorderCheckConfig(unittest.TestCase):
 
         expected_warning = "The Problem has no recorder of any kind attached"
         testlogger.find_in('warning', expected_warning)
+
+    def test_check_problem_recorder_set(self):
+        p = om.Problem()
+        p.add_recorder(self.recorder)
+
+        testlogger = TestLogger()
+        p.setup(check=True, logger=testlogger)
+        p.final_setup()
+
+        warnings = testlogger.get('warning')
+        self.assertEqual(len(warnings), 0)
 
     def test_check_driver_recorder_set(self):
         p = om.Problem()

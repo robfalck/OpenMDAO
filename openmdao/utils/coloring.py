@@ -11,24 +11,24 @@ import sys
 import tempfile
 import traceback
 import webbrowser
+import inspect
 from itertools import combinations, groupby
 from contextlib import contextmanager
 from pprint import pprint
 from packaging.version import Version
 
-
+import networkx as nx
 import numpy as np
 from scipy.sparse import coo_matrix, csc_matrix, csr_matrix
 
 from openmdao.core.constants import INT_DTYPE, _DEFAULT_OUT_STREAM
-from openmdao.utils.general_utils import _src_name_iter, _convert_auto_ivc_to_conn_name, \
-    pattern_filter
+from openmdao.utils.general_utils import _src_name_iter, pattern_filter
 import openmdao.utils.hooks as hooks
 from openmdao.utils.file_utils import _load_and_exec
 from openmdao.utils.om_warnings import issue_warning, OMDeprecationWarning, DerivativesWarning
 from openmdao.utils.reports_system import register_report
+from openmdao.utils.array_utils import submat_sparsity_iter
 from openmdao.devtools.memory import mem_usage
-from openmdao.utils.name_maps import rel_name2abs_name
 
 try:
     import matplotlib as mpl
@@ -50,6 +50,17 @@ try:
     import bokeh.io
 except ImportError:
     bokeh_resources = None
+
+
+try:
+    import jax
+    jax.config.update("jax_enable_x64", True)  # jax by default uses 32 bit floats
+    import jax.numpy as jnp
+    from jax.experimental.sparse import BCOO
+except ImportError:
+
+    jax = None
+    jnp = np
 
 
 CITATIONS = """
@@ -77,15 +88,26 @@ _use_total_sparsity = True
 # new partial/semi-total coloring.
 _use_partial_sparsity = True
 
-# If True, ignore use_fixed_coloring if the coloring passed to it is _STD_COLORING_FNAME.
+# If True, ignore use_fixed_coloring if the coloring passed to it is STD_COLORING_FNAME.
 # This is used when the 'openmdao partial_coloring' or 'openmdao total_coloring' commands
 # are running, because the intent there is to generate new coloring files regardless of
 # whether use_fixed_coloring was called.
 _force_dyn_coloring = False
 
 # used as an indicator that we should automatically name coloring file based on class module
-# path or system pathname
-_STD_COLORING_FNAME = object()
+# path or system pathname. U
+
+
+class STD_COLORING_FNAME():
+    """
+    Used to indicate that coloring file should have a standard name.
+
+    The standard name is based on the class module path or system pathname.
+    Use isinstance to check values to avoid any weirdness with using 'is a' across processes.
+    """
+
+    pass
+
 
 _default_coloring_imagefile = 'coloring.png'
 
@@ -150,6 +172,9 @@ class ColoringMeta(object):
         If True, use driver scaling when computing sparsity.
     msginfo : str
         Prefix for warning/error messages.
+    direct : bool
+        If doing bidirectional coloring, use the direct method for assembling the column adjacency
+        matrix of partitions, else use the substitution method.
 
     Attributes
     ----------
@@ -183,14 +208,22 @@ class ColoringMeta(object):
         If True, coloring was already generated but failed.
     _approx : bool
         If True, this is an approx coloring.
+    randomize_subjacs : bool
+        If True, use random subjacs when computing sparsity.
+    randomize_seeds : bool
+        If True, use random seeds when computing sparsity.
+    direct : bool
+        If doing bidirectional coloring, use the direct method for assembling the column adjacency
+        matrix of partitions, else use the substitution method.
     """
 
     _meta_names = {'num_full_jacs', 'tol', 'orders', 'min_improve_pct', 'show_summary',
-                   'show_sparsity', 'dynamic', 'perturb_size', 'use_scaling', 'msginfo'}
+                   'show_sparsity', 'dynamic', 'perturb_size', 'use_scaling', 'msginfo',
+                   'direct'}
 
     def __init__(self, num_full_jacs=3, tol=1e-25, orders=None, min_improve_pct=5.,
                  show_summary=True, show_sparsity=False, dynamic=False, static=None,
-                 perturb_size=1e-9, use_scaling=False, msginfo=''):
+                 perturb_size=1e-9, use_scaling=False, msginfo='', direct=True):
         """
         Initialize data structures.
         """
@@ -208,6 +241,9 @@ class ColoringMeta(object):
         self._coloring = None
         self._failed = False
         self._approx = False
+        self.randomize_subjacs = True
+        self.randomize_seeds = False
+        self.direct = direct
 
     def do_compute_coloring(self):
         """
@@ -233,17 +269,26 @@ class ColoringMeta(object):
             if name in self._meta_names:
                 setattr(self, name, val)
 
-    def display(self):
+    def display(self, show_summary=None, show_sparsity=None):
         """
         Display information about the coloring.
+
+        Parameters
+        ----------
+        show_summary : bool or None
+            If True, show a summary of the coloring, else use the value of show_summary from this
+            object.
+        show_sparsity : bool or None
+            If True, show a plot of the sparsity, else use the value of show_sparsity from this
+            object.
         """
         if self.coloring is None:
-            if self.show_summary or self.show_sparsity:
+            if self.show_summary or self.show_sparsity or show_summary or show_sparsity:
                 print("No coloring was computed successfully.")
         else:
-            if self.show_summary:
+            if self.show_summary or show_summary:
                 self.coloring.summary()
-            if self.show_sparsity:
+            if self.show_sparsity or show_sparsity:
                 self.coloring.display_bokeh(show=True)
 
     def __iter__(self):
@@ -350,8 +395,7 @@ class ColoringMeta(object):
             Prefix for warning/error messages.
         """
         if coloring is None:
-            self._coloring = None
-            self._failed = False
+            self.reset_coloring()
         elif self._pct_improvement_good(coloring, msginfo):
             self._coloring = coloring
             self._failed = False
@@ -366,6 +410,14 @@ class ColoringMeta(object):
         """
         self._coloring = None
         self._failed = False
+
+    def deactivate(self):
+        """
+        Deactivate the coloring.
+        """
+        self._coloring = None
+        self.static = None
+        self._failed = True
 
     def _pct_improvement_good(self, coloring, msginfo=''):
         """
@@ -405,6 +457,31 @@ class ColoringMeta(object):
             Copy of the metadata.
         """
         return type(self)(**dict(self))
+
+    def use_coloring(self):
+        """
+        Return True if coloring should be used.
+
+        It may not have been computed yet.
+
+        Returns
+        -------
+        bool
+            True if coloring should be used.
+        """
+        return not self._failed and (self.coloring is not None or self.dynamic or
+                                     self.has_static_coloring())
+
+    def has_static_coloring(self):
+        """
+        Return True if a static coloring is available.
+
+        Returns
+        -------
+        bool
+            True if a static coloring is available.
+        """
+        return isinstance(self.static, (str, STD_COLORING_FNAME, Coloring))
 
 
 class Partial_ColoringMeta(ColoringMeta):
@@ -548,7 +625,8 @@ class Partial_ColoringMeta(ColoringMeta):
             self.wrt_matches = None  # None means match everything
             return
 
-        self.wrt_matches = set(rel_name2abs_name(system, n) for n in
+        prefix = system.pathname + '.' if system.pathname else ''
+        self.wrt_matches = set(prefix + n for n in
                                pattern_filter(self.wrt_patterns, system._promoted_wrt_iter()))
 
         # error if nothing matched
@@ -557,14 +635,6 @@ class Partial_ColoringMeta(ColoringMeta):
                              "options: {}.".format(self.msginfo, self.wrt_patterns))
 
         return self.wrt_matches
-
-    def reset_coloring(self):
-        """
-        Reset coloring and fname metadata.
-        """
-        super().reset_coloring()
-        if not self.per_instance:
-            _CLASS_COLORINGS[self.get_coloring_fname()] = None
 
     def update(self, dct):
         """
@@ -586,8 +656,8 @@ class Coloring(object):
 
     Parameters
     ----------
-    sparsity : ndarray
-        Full jacobian sparsity matrix (dense bool form).
+    sparsity : ndarray or coo_matrix or csc_matrix or csr_matrix
+        Jacobian sparsity matrix, dtype=bool.
     row_vars : list of str or None
         Names of variables corresponding to rows.
     row_var_sizes : ndarray or None
@@ -596,6 +666,8 @@ class Coloring(object):
         Names of variables corresponding to columns.
     col_var_sizes : ndarray or None
         Sizes of column variables.
+    resolver : NameResolver or None
+        NameResolver for the system corresponding to the coloring.
 
     Attributes
     ----------
@@ -625,12 +697,16 @@ class Coloring(object):
         Names of total jacobian rows or columns.
     _local_array : ndarray or None:
         Indices of total jacobian rows or columns.
-    _abs2prom : {'input': dict, 'output': dict}
-        Dictionary mapping absolute names to promoted names.
+    _resolver : NameResolver
+        NameResolver for the system corresponding to the coloring.
+    _subtractions : list
+        List of subtraction tuples. Only used for the substitution method of bidirectional coloring.
+    _color_arrays : dict
+        Dictionary of color arrays for each direction.
     """
 
     def __init__(self, sparsity, row_vars=None, row_var_sizes=None, col_vars=None,
-                 col_var_sizes=None):
+                 col_var_sizes=None, resolver=None):
         """
         Initialize data structures.
         """
@@ -661,7 +737,9 @@ class Coloring(object):
         self._names_array = {'fwd': None, 'rev': None}
         self._local_array = {'fwd': None, 'rev': None}
 
-        self._abs2prom = None
+        self._resolver = resolver
+        self._subtractions = None
+        self._color_arrays = {}
 
     def get_renamed_copy(self, row_translate, col_translate):
         """
@@ -681,13 +759,13 @@ class Coloring(object):
         """
         row_vars = [row_translate[v] for v in self._row_vars]
         col_vars = [col_translate[v] for v in self._col_vars]
-        c = Coloring(self.sparsity, row_vars, self._row_var_sizes, col_vars, self._col_var_sizes)
+        c = Coloring(self.sparsity, row_vars, self._row_var_sizes, col_vars, self._col_var_sizes,
+                     resolver=self._resolver)
         c._fwd = self._fwd
         c._rev = self._rev
         c._meta = self._meta.copy()
         c._names_array = self._names_array
         c._local_array = self._local_array
-        c._abs2prom = self._abs2prom
 
         return c
 
@@ -714,9 +792,45 @@ class Coloring(object):
 
         yield from colors
 
+    def _get_color_array(self, direction):
+        """
+        Return the color array for the given direction.
+
+        The size of the array is the number of nonzero values in the sparsity matrix.
+
+        Parameters
+        ----------
+        direction : str
+            Derivative direction ('fwd' or 'rev').
+
+        Returns
+        -------
+        ndarray
+            Color array for the given direction.
+        """
+        if direction not in self._color_arrays:
+            if direction == 'fwd':
+                color_array = np.zeros(self._shape[1], dtype=int)
+                for i, color_list in enumerate(self._fwd[0]):
+                    color_array[color_list] = i
+                colors_nz = color_array[self._nzcols]
+            elif direction == 'rev':
+                color_array = np.zeros(self._shape[0], dtype=int)
+                for i, color_list in enumerate(self._rev[0]):
+                    color_array[color_list] = i
+                colors_nz = color_array[self._nzrows]
+            else:
+                raise RuntimeError(f"Invalid direction '{direction}' in _get_color_array.")
+
+            self._color_arrays[direction] = colors_nz
+
+        return self._color_arrays[direction]
+
     def color_nonzero_iter(self, direction):
         """
         Given a direction, yield an iterator over (columns, nz_rows) or (rows, nz_columns).
+
+        nz_rows and nz_cols are lists of nonzero rows/columns for each column/row.
 
         Parameters
         ----------
@@ -766,9 +880,9 @@ class Coloring(object):
                 for jac_irow, nzpart in zip(nzs, nzparts):
                     yield compressed_j[i, nzpart], nzpart, jac_irow
 
-    def expand_jac(self, compressed_j, direction):
+    def _expand_jac(self, compressed_j, direction):
         """
-        Expand the given compressed jacobian into a full jacobian.
+        Expand the given compressed dense jacobian into a full CSC jacobian.
 
         Parameters
         ----------
@@ -779,19 +893,16 @@ class Coloring(object):
 
         Returns
         -------
-        ndarray
+        csc_matrix
             The full jacobian.
         """
+        colors_coo = self._get_color_array(direction)
         if direction == 'fwd':
-            J = np.zeros(self._shape)
-            for col, nzpart, icol in self.colored_jac_iter(compressed_j, direction):
-                J[nzpart, icol] = col
-            return J
-        else:  # rev
-            J = np.zeros(self._shape)
-            for row, nzpart, irow in self.colored_jac_iter(compressed_j, direction):
-                J[irow, nzpart] = row
-            return J
+            data = compressed_j[self._nzrows, colors_coo]
+        elif direction == 'rev':
+            data = compressed_j[colors_coo, self._nzcols]
+
+        return csc_matrix((data, (self._nzrows, self._nzcols)), shape=self._shape)
 
     def get_row_col_map(self, direction):
         """
@@ -1122,8 +1233,8 @@ class Coloring(object):
         out_stream : file-like or _DEFAULT_OUT_STREAM
             The destination stream to which the text representation of coloring is to be written.
         """
-        nrows = self._shape[0] if self._shape else -1
-        ncols = self._shape[1] if self._shape else -1
+        nrows = self._shape[0]
+        ncols = self._shape[1]
 
         if out_stream == _DEFAULT_OUT_STREAM:
             out_stream = sys.stdout
@@ -1147,16 +1258,17 @@ class Coloring(object):
         print('', file=out_stream)
         good_tol = meta.get('good_tol')
         if good_tol is not None:
-            print("Sparsity computed using tolerance: %g" % meta['good_tol'], file=out_stream)
+            print(f"Sparsity computed using tolerance: {meta['good_tol']}.", file=out_stream)
             if meta['n_tested'] > 1:
-                print("Most common number of nonzero entries (%d of %d) repeated %d times out "
-                      "of %d tolerances tested.\n" % (meta['J_size'] - meta['zero_entries'],
-                                                      meta['J_size'],
-                                                      meta['nz_matches'], meta['n_tested']),
-                      file=out_stream)
+                jsize = np.prod(self._shape)
+                print(f"Most common number of nonzero entries ({meta['nz_entries']} of {jsize}) "
+                      f"repeated {meta['nz_matches']} times out of {meta['n_tested']} tolerances "
+                      "tested.\n", file=out_stream)
 
         sparsity_time = meta.get('sparsity_time', None)
         if sparsity_time is not None:
+            print(f"Dense {meta['type']} jacobian for {meta['class']} '{meta['pathname']}' was "
+                  f"computed {meta['num_full_jacs']} times.", file=out_stream)
             print(f"Time to compute sparsity: {sparsity_time:8.4f} sec", file=out_stream)
 
         coloring_time = meta.get('coloring_time', None)
@@ -1261,19 +1373,16 @@ class Coloring(object):
         else:
             # we have var name/size info, so mark rows/cols with their respective variable names
             rowstart = rowend = 0
-            for rv, rvsize in zip(self._row_vars, self._row_var_sizes):
+            for row_var_name, rvsize in zip(self.get_row_var_names(use_prom_names),
+                                            self._row_var_sizes):
                 rowend += rvsize
                 for r in range(rowstart, rowend):
                     colstart = colend = 0
-                    for _, cvsize in zip(self._col_vars, self._col_var_sizes):
+                    for cvsize in self._col_var_sizes:
                         colend += cvsize
                         for c in range(colstart, colend):
                             print(charr[r, c], end='', file=out_stream)
                         colstart = colend
-                    if use_prom_names and self._abs2prom:
-                        row_var_name = self._get_prom_name(rv)
-                    else:
-                        row_var_name = rv
                     # include row variable with row
                     print(' %d  %s' % (r, row_var_name), file=out_stream)
                 rowstart = rowend
@@ -1282,12 +1391,9 @@ class Coloring(object):
             # with the appropriate starting column of the matrix ('|' marks the start of each var)
             start = 0
 
-            for name, size in zip(self._col_vars, self._col_var_sizes):
+            for col_var_name, size in zip(self.get_col_var_names(use_prom_names),
+                                          self._col_var_sizes):
                 tab = ' ' * start
-                if use_prom_names and self._abs2prom:
-                    col_var_name = self._get_prom_name(name)
-                else:
-                    col_var_name = name
                 print('%s|%s' % (tab, col_var_name), file=out_stream)
                 start += size
 
@@ -1575,13 +1681,15 @@ class Coloring(object):
             if coloring._fwd is not None:
                 for idx_fwd, (_cols, _nz_rows) in enumerate(coloring.color_nonzero_iter('fwd')):
                     for _row_idx, _col_idx in zip(_nz_rows, _cols):
-                        fwd_map.update({(i, _col_idx): idx_fwd for i in _row_idx})
+                        if _row_idx is not None:
+                            fwd_map.update({(i, _col_idx): idx_fwd for i in _row_idx})
 
             rev_map = {}
             if coloring._rev is not None:
                 for idx_rev, (_rows, _nz_cols) in enumerate(coloring.color_nonzero_iter('rev')):
                     for _row_idx, _col_idx in zip(_rows, _nz_cols):
-                        rev_map.update({(_row_idx, j): idx_rev for j in _col_idx})
+                        if _row_idx is not None:
+                            rev_map.update({(_row_idx, j): idx_rev for j in _col_idx})
 
             for i in range(nrows * ncols):
                 r = data['row_idx'][i]
@@ -1659,7 +1767,7 @@ class Coloring(object):
                     desvar_name = coloring._col_vars[np.digitize(col_idx, desvar_idx_bins)]
                     desvar_col_map[desvar_name].add(col_idx)
 
-                if use_prom_names and coloring._abs2prom:
+                if use_prom_names and coloring._resolver:
                     desvar_col_map = {coloring._get_prom_name(k): v
                                       for k, v in desvar_col_map.items()}
 
@@ -1668,7 +1776,7 @@ class Coloring(object):
                     resvar_name = coloring._row_vars[np.digitize(row_idx, response_idx_bins)]
                     resvar_col_map[resvar_name].add(row_idx)
 
-                if use_prom_names and coloring._abs2prom:
+                if use_prom_names and coloring._resolver:
                     resvar_col_map = {coloring._get_prom_name(k): v
                                       for k, v in resvar_col_map.items()}
 
@@ -1693,12 +1801,16 @@ class Coloring(object):
                 tooltips = [('Response', '$snap_y{0}'),  # {0} triggers the formatter
                             ('Design Var', '$snap_x{0}'),
                             ('Forward solve', '@fwd_color_idx'),
-                            ('Reverse solve', '@rev_color_idx')]
+                            ('Reverse solve', '@rev_color_idx'),
+                            ('Row', '@row_idx'),
+                            ('Col', '@col_idx')]
                 formatters = {'$snap_y': response_var_js,
                               '$snap_x': design_var_js}
             else:
                 tooltips = [('Forward solve', '@fwd_color_idx'),
-                            ('Reverse solve', '@rev_color_idx')]
+                            ('Reverse solve', '@rev_color_idx'),
+                            ('Row', '@row_idx'),
+                            ('Col', '@col_idx')]
                 formatters = {}
 
             fig.add_tools(HoverTool(tooltips=tooltips, formatters=formatters))
@@ -1728,7 +1840,7 @@ class Coloring(object):
     @property
     def sparsity(self):
         """
-        Return the sparsity matrix as a COO sparse matrix.
+        Return the sparsity matrix as a COO sparse matrix of type np.uint8.
 
         Returns
         -------
@@ -1737,6 +1849,36 @@ class Coloring(object):
         """
         return coo_matrix((np.ones(len(self._nzrows), dtype=np.uint8),
                            (self._nzrows, self._nzcols)), shape=self._shape)
+
+    def get_sparsity_of_type(self, dtype):
+        """
+        Return the sparsity matrix as a COO sparse matrix of a given dtype.
+
+        Parameters
+        ----------
+        dtype : object
+            Data type of returned numpy array.
+
+        Returns
+        -------
+        coo_matrix
+            The sparsity matrix.
+        """
+        return coo_matrix((np.ones(len(self._nzrows), dtype=dtype),
+                           (self._nzrows, self._nzcols)), shape=self._shape)
+
+    def get_jax_sparsity(self):
+        """
+        Return the sparsity matrix as a jax array.
+
+        Returns
+        -------
+        BCOO
+            The sparsity matrix in jax BCOO format.
+        """
+        data = jnp.ones(len(self._nzrows))
+        indices = jnp.array(zip(self._nzrows, self._nzcols))
+        return BCOO((data, indices), shape=self._shape)
 
     def get_dense_sparsity(self, dtype=np.uint8):
         """
@@ -1756,39 +1898,6 @@ class Coloring(object):
         J[self._nzrows, self._nzcols] = dtype(1)
         return J
 
-    def _jac2subjac_sparsity(self):
-        """
-        Given a boolean jacobian and variable names and sizes, compute subjac sparsity.
-
-        Returns
-        -------
-        dict
-            Nested dict of form sparsity[of][wrt] = (rows, cols, shape)
-        """
-        sparsity = {}
-        row_start = row_end = 0
-
-        for of, of_size in zip(self._row_vars, self._row_var_sizes):
-            sparsity[of] = {}
-            row_end += of_size
-            rowbool = np.logical_and(self._nzrows >= row_start, self._nzrows < row_end)
-
-            col_start = col_end = 0
-            for wrt, wrt_size in zip(self._col_vars, self._col_var_sizes):
-                col_end += wrt_size
-                colbool = np.logical_and(self._nzcols >= col_start, self._nzcols < col_end)
-                mask = np.logical_and(rowbool, colbool)
-
-                # save sparsity structure as  (rows, cols, shape)
-                sparsity[of][wrt] = (self._nzrows[mask] - row_start, self._nzcols[mask] - col_start,
-                                     (of_size, wrt_size))
-
-                col_start = col_end
-
-            row_start = row_end
-
-        return sparsity
-
     def get_subjac_sparsity(self):
         """
         Compute the sparsity structure of each subjacobian based on the full jac sparsity.
@@ -1801,26 +1910,19 @@ class Coloring(object):
             Mapping of (of, wrt) keys to their corresponding (nzrows, nzcols, shape).
         """
         if self._row_vars and self._col_vars and self._row_var_sizes and self._col_var_sizes:
-            return self._jac2subjac_sparsity()
+            sparsity = {}
+            for of, wrt, nzrows, nzcols, shape in self._subjac_sparsity_iter():
+                if of not in sparsity:
+                    sparsity[of] = {}
+                sparsity[of][wrt] = (nzrows, nzcols, shape)
 
     def _subjac_sparsity_iter(self):
-        subjac_sparsity = self.get_subjac_sparsity()
-
-        if subjac_sparsity is None:
+        if self._row_vars and self._col_vars and self._row_var_sizes and self._col_var_sizes:
+            yield from submat_sparsity_iter(zip(self._row_vars, self._row_var_sizes),
+                                            zip(self._col_vars, self._col_var_sizes),
+                                            self._nzrows, self._nzcols, self._shape)
+        else:
             raise RuntimeError("Coloring doesn't have enough info to compute subjac sparsity.")
-
-        ostart = oend = 0
-        for of, sub in subjac_sparsity.items():
-            istart = iend = 0
-            for i, (wrt, tup) in enumerate(sub.items()):
-                nzrows, nzcols, shape = tup
-                iend += shape[1]
-                if i == 0:
-                    oend += shape[0]
-                if nzrows.size > 0:
-                    yield (of, wrt, list(nzrows), list(nzcols), ostart, oend, istart, iend)
-                istart = iend
-            ostart = oend
 
     def get_declare_partials_calls(self):
         """
@@ -1833,9 +1935,9 @@ class Coloring(object):
             string may be cut and pasted into a component's setup() method.
         """
         lines = []
-        for of, wrt, nzrows, nzcols, _, _, _, _ in self._subjac_sparsity_iter():
+        for of, wrt, nzrows, nzcols, _ in self._subjac_sparsity_iter():
             lines.append("    self.declare_partials(of='%s', wrt='%s', rows=%s, cols=%s)" %
-                         (of, wrt, nzrows, nzcols))
+                         (of, wrt, list(nzrows), list(nzcols)))
         return '\n'.join(lines)
 
     def get_row_var_coloring(self, varname):
@@ -1941,12 +2043,8 @@ class Coloring(object):
         ndarray
             tangent array for inputs (fwd) or outputs (rev)
         """
-        if direction == 'fwd':
-            size = self._shape[1]
-            fwd = True
-        else:
-            size = self._shape[0]
-            fwd = False
+        fwd = direction == 'fwd'
+        size = self._shape[1] if fwd else self._shape[0]
 
         if arr is None:
             arr = np.empty(size)
@@ -1994,23 +2092,190 @@ class Coloring(object):
 
         return tangent
 
-    def _get_prom_name(self, abs_name):
+    def _get_prom_name(self, name):
         """
         Get promoted name for specified variable.
         """
-        abs2prom = self._abs2prom
+        if self._resolver:
+            return self._resolver.any2prom(name, default=name)
 
-        # if we don't have prom names, just return abs name
-        if not abs2prom:
-            return abs_name
+        return name
 
-        # if we can't find a prom name, just return abs name
-        if abs_name in abs2prom['input']:
-            return abs2prom['input'][abs_name]
-        elif abs_name in abs2prom['output']:
-            return abs2prom['output'][abs_name]
+    def get_row_var_names(self, use_prom_names=True):
+        """
+        Yield the row variable names.
+
+        Parameters
+        ----------
+        use_prom_names : bool
+            If True, use promoted names.
+
+        Yields
+        ------
+        name : str
+            Name of the row variable.
+        """
+        if self._resolver is None or not use_prom_names:
+            yield from self._row_vars
         else:
-            return abs_name
+            for name in self._row_vars:
+                yield self._resolver.any2prom(name, default=name)
+
+    def get_col_var_names(self, use_prom_names=True):
+        """
+        Yield the column variable names.
+
+        Parameters
+        ----------
+        use_prom_names : bool
+            If True, use promoted names.
+
+        Yields
+        ------
+        name : str
+            Name of the column variable.
+        """
+        if self._resolver is None or not use_prom_names:
+            yield from self._col_vars
+        else:
+            for name in self._col_vars:
+                yield self._resolver.any2prom(name, default=name)
+
+    def _apply_subtractions(self, J):
+        for pos, subs in self._subtractions:
+            tosub = sum(J[k] for k in subs)
+            J[pos] -= tosub
+
+    def _getV(self):
+        if self._fwd is None:
+            return
+
+        vrows = []
+        vcols = []
+        for color, columns in enumerate(self._fwd[0]):
+            vrows.extend(columns)
+            vcols.extend(np.full(len(columns), color))
+        return csc_matrix((np.ones(len(vrows), dtype=np.int8), (vrows, vcols)),
+                          shape=(self._shape[1], len(self._fwd[0])))
+
+    def _getW(self):
+        if self._rev is None:
+            return
+
+        wrows = []
+        wcols = []
+        for color, rows in enumerate(self._rev[0]):
+            wrows.extend(rows)
+            wcols.extend(np.full(len(rows), color))
+
+        return csr_matrix((np.ones(len(wrows), dtype=np.int8), (wrows, wcols)),
+                          shape=(self._shape[0], len(self._rev[0])))
+
+    def _get_sparse_coloring(self):
+        """
+        Return a sparse matrix with the nonzero structure of all colors.
+
+        Sparse matrix is in coo format, and all colored values are set to (color + 1) for fwd
+        colors and -(color + 1) for rev colors.
+
+        Returns
+        -------
+        coo_matrix
+            Sparse matrix with the nonzero structure for all colors.
+        """
+        Jrows = []
+        Jcols = []
+        vals = []
+        if self._fwd is not None:
+            column_groups, nzrows = self._fwd
+            for color, columns in enumerate(column_groups):
+                v = color + 1
+                for c in columns:
+                    Jrows.append(nzrows[c])
+                    Jcols.append(np.full(nzrows[c].size, c))
+                    vals.append(np.full(nzrows[c].size, v))
+
+        if self._rev is not None:
+            row_groups, nzcols = self._rev
+            for color, rows in enumerate(row_groups):
+                v = -(color + 1)
+                for r in rows:
+                    Jrows.append(np.full(nzcols[r].size, r))
+                    Jcols.append(nzcols[r])
+                    vals.append(np.full(nzcols[r].size, v))
+
+        Jrows = np.hstack(Jrows)
+        Jcols = np.hstack(Jcols)
+        vals = np.hstack(vals)
+        return coo_matrix((vals, (Jrows, Jcols)), shape=self._shape)
+
+    def _get_subtractions(self, Jf, Jr):
+        """
+        Return the list of subtractions to be applied to the jacobian.
+
+        Parameters
+        ----------
+        Jf : coo_matrix
+            Forward jacobian.
+        Jr : coo_matrix
+            Reverse jacobian.
+
+        Returns
+        -------
+        dict
+            List of subtractions to be applied to the jacobian, keyed on row, col pairs.
+        """
+        subtractions = {}
+        if (self._fwd is None or self._rev is None):
+            return subtractions
+
+        sparse_coloring = self._get_sparse_coloring()
+
+        JrV = Jr.dot(self._getV())
+        if JrV.data.size > 0:
+            for color in range(JrV.shape[1]):
+                JrVcol = JrV.getcol(color)  # columns of JrV correspond to colors
+                nzrows, _ = JrVcol.nonzero()  # any nz columns in this row overlap with fwd colors
+                if nzrows.size > 0:
+                    color_cols = set(self._fwd[0][color])
+                    for nzrow in nzrows:
+                        sprow = sparse_coloring.getrow(nzrow).tocoo()
+                        spcols = sprow.col
+                        spvals = sprow.data
+                        subfrom = spcols[spvals == (color + 1)]
+                        if subfrom.size == 0:
+                            continue
+                        tosub = []
+                        for subc in spcols[spvals < 0]:  # get nz vals for rev colors in this row
+                            if subc in color_cols:  # make sure it's in the same color group
+                                tosub.append((nzrow, subc))
+                        if tosub:
+                            subfromcol = subfrom[0]
+                            subtractions.setdefault((nzrow, subfromcol), []).extend(tosub)
+
+        WTJf = self._getW().T.dot(Jf)
+        if WTJf.data.size > 0:
+            for color in range(WTJf.shape[0]):
+                # any nz columns in this row overlap with fwd colors
+                _, nzcols = WTJf.getrow(color).nonzero()
+                if nzcols.size > 0:
+                    color_rows = set(self._rev[0][color])
+                    for nzcol in nzcols:
+                        spcol = sparse_coloring.getcol(nzcol).tocoo()
+                        sprows = spcol.row
+                        spvals = spcol.data
+                        subfrom = sprows[spvals == -(color + 1)]
+                        if subfrom.size == 0:
+                            continue
+                        tosub = []
+                        for subr in sprows[spvals > 0]:  # get nz vals for fwd colors in this column
+                            if subr in color_rows:  # make sure it's in the same color group
+                                tosub.append((subr, nzcol))
+                        if tosub:
+                            subfromrow = subfrom[0]
+                            subtractions.setdefault((subfromrow, nzcol), []).extend(tosub)
+
+        return _sort_subtractions(subtractions)
 
 
 def _order_by_ID(col_adj_matrix):
@@ -2034,11 +2299,13 @@ def _order_by_ID(col_adj_matrix):
     ndarray
         Boolean array that's True where the column matches nzcols.
     """
+    assert isinstance(col_adj_matrix, csc_matrix)
+
     ncols = col_adj_matrix.shape[1]
     colored_degrees = np.zeros(ncols, dtype=INT_DTYPE)
     colored_degrees[col_adj_matrix.indices] = 1  # make sure zero cols aren't considered
 
-    for i in range(np.nonzero(colored_degrees)[0].size):
+    for _ in range(np.nonzero(colored_degrees)[0].size):
         col = colored_degrees.argmax()
         colnzrows = col_adj_matrix.getcol(col).indices
         colored_degrees[colnzrows] += 1
@@ -2087,9 +2354,9 @@ def _2col_adj_rows_cols(J):
     return csc_matrix((np.ones(adjrows.size, dtype=bool), (adjrows, adjcols)), shape=(ncols, ncols))
 
 
-def _Jc2col_matrix_direct(Jrows, Jcols, shape):
+def _Jc2col_matrix_direct(J, Jrows, Jcols):
     """
-    Convert a partitioned jacobian sparsity matrix to a column adjacency matrix.
+    Convert a partitioned jacobian sparsity matrix to a column adjacency matrix (direct method).
 
     This creates the column adjacency matrix used for direct jacobian determination
     as described in Coleman, T.F., Verma, A. (1998) The efficient Computation of Sparse Jacobian
@@ -2098,48 +2365,130 @@ def _Jc2col_matrix_direct(Jrows, Jcols, shape):
 
     Parameters
     ----------
+    J : coo_matrix
+        Sparse full matrix, not a partition.
     Jrows : ndarray
         Nonzero rows of a partition of the matrix being colored.
     Jcols : ndarray
         Nonzero columns of a partition of the matrix being colored.
-    shape : tuple
-        Shape of the partition of the matrix being colored.
 
     Returns
     -------
     tuple
         (nzrows, nzcols, shape) of column adjacency matrix.
     """
-    nrows, ncols = shape
-
+    shape = J.shape
+    _, ncols = shape
     allnzr = []
     allnzc = []
 
     Jrow = np.zeros(ncols, dtype=bool)
     csr = csr_matrix((np.ones(Jrows.size, dtype=bool), (Jrows, Jcols)), shape=shape)
 
-    # mark col_matrix[col1, col2] as True when Jpart[row, col1] is True OR Jpart[row, col2] is True
     for row in np.unique(Jrows):
         nzr = []
         nzc = []
-        row_nzcols = csr.getrow(row).indices
+        partrow = csr.getrow(row).indices
+        fullrow = J.getrow(row).indices
 
-        if row_nzcols.size == 1:
-            # if there's only 1 nonzero column in a row, include it
-            nzr.append(row_nzcols[0])
-            nzc.append(row_nzcols[0])
-        else:
-            Jrow[:] = False
-            Jrow[row_nzcols] = True
-            for col1, col2 in combinations(row_nzcols, 2):
+        if fullrow.size > 1:
+            Jrow[partrow] = True
+            for col1, col2 in combinations(fullrow, 2):
                 if Jrow[col1] or Jrow[col2]:
                     nzr.append(col1)
                     nzc.append(col2)
+            Jrow[partrow] = False
+
+        elif partrow.size == 1:
+            nzr.append(partrow[0])
+            nzc.append(partrow[0])
+
         if nzr:
             allnzr.append(nzr)
             allnzc.append(nzc)
 
     csr = Jrow = None  # free up memory
+
+    if allnzr:
+        # matrix is symmetric, so duplicate
+        rows = np.hstack(allnzr + allnzc)
+        cols = np.hstack(allnzc + allnzr)
+    else:
+        rows = np.zeros(0, dtype=INT_DTYPE)
+        cols = np.zeros(0, dtype=INT_DTYPE)
+
+    allnzr = allnzc = None
+
+    return csc_matrix((np.ones(rows.size, dtype=bool), (rows, cols)), shape=(ncols, ncols))
+
+
+def _Jc2col_matrix_substitution(J, part_rows, part_cols, overlap):
+    """
+    Convert partitioned jacobian sparsity matrix to a column adjacency matrix (substitution method).
+
+    This creates the column adjacency matrix used for jacobian determination by substitution
+    as described in Coleman, T.F., Verma, A. (1998) The efficient Computation of Sparse Jacobian
+    Matrices Using Automatic Differentiation. SIAM Journal on Scientific Computing, 19(4),
+    1210-1233.
+
+    Parameters
+    ----------
+    J : coo_matrix
+        Sparse full matrix, not a partition.
+    part_rows : ndarray
+        Nonzero rows of a partition of the matrix being colored.
+    part_cols : ndarray
+        Nonzero columns of a partition of the matrix being colored.
+    overlap : set
+        Nonzero entries indicate overlapping columns.
+
+    Returns
+    -------
+    tuple
+        (nzrows, nzcols, shape) of column adjacency matrix.
+    """
+    shape = J.shape
+    _, ncols = shape
+    allnzr = []
+    allnzc = []
+
+    Jrow = np.zeros(ncols, dtype=bool)
+    part_csr = csr_matrix((np.ones(part_rows.size, dtype=bool), (part_rows, part_cols)),
+                          shape=shape)
+
+    for row in np.unique(part_rows):
+        nzr = []
+        nzc = []
+        partrow_cols = part_csr.getrow(row).indices
+
+        if partrow_cols.size > 1:
+            Jrow[partrow_cols] = True
+
+            # col1 and col2 are both nonzero in the full matrix for this row
+            for col1, col2 in combinations(J.getrow(row).indices, 2):
+                if Jrow[col1]:
+                    if Jrow[col2]:  # both are in the partition, so cols are dependent
+                        nzr.append(col1)
+                        nzc.append(col2)
+                    else:
+                        # one is in the partition, the other is not
+                        overlap.add((row, col1))
+                elif Jrow[col2]:
+                    # one is in the partition, the other is not
+                    overlap.add((row, col2))
+
+            Jrow[partrow_cols] = False
+
+        else:  # partrow_cols.size == 1
+            nzr.append(partrow_cols[0])
+            nzc.append(partrow_cols[0])
+            overlap.add((row, partrow_cols[0]))
+
+        if nzr:
+            allnzr.append(nzr)
+            allnzc.append(nzc)
+
+    part_csr = Jrow = None  # free up memory
 
     if allnzr:
         # matrix is symmetric, so duplicate
@@ -2205,7 +2554,7 @@ def _get_full_disjoint_col_matrix_cols(col_adj_matrix):
     return color_groups
 
 
-def _color_partition(Jprows, Jpcols, shape):
+def _color_partition(J, Jprows, Jpcols, direct=True, overlap=None):
     """
     Compute a single directional fwd coloring using partition Jpart.
 
@@ -2213,39 +2562,72 @@ def _color_partition(Jprows, Jpcols, shape):
 
     Parameters
     ----------
+    J : coo_matrix
+        Sparse full matrix, not a partition.
     Jprows : ndarray
         Nonzero rows of a partition of the matrix being colored.
     Jpcols : ndarray
         Nonzero columns of a partition of the matrix being colored.
-    shape : tuple
-        Shape of a partition of the matrix being colored.
+    direct : bool
+        If True, use the direct method to compute the column adjacency matrix. Otherwise, use the
+        substitution method.
+    overlap : set or None
+        Nonzero entries indicate overlapping columns.
 
     Returns
     -------
     list
-        List of color groups.  First group is uncolored.
+        List of color groups.
     list
-        List of nonzero rows for each column.
+        List of nonzero rows for each column (or nonzero columns for each row).
     """
-    _, ncols = shape
+    if direct:
+        col_adj_matrix = _Jc2col_matrix_direct(J, Jprows, Jpcols)
+    else:  # use substitution method
+        col_adj_matrix = _Jc2col_matrix_substitution(J, Jprows, Jpcols, overlap=overlap)
 
-    col_adj_matrix = _Jc2col_matrix_direct(Jprows, Jpcols, shape)
     col_groups = _get_full_disjoint_col_matrix_cols(col_adj_matrix)
 
     col_adj_matrix = None
 
-    for i, group in enumerate(col_groups):
-        col_groups[i] = sorted(group)
-
-    csc = csc_matrix((np.ones(Jprows.size), (Jprows, Jpcols)), shape=shape)
+    csc = csc_matrix((np.ones(Jprows.size), (Jprows, Jpcols)), shape=J.shape)
+    _, ncols = J.shape
     col2row = [None] * ncols
     for col in np.unique(Jpcols):
         col2row[col] = csc.getcol(col).indices
 
+    if direct:
+        for i, group in enumerate(col_groups):
+            # don't include any columns that have no nonzero row entries in this partition
+            col_groups[i] = [c for c in sorted(group) if col2row[c] is not None]
+
+        # eliminate any empty column groups
+        col_groups = [cg for cg in col_groups if cg]
+
     return [col_groups, col2row]
 
 
-def MNCO_bidir(J):
+def _sort_subtractions(allsubs):
+    graph = nx.DiGraph()
+    for pos, subtractions in allsubs.items():
+        for sub in subtractions:
+            graph.add_edge(pos, sub)
+
+    # from openmdao.visualization.graph_viewer import write_graph
+    # write_graph(graph)
+
+    topo = nx.topological_sort(graph)
+    sorted_subs = []
+    for pos in topo:
+        if pos in allsubs:
+            sorted_subs.append((pos, allsubs[pos]))
+
+    sorted_subs = sorted_subs[::-1]
+
+    return sorted_subs
+
+
+def MNCO_bidir(J, direct=True):
     """
     Compute bidirectional coloring using Minimum Nonzero Count Order (MNCO).
 
@@ -2257,6 +2639,9 @@ def MNCO_bidir(J):
     ----------
     J : coo_matrix
         Jacobian sparsity matrix (boolean).
+    direct : bool
+        If True, use the direct method to compute the column adjacency matrix of partitions.
+        Otherwise, use the substitution method. See the paper for descriptions of both methods.
 
     Returns
     -------
@@ -2265,6 +2650,7 @@ def MNCO_bidir(J):
     """
     nzrows, nzcols = J.row, J.col
     nrows, ncols = J.shape
+    skip = max(nrows, ncols) + 1
 
     coloring = Coloring(sparsity=J)
 
@@ -2274,10 +2660,10 @@ def MNCO_bidir(J):
     sparse = csc_matrix((np.ones(nzrows.size, dtype=bool), (nzrows, nzcols)), shape=J.shape)
 
     for c in range(ncols):
-        M_col_nonzeros[c] = sparse.getcol(c).indices.size
+        M_col_nonzeros[c] = sparse.getcol(c).size
     sparse = sparse.tocsr()
     for r in range(nrows):
-        M_row_nonzeros[r] = sparse.getrow(r).indices.size
+        M_row_nonzeros[r] = sparse.getrow(r).size
 
     sparse = None
 
@@ -2289,58 +2675,54 @@ def MNCO_bidir(J):
     row_i = col_i = 0
 
     # partition J into Jf and Jr
-    # Jf is colored by column and those columns will be solved in fwd mode
-    # Jr is colored by row and those rows will be solved in reverse mode
-    # We build Jf from bottom up (by row) and Jr from right to left (by column).
-
-    # get index of row with fewest nonzeros and col with fewest nonzeros
-    r = M_row_nonzeros.argmin()
-    c = M_col_nonzeros.argmin()
-
-    # get number of nonzeros in the selected row and column
-    nnz_r = M_row_nonzeros[r]
-    nnz_c = M_col_nonzeros[c]
+    # Jf is colored by column and those columns will be solved in fwd mode.
+    # Jr is colored by row and those rows will be solved in reverse mode.
 
     Jf_nz_max = 0   # max row nonzeros in Jf
     Jr_nz_max = 0   # max col nonzeros in Jr
 
+    rowcols = {}
+
     while M_rows.size > 0:
-        # what the algorithm is doing is basically minimizing the total of the max number of nonzero
-        # columns in Jf + the max number of nonzero rows in Jr, so it's basically minimizing
+        # the algorithm is minimizing the total of the max number of nonzero
+        # rows in Jf + the max number of nonzero columns in Jr, so it's basically minimizing
         # the upper bound of the number of colors that will be needed.
 
-        # we differ from the algorithm in the paper here slightly because we add ncols and nrows to
-        # different sides of the inequality in order to prevent bad colorings when we have
-        # matrices that have many more rows than columns or many more columns than rows.
-        if ncols + Jr_nz_max + max(Jf_nz_max, nnz_r) < (nrows + Jf_nz_max + max(Jr_nz_max, nnz_c)):
-            Jf_rows[r] = M_cols[M_rows == r]
-            Jf_nz_max = max(nnz_r, Jf_nz_max)
+        # get index of row with fewest nonzeros and col with fewest nonzeros
+        r = M_row_nonzeros.argmin()
+        c = M_col_nonzeros.argmin()
 
-            M_row_nonzeros[r] = ncols + 1  # make sure we don't pick this one again
-            M_col_nonzeros[Jf_rows[r]] -= 1
+        # get number of nonzeros in the selected row and column
+        nnz_c = M_col_nonzeros[c]
+        nnz_r = M_row_nonzeros[r]
 
-            # remove row r
-            keep = M_rows != r
-            r = M_row_nonzeros.argmin()
-            c = M_col_nonzeros.argmin()
-            nnz_r = M_row_nonzeros[r]
+        if Jr_nz_max + max(Jf_nz_max, nnz_r) < (Jf_nz_max + max(Jr_nz_max, nnz_c)):
+
+            Jf_rows[r] = M_cols[M_rows == r]  # add a row to Jf
+            keep = M_rows != r  # remove row r from M
+            M_row_nonzeros[r] = skip  # make sure we don't pick this row again
+            M_col_nonzeros[Jf_rows[r]] -= 1  # -1 all column nonzeros for columns in removed row
+
+            if nnz_r > Jf_nz_max:
+                Jf_nz_max = nnz_r  # update max nonzero rows in Jf
 
             row_i += 1
+            rowcols[r, True] = len(rowcols)
+
         else:
-            Jr_cols[c] = M_rows[M_cols == c]
-            Jr_nz_max = max(nnz_c, Jr_nz_max)
 
-            M_col_nonzeros[c] = nrows + 1  # make sure we don't pick this one again
-            M_row_nonzeros[Jr_cols[c]] -= 1
+            Jr_cols[c] = M_rows[M_cols == c]  # add a column to Jr
+            keep = M_cols != c  # remove column c from M
+            M_col_nonzeros[c] = skip  # make sure we don't pick this one again
+            M_row_nonzeros[Jr_cols[c]] -= 1  # -1 all row nonzeros for rows in removed column
 
-            # remove column c
-            keep = M_cols != c
-            r = M_row_nonzeros.argmin()
-            c = M_col_nonzeros.argmin()
-            nnz_c = M_col_nonzeros[c]
+            if nnz_c > Jr_nz_max:
+                Jr_nz_max = nnz_c  # update max nonzero columns in Jr
 
             col_i += 1
+            rowcols[c, False] = len(rowcols)
 
+        # M gets smaller by one row or one column
         M_rows = M_rows[keep]
         M_cols = M_cols[keep]
 
@@ -2348,9 +2730,9 @@ def MNCO_bidir(J):
 
     nnz_Jf = nnz_Jr = 0
 
+    Jfr = []
+    Jfc = []
     if row_i > 0:
-        Jfr = []
-        Jfc = []
         # build Jf and do fwd coloring on it
         for i, cols in enumerate(Jf_rows):
             if cols is not None:
@@ -2361,12 +2743,10 @@ def MNCO_bidir(J):
         Jf_rows = None
         Jfr = np.hstack(Jfr)
         Jfc = np.hstack(Jfc)
-        coloring._fwd = _color_partition(Jfr, Jfc, J.shape)
-        Jfr = Jfc = None
 
+    Jrr = []
+    Jrc = []
     if col_i > 0:
-        Jrr = []
-        Jrc = []
         # build Jr and do rev coloring
         for i, rows in enumerate(Jr_cols):
             if rows is not None:
@@ -2377,12 +2757,31 @@ def MNCO_bidir(J):
         Jr_cols = None
         Jrr = np.hstack(Jrr)
         Jrc = np.hstack(Jrc)
-        coloring._rev = _color_partition(Jrc, Jrr, J.T.shape)
+
+    overlap = set()
+    if row_i > 0:
+        coloring._fwd = _color_partition(J, Jfr, Jfc, direct=direct, overlap=overlap)
+
+    overlapr = set()
+    if col_i > 0:
+        coloring._rev = _color_partition(J.T, Jrc, Jrr, direct=direct, overlap=overlapr)
+        overlapr = {(c, r) for r, c in overlapr}
+
+    if not direct and row_i > 0 and col_i > 0:
+        full_ovrs = overlap | overlapr
+
+        Jf = coo_matrix((np.ones(Jfr.size), (Jfr, Jfc)), shape=J.shape)
+        Jr = coo_matrix((np.ones(Jrr.size), (Jrr, Jrc)), shape=J.shape)
+
+        if len(full_ovrs) > 0:
+            coloring._subtractions = coloring._get_subtractions(Jf, Jr)
+        else:
+            coloring._subtractions = {}
 
     if nzrows.size != nnz_Jf + nnz_Jr:
         raise RuntimeError("Nonzero mismatch for J vs. Jf and Jr")
 
-    coloring._meta['bidirectional'] = True
+    coloring._meta['bidirectional'] = row_i > 0 and col_i > 0
 
     return coloring
 
@@ -2455,15 +2854,13 @@ def _tol_sweep(arr, tol=_DEF_COMP_SPARSITY_ARGS['tol'], orders=_DEF_COMP_SPARSIT
         'good_tol': good_tol,
         'nz_matches': nz_matches,
         'n_tested': n_tested,
-        'zero_entries': arr[arr <= good_tol].size,
-        'J_size': arr.size,
     }
 
     return info
 
 
 @contextmanager
-def _compute_total_coloring_context(problem):
+def _compute_total_coloring_context(problem, coloring_info):
     """
     Context manager for computing total jac sparsity for simultaneous coloring.
 
@@ -2471,15 +2868,25 @@ def _compute_total_coloring_context(problem):
     ----------
     problem : Problem
         The problem where coloring will be done.
+    coloring_info : ColoringMeta or None
+        Metadata object for coloring.
     """
     problem._metadata['coloring_randgen'] = np.random.default_rng(41)  # set seed for consistency
     problem._computing_coloring = True
+    saved_rand_subjacs = problem._metadata['randomize_subjacs']
+    saved_rand_seeds = problem._metadata['randomize_seeds']
+
+    if coloring_info is not None:
+        problem._metadata['randomize_subjacs'] = coloring_info.randomize_subjacs
+        problem._metadata['randomize_seeds'] = coloring_info.randomize_seeds
 
     try:
         yield
     finally:
         problem._metadata['coloring_randgen'] = None
         problem._computing_coloring = False
+        problem._metadata['randomize_subjacs'] = saved_rand_subjacs
+        problem._metadata['randomize_seeds'] = saved_rand_seeds
 
 
 def _get_total_jac_sparsity(prob, num_full_jacs=_DEF_COMP_SPARSITY_ARGS['num_full_jacs'],
@@ -2548,13 +2955,18 @@ def _get_total_jac_sparsity(prob, num_full_jacs=_DEF_COMP_SPARSITY_ARGS['num_ful
                                "must be provided or design_vars/constraints/objective must be "
                                "added to the driver.")
 
-    use_driver = driver and driver._coloring_info.use_scaling
+    needs_scaling = driver and driver._coloring_info.use_scaling
+    if driver:
+        colorinfo = driver._coloring_info
+    else:
+        colorinfo = None
 
-    with _compute_total_coloring_context(prob):
-        start_time = time.perf_counter()
+    start_time = time.perf_counter()
+
+    with _compute_total_coloring_context(prob, colorinfo):
         fullJ = None
-        for i in range(num_full_jacs):
-            if use_driver:
+        for _ in range(num_full_jacs):
+            if needs_scaling:
                 Jabs = driver._compute_totals(of=of, wrt=wrt, return_format='array')
             else:
                 Jabs = prob.compute_totals(of=of, wrt=wrt, return_format='array',
@@ -2564,19 +2976,24 @@ def _get_total_jac_sparsity(prob, num_full_jacs=_DEF_COMP_SPARSITY_ARGS['num_ful
             else:
                 fullJ += np.abs(Jabs)
 
+        if driver:
+            driver._total_jac = None
         Jabs = None
-        elapsed = time.perf_counter() - start_time
+
+    if driver:
+        # force driver to recreate total jacobian using coloring
+        driver._total_jac = None
 
     fullJ *= (1.0 / np.max(fullJ))
 
     spmeta = _tol_sweep(fullJ, tol, orders)
+    spmeta['J_shape'] = fullJ.shape
+    spmeta['class'] = type(prob).__name__
+    spmeta['pathname'] = prob._metadata['pathname']
+    spmeta['nz_entries'] = np.count_nonzero(fullJ)
     spmeta['num_full_jacs'] = num_full_jacs
-    spmeta['sparsity_time'] = elapsed
+    spmeta['sparsity_time'] = time.perf_counter() - start_time
     spmeta['type'] = 'total'
-
-    print(f"Full total jacobian for problem '{prob._metadata['pathname']}' was computed "
-          f"{num_full_jacs} times, taking {elapsed} seconds.")
-    print("Total jacobian shape:", fullJ.shape, "\n")
 
     nzrows, nzcols = np.nonzero(fullJ > spmeta['good_tol'])
     shape = fullJ.shape
@@ -2585,7 +3002,7 @@ def _get_total_jac_sparsity(prob, num_full_jacs=_DEF_COMP_SPARSITY_ARGS['num_ful
     return coo_matrix((np.ones(nzrows.size, dtype=bool), (nzrows, nzcols)), shape=shape), spmeta
 
 
-def _compute_coloring(J, mode):
+def _compute_coloring(J, mode, direct=True):
     """
     Compute a good coloring in a specified dominant direction.
 
@@ -2596,6 +3013,9 @@ def _compute_coloring(J, mode):
     mode : str
         The direction for solving for total derivatives.  Must be 'fwd', 'rev' or 'auto'.
         If 'auto', use bidirectional coloring.
+    direct : bool
+        If True and doing bidirectional coloring, use the direct method to compute the column
+        adjacency matrix of partitions, else use the substitution method.
 
     Returns
     -------
@@ -2612,8 +3032,10 @@ def _compute_coloring(J, mode):
         if isinstance(J, np.ndarray):
             nzrows, nzcols = np.nonzero(J)
             J = coo_matrix((np.ones(nzrows.size, dtype=bool), (nzrows, nzcols)), shape=J.shape)
+        else:
+            J = J.tocoo()
 
-        coloring = MNCO_bidir(J)
+        coloring = MNCO_bidir(J, direct=direct)
         fallback = _compute_coloring(J, 'fwd')
         if coloring.total_solves() >= fallback.total_solves():
             coloring = fallback
@@ -2638,7 +3060,7 @@ def _compute_coloring(J, mode):
     if rev:
         J = J.T
 
-    nrows, ncols = J.shape
+    _, ncols = J.shape
 
     if isinstance(J, np.ndarray):
         nzrows, nzcols = np.nonzero(J)
@@ -2649,15 +3071,11 @@ def _compute_coloring(J, mode):
 
     col2rows = [None] * ncols  # will contain list of nonzero rows for each column
 
-    for r, c in zip(nzrows, nzcols):
+    for r, c in sorted(zip(nzrows, nzcols)):
         if col2rows[c] is None:
             col2rows[c] = [r]
         else:
             col2rows[c].append(r)
-
-    for c, rows in enumerate(col2rows):
-        if rows is not None:
-            col2rows[c] = sorted(rows)
 
     if rev:
         coloring._rev = (col_groups, col2rows)
@@ -2747,7 +3165,11 @@ def compute_total_coloring(problem, mode=None, of=None, wrt=None,
                                                    orders=orders, setup=setup,
                                                    run_model=run_model, of=ofs, wrt=wrts,
                                                    driver=driver)
-        coloring = _compute_coloring(J, mode)
+        if driver:
+            coloring = _compute_coloring(J, mode, direct=driver._coloring_info.direct)
+        else:
+            coloring = None
+
         if coloring is not None:
             coloring._row_vars = list(ofs)
             coloring._row_var_sizes = [m['size'] for m in ofs.values()]
@@ -2762,19 +3184,8 @@ def compute_total_coloring(problem, mode=None, of=None, wrt=None,
                         (model._full_comm is None and model.comm.rank == 0)):
                     coloring.save(fname)
 
-    # save a copy of the abs2prom dict on the coloring object
-    # so promoted names can be used when displaying coloring data
-    # (also map auto_ivc names to the prom name of their connected input)
     if coloring is not None:
-        coloring._abs2prom = abs2prom = model._var_allprocs_abs2prom.copy()
-        conns = model._conn_global_abs_in2out
-        for abs_out in abs2prom['output']:
-            if abs_out.startswith('_auto_ivc.'):
-                abs_in = _convert_auto_ivc_to_conn_name(conns, abs_out)
-                abs2prom['output'][abs_out] = abs2prom['input'][abs_in]
-
-    if driver:
-        driver._total_jac = None
+        coloring._resolver = model._resolver
 
     # if we're running under MPI, make sure the coloring object is identical on all ranks
     # by broadcasting rank 0's coloring to the other ranks.
@@ -2992,7 +3403,7 @@ def _get_partial_coloring_kwargs(system, options):
         if getattr(options, name) is not None:
             kwargs[name] = getattr(options, name)
 
-    kwargs['recurse'] = not options.norecurse and not system._subsystems_allprocs
+    kwargs['recurse'] = not options.norecurse and system._subsystems_allprocs
 
     per_instance = getattr(options, 'per_instance')
     kwargs['per_instance'] = (per_instance is None or
@@ -3031,7 +3442,7 @@ def _partial_coloring_cmd(options, user_args):
             coloring.display_bokeh(show=True)
             print('\n')
 
-        if not coloring._meta.get('show_summary'):
+        if not coloring._meta.get('show_summary'):  # avoids double printing of summary
             print("\nApprox coloring for '%s' (class %s)" % (system.pathname,
                                                              type(system).__name__))
             coloring.summary()
@@ -3051,7 +3462,8 @@ def _partial_coloring_cmd(options, user_args):
             with profiling('coloring_profile.out') if options.profile else do_nothing_context():
                 if options.system == '':
                     system = prob.model
-                    _initialize_model_approx(system, prob.driver)
+                    if not options.classes:
+                        _initialize_model_approx(system, prob.driver)
                 else:
                     system = prob.model._get_subsystem(options.system)
                 if system is None:
@@ -3065,22 +3477,30 @@ def _partial_coloring_cmd(options, user_args):
                     kwargs['recurse'] = False
                     for s in system.system_iter(include_self=True, recurse=True):
                         for c in options.classes:
-                            klass = s.__class__.__name__
-                            mod = s.__class__.__module__
-                            if c == klass or c == '.'.join([mod, klass]):
-                                if c in to_find:
+                            klasses = [m.__name__ for m in inspect.getmro(s.__class__)][:-1]
+                            mods = [m.__module__ for m in inspect.getmro(s.__class__)][:-1]
+                            for klass, mod in zip(klasses, mods):
+                                mod = s.__class__.__module__
+                                if c == klass or c == '.'.join([mod, klass]):
                                     found.add(c)
-                                try:
-                                    coloring = s._compute_coloring(**kwargs)[0]
-                                except Exception:
-                                    tb = traceback.format_exc()
-                                    print("The following error occurred while attempting to "
-                                          "compute coloring for %s:\n %s" % (s.pathname, tb))
-                                else:
-                                    if coloring is not None:
-                                        _show(s, options, coloring)
-                                if options.norecurse:
-                                    break
+                                    if len(s._var_allprocs_abs2meta['input']) == 0 or \
+                                            len(s._var_allprocs_abs2meta['output']) == 0:
+                                        print(f"Skipping {s.pathname} <class {klass}> because it "
+                                              "has either no inputs or no outputs.")
+                                        continue
+                                    try:
+                                        coloring = s._compute_coloring(**kwargs)[0]
+                                    except Exception:
+                                        tb = traceback.format_exc()
+                                        print("The following error occurred while attempting to "
+                                              f"compute coloring for {s.pathname}:\n {tb}")
+                                    else:
+                                        if coloring is not None:
+                                            _show(s, options, coloring)
+                                    if options.norecurse:
+                                        break
+                            if c in found:
+                                break
                     else:
                         if to_find - found:
                             raise RuntimeError("Failed to find any instance of classes %s" %
@@ -3185,17 +3605,19 @@ class _ColSparsityJac(object):
     A class to manage the assembly of a sparsity matrix by columns without allocating a dense jac.
     """
 
-    def __init__(self, system, coloring_info):
-        self._coloring_info = coloring_info
+    def __init__(self, system):
+        self._coloring_info = system._coloring_info
 
         nrows = sum([end - start for _, start, end, _, _ in system._jac_of_iter()])
-        for _, _, end, _, _, _ in system._jac_wrt_iter(coloring_info.wrt_matches):
+        end = 0
+        for _, _, end, _, _, _ in system._jac_wrt_iter(self._coloring_info.wrt_matches):
             pass
 
-        ncols = end
-        self._col_list = [None] * ncols
-        self._ncols = ncols
         self._nrows = nrows
+        self._randgen = None
+        self._ncols = end
+        self.shape = (nrows, end)
+        self._col_list = [None] * self._ncols
 
     def set_col(self, system, i, column):
         # record only the nonzero part of the column.
@@ -3233,14 +3655,9 @@ class _ColSparsityJac(object):
         # ignore any setting of subjacs based on analytic derivs
         pass
 
-    def get_sparsity(self, system):
+    def get_sparsity(self):
         """
         Assemble the sparsity matrix (COO) based on data collected earlier via set_col.
-
-        Parameters
-        ----------
-        system : System
-            The system that owns this jacobian.
 
         Returns
         -------
@@ -3270,6 +3687,8 @@ class _ColSparsityJac(object):
             data *= (1. / np.max(data))
 
             info = _tol_sweep(data, coloring_info.tol, coloring_info.orders)
+            info['J_shape'] = self.shape
+            info['nz_entries'] = np.count_nonzero(data)
             data = data > info['good_tol']  # data is now a bool
             rows = rows[data]
             cols = cols[data]
@@ -3284,8 +3703,8 @@ class _ColSparsityJac(object):
                 'good_tol': coloring_info.tol,
                 'nz_matches': 0,
                 'n_tested': 0,
-                'zero_entries': 0,
-                'J_size': 0,
+                'nz_entries': 0,
+                'J_shape': (0, 0),
             }
 
         return coo_matrix((data, (rows, cols)), shape=(self._nrows, self._ncols)), info

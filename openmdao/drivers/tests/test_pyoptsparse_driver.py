@@ -16,7 +16,7 @@ from openmdao.test_suite.components.paraboloid_problem import ParaboloidProblem
 from openmdao.test_suite.components.paraboloid_distributed import DistParab
 from openmdao.test_suite.components.sellar import SellarDerivativesGrouped
 from openmdao.utils.assert_utils import assert_near_equal, assert_warning, assert_check_totals
-from openmdao.utils.general_utils import set_pyoptsparse_opt, run_driver
+from openmdao.utils.general_utils import set_pyoptsparse_opt, run_driver, printoptions
 from openmdao.utils.testing_utils import use_tempdirs, require_pyoptsparse
 from openmdao.utils.om_warnings import OMDeprecationWarning
 from openmdao.utils.mpi import MPI
@@ -157,7 +157,7 @@ class TestNotInstalled(unittest.TestCase):
         from openmdao.drivers.pyoptsparse_driver import pyOptSparseDriver
 
         # but we get a RuntimeError if we try to instantiate
-        with self.assertRaises(RuntimeError) as ctx:
+        with self.assertRaises(ImportError) as ctx:
             pyOptSparseDriver()
 
         self.assertEqual(str(ctx.exception),
@@ -193,7 +193,9 @@ class TestMPIScatter(unittest.TestCase):
         prob.run_driver()
 
         proc_vals = prob.comm.allgather([prob['x'], prob['y'], prob['c'], prob['f_xy']])
-        np.testing.assert_array_almost_equal(proc_vals[0], proc_vals[1])
+        # f_xy is a scalar, so compare it separately
+        self.assertAlmostEqual(proc_vals[0][3], proc_vals[1][3])
+        np.testing.assert_array_almost_equal(proc_vals[0][:3], proc_vals[1][:3])
 
     @require_pyoptsparse(OPTIMIZER)
     def test_opt_distcomp(self):
@@ -2232,8 +2234,9 @@ class TestPyoptSparse(unittest.TestCase):
 
         prob.setup()
 
-        with self.assertRaises(RuntimeError) as msg:
-            prob.run_driver()
+        with printoptions(legacy="1.13"):
+            with self.assertRaises(RuntimeError) as msg:
+                prob.run_driver()
 
         self.assertEqual(str(msg.exception),
                          "Design variables [('z', inds=[0])] have no impact on the constraints or objective.")
@@ -3481,11 +3484,12 @@ class TestLinearOnlyDVs(unittest.TestCase):
 
         return prob
 
+    @require_pyoptsparse('IPOPT')
     def test_lin_only_dvs(self):
         shape = (2, 5)
         # do first opt without coloring
         driver = om.pyOptSparseDriver(optimizer='IPOPT', print_results=False)
-        driver.opt_settings['print_level'] = 5
+        driver.opt_settings['print_level'] = 0
         driver.opt_settings['max_iter'] = 1000
         p = self.setup_lin_only_dv_problem(driver=driver, shape=shape)
         p.run_model()
@@ -3494,7 +3498,7 @@ class TestLinearOnlyDVs(unittest.TestCase):
         assert_check_totals(p.check_totals(method='cs', out_stream=None))
 
         driver = om.pyOptSparseDriver(optimizer='IPOPT', print_results=False)
-        driver.opt_settings['print_level'] = 5
+        driver.opt_settings['print_level'] = 0
         driver.opt_settings['max_iter'] = 1000
         driver.declare_coloring()
         p = self.setup_lin_only_dv_problem(driver=driver, shape=shape)

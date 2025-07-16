@@ -24,7 +24,7 @@ from openmdao.recorders.case_reader import CaseReader
 from openmdao.solvers.nonlinear.newton import NewtonSolver
 from openmdao.utils.array_utils import convert_ndarray_to_support_nans_in_json
 from openmdao.utils.class_util import overrides_method
-from openmdao.utils.general_utils import default_noraise
+from openmdao.utils.general_utils import default_noraise, is_undefined
 from openmdao.utils.mpi import MPI
 from openmdao.utils.notebook_utils import notebook, display, HTML, IFrame, colab
 from openmdao.utils.om_warnings import issue_warning
@@ -61,7 +61,7 @@ def _get_array_info(system, vec, name, prom, var_dict, from_src=True):
 def _get_var_dict(system, typ, name, is_parallel, is_implicit, values):
     if name in system._var_abs2meta[typ]:
         meta = system._var_abs2meta[typ][name]
-        prom = system._var_abs2prom[typ][name]
+        prom = system._resolver.abs2prom(name, typ)
         val = np.asarray(meta['val'])
         is_dist = MPI is not None and meta['distributed']
 
@@ -153,7 +153,7 @@ def _serialize_single_option(option):
 
     val = option['val']
 
-    if val is _UNDEFINED:
+    if is_undefined(val):
         return str(val)
 
     if sys.getsizeof(val) > _MAX_OPTION_SIZE:
@@ -339,13 +339,10 @@ def _get_viewer_data(data_source, values=_UNDEFINED, case_id=None):
         A dictionary containing information about the model for use by the viewer.
     """
     if isinstance(data_source, Problem):
-        root_group = data_source.model
+        # make sure at least setup_part2 has been run
+        data_source.set_setup_status(_SetupStatus.POST_SETUP2)
 
-        if not isinstance(root_group, Group):
-            # this function only makes sense when the model is a Group
-            msg = f"The model is of type {root_group.__class__.__name__}, " \
-                  "viewer data is only available if the model is a Group."
-            raise TypeError(msg)
+        root_group = data_source.model
 
         driver = data_source.driver
         driver_name = driver.__class__.__name__
@@ -360,7 +357,7 @@ def _get_viewer_data(data_source, values=_UNDEFINED, case_id=None):
             driver_opt_settings = None
 
         # set default behavior for values flag
-        if values is _UNDEFINED:
+        if is_undefined(values):
             values = (data_source._metadata is not None and
                       data_source._metadata['setup_status'] >= _SetupStatus.POST_FINAL_SETUP)
 
@@ -376,8 +373,14 @@ def _get_viewer_data(data_source, values=_UNDEFINED, case_id=None):
             msg = f"Viewer data is not available for sub-Group '{data_source.pathname}'."
             raise TypeError(msg)
 
+        if data_source._problem_meta is not None:
+            if data_source._problem_meta['setup_status'] >= _SetupStatus.POST_SETUP:
+                if data_source._problem_meta['setup_status'] < _SetupStatus.POST_SETUP2:
+                    # run setup_part2 on the model
+                    data_source._problem_meta['model_ref']()._setup_part2()
+
         # set default behavio r for values flag
-        if values is _UNDEFINED:
+        if is_undefined(values):
             values = (data_source._problem_meta is not None and
                       data_source._problem_meta['setup_status'] >= _SetupStatus.POST_FINAL_SETUP)
 
@@ -391,7 +394,7 @@ def _get_viewer_data(data_source, values=_UNDEFINED, case_id=None):
         data_dict = cr.problem_metadata
 
         # set default behavior for values flag
-        if values is _UNDEFINED:
+        if is_undefined(values):
             values = True
 
         def set_values(children, stack, case):
@@ -527,7 +530,10 @@ def _get_viewer_data(data_source, values=_UNDEFINED, case_id=None):
 
     data_dict['sys_pathnames_list'] = list(sys_idx)
     data_dict['connections_list'] = connections_list
-    data_dict['abs2prom'] = root_group._var_abs2prom
+    data_dict['abs2prom'] = {
+        'input': {k: v for k, v in root_group._resolver.abs2prom_iter('input', local=True)},
+        'output': {k: v for k, v in root_group._resolver.abs2prom_iter('output', local=True)},
+    }
 
     data_dict['driver'] = {
         'name': driver_name,
@@ -723,8 +729,8 @@ def _n2_cmd(options, user_args):
 
         def _view_model_w_errors(prob):
             # if problem name is not specified, use top-level problem (no delimiter in pathname)
-            pathname = prob._metadata['pathname']
-            if (probname is None and '/' not in pathname) or (probname == prob._name):
+            prob_id = prob._get_inst_id()
+            if probname is None or probname == prob_id:
                 errs = prob._metadata['saved_errors']
                 if errs:
                     # only run the n2 here if we've had setup errors. Normally we'd wait until
@@ -733,17 +739,19 @@ def _n2_cmd(options, user_args):
                        values=not options.no_values, title=options.title, path=options.path,
                        embeddable=options.embeddable)
                     # errors will result in exit at the end of the _check_collected_errors method
-                else:
-                    # no errors, generate n2 after final_setup
-                    def _view_model_no_errors(prob):
-                        n2(prob, outfile=options.outfile, show_browser=not options.no_browser,
-                           values=not options.no_values, title=options.title, path=options.path,
-                           embeddable=options.embeddable)
-                    hooks._register_hook('final_setup', 'Problem',
-                                         post=_view_model_no_errors, exit=True)
-                    hooks._setup_hooks(prob)
 
-        hooks._register_hook('_check_collected_errors', 'Problem', pre=_view_model_w_errors)
+        # no errors, generate n2 after final_setup
+        def _view_model_no_errors(prob):
+            prob_id = prob._get_inst_id()
+            if (probname is None and '/' not in prob_id) or (probname == prob_id):
+                n2(prob, outfile=options.outfile, show_browser=not options.no_browser,
+                   values=not options.no_values, title=options.title, path=options.path,
+                   embeddable=options.embeddable)
+
+        hooks._register_hook('_check_collected_errors', 'Problem', pre=_view_model_w_errors,
+                             inst_id=probname)
+        hooks._register_hook('final_setup', class_name='Problem', post=_view_model_no_errors,
+                             inst_id=probname, exit=True)
 
         _load_and_exec(options.file[0], user_args)
     else:

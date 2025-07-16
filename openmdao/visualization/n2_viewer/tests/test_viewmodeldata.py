@@ -344,6 +344,9 @@ class TestViewerData(unittest.TestCase):
         prob.setup()
         prob.final_setup()
 
+        # Uncomment to update regression data
+        # save_viewer_data(_get_viewer_data(prob), 'betz_tree.json')
+
         # check expected viewer data
         self.check_viewer_data(_get_viewer_data(prob), 'betz_tree.json')
 
@@ -388,6 +391,7 @@ class TestViewerData(unittest.TestCase):
         prob = om.Problem()
         prob.model.add_subsystem('comp', SystemWithNdArrayOption(arr=np.ones(2)))
         prob.setup()
+        prob.final_setup()
 
         viewer_data = _get_viewer_data(prob)
         np.testing.assert_equal(viewer_data['tree']['children'][1]['options']['arr'],
@@ -410,6 +414,7 @@ class TestViewerData(unittest.TestCase):
         comp = prob.model.add_subsystem('comp', SystemWithLargeOption())
         comp.options['large_option'] = np.zeros(int(1e4))
         prob.setup()
+        prob.final_setup()
 
         viewer_data = _get_viewer_data(prob)
         self.assertEqual(viewer_data['tree']['children'][1]['options']['large_option'],
@@ -477,17 +482,9 @@ class TestViewerData(unittest.TestCase):
             p.model.add_subsystem('submodelcomp',
                                 om.SubmodelComp(problem=subprob, inputs=['*'], outputs=['*'], do_coloring=False),
                                 promotes=['*'])
-            p.model.add_subsystem('supercomp',
-                                om.ExecComp('z = 3 * y'),
-                                promotes=['*'])
+            p.model.add_subsystem('supercomp', om.ExecComp('z = 3 * y'), promotes=['*'])
 
             p.setup()
-            p.final_setup()
-
-            # verify model runs correctly
-            p.set_val('x1', 1)
-            p.set_val('x2', 2)
-            p.set_val('x3', 3)
 
             p.run_model()
             """
@@ -658,6 +655,7 @@ class TestN2(unittest.TestCase):
 
         with self.assertRaises(Exception) as cm:
             p.setup()
+            p.final_setup()
 
         self.assertEqual(cm.exception.args[0], msg)
 

@@ -13,10 +13,10 @@ except ImportError:
     IFrame = display = None
 
 from openmdao.core.problem import Problem
+from openmdao.core.constants import _SetupStatus
 from openmdao.utils.mpi import MPI
 from openmdao.utils.general_utils import printoptions
 from openmdao.utils.notebook_utils import notebook, colab
-from openmdao.utils.om_warnings import issue_warning
 from openmdao.utils.reports_system import register_report
 
 
@@ -69,6 +69,12 @@ def view_connections(root, outfile='connections.html', show_browser=True,
     else:
         system = root
 
+    if system._problem_meta is not None and system._problem_meta['saved_errors']:
+        pass  # special case of being called when errors occurred during setup
+    elif (system._problem_meta is None or
+          system._problem_meta['setup_status'] < _SetupStatus.POST_FINAL_SETUP):
+        raise RuntimeError("view_connections may only be called after final_setup.")
+
     connections = system._problem_meta['model_ref']()._conn_global_abs_in2out
 
     src2tgts = defaultdict(list)
@@ -81,24 +87,17 @@ def view_connections(root, outfile='connections.html', show_browser=True,
 
     vals = {}
 
-    prefix = system.pathname + '.' if system.pathname else ''
     all_vars = {}
     for io in ('input', 'output'):
-        all_vars[io] = chain(system._var_abs2meta[io].items(),
-                             [(prefix + n, m) for n, m in system._var_discrete[io].items()])
-
-    if show_values and system._outputs is None:
-        issue_warning("Values will not be shown because final_setup has not been called yet.",
-                      prefix=system.msginfo)
+        all_vars[io] = chain(system._resolver.abs_iter(io, local=True))
 
     with printoptions(precision=precision, suppress=True, threshold=10000):
 
-        for t, meta in all_vars['input']:
+        for t in all_vars['input']:
             s = connections[t]
             if show_values and system._outputs is not None:
                 if s.startswith('_auto_ivc.'):
-                    val = system.get_val(t, flat=True, get_remote=True,
-                                         from_src=False)
+                    val = system.get_val(t, flat=True, get_remote=True, from_src=False)
                 else:
                     val = system.get_val(t, flat=True, get_remote=True)
 
@@ -115,8 +114,7 @@ def view_connections(root, outfile='connections.html', show_browser=True,
 
             vals[t] = val
 
-    tprom = system._var_allprocs_abs2prom['input']
-    sprom = system._var_allprocs_abs2prom['output']
+    resolver = system._resolver
 
     table = []
     prom_trees = {}
@@ -131,8 +129,8 @@ def view_connections(root, outfile='connections.html', show_browser=True,
             if utgt:
                 utgt = '!' + units[tgt]
 
-        tgtprom = tprom[tgt]
-        srcprom = sprom[src]
+        tgtprom = resolver.abs2prom(tgt, 'input')
+        srcprom = resolver.abs2prom(src, 'output')
 
         if (tgtprom, srcprom) in prom_trees:
             sys_prom_map = prom_trees[(tgtprom, srcprom)]

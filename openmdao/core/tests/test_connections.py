@@ -305,8 +305,9 @@ class TestConnectionsIndices(unittest.TestCase):
         expected = "\nCollected errors for problem 'bad_shapes':\n   <model> <class Group>: The source and target shapes do not match or are " + \
                    "ambiguous for the connection 'idvp.blammo' to 'arraycomp.inp'. " + \
                    "The source shape is (1,) but the target shape is (2,)."
+        self.prob.setup()
         try:
-            self.prob.setup()
+            self.prob.final_setup()
         except Exception as err:
             self.assertEqual(str(err), expected)
         else:
@@ -322,8 +323,9 @@ class TestConnectionsIndices(unittest.TestCase):
                    "for the connection 'idvp.blammo' to 'arraycomp.inp'. The target shape is " + \
                    "(2,) but indices are shape (3,)."
 
+        self.prob.setup()
         try:
-            self.prob.setup()
+            self.prob.final_setup()
         except Exception as err:
             self.assertEqual(str(err), expected)
         else:
@@ -335,8 +337,9 @@ class TestConnectionsIndices(unittest.TestCase):
         self.build_model('bad_value')
         self.prob.model.connect('idvp.arrout', 'arraycomp.inp1', src_indices=[100000])
 
+        self.prob.setup()
         try:
-            self.prob.setup()
+            self.prob.final_setup()
         except Exception as err:
             self.assertEqual(str(err),
                "\nCollected errors for problem 'bad_value':"
@@ -351,8 +354,9 @@ class TestConnectionsIndices(unittest.TestCase):
         self.build_model('bad_value_bug')
         self.prob.model.connect('idvp.arrout', 'arraycomp.inp', src_indices=[0, 100000])
 
+        self.prob.setup()
         try:
-            self.prob.setup()
+            self.prob.final_setup()
         except Exception as err:
             self.assertEqual(str(err),
                "\nCollected errors for problem 'bad_value_bug':"
@@ -449,8 +453,9 @@ class TestShapes(unittest.TestCase):
                    "ambiguous for the connection 'indep.x' to 'C1.x'. The source shape is " + \
                    "(1, 10, 1, 1) but the target shape is (5, 2)."
 
+        p.setup()
         with self.assertRaises(Exception) as context:
-            p.setup()
+            p.final_setup()
 
         self.assertEqual(str(context.exception), expected)
 
@@ -478,6 +483,7 @@ class TestMultiConns(unittest.TestCase):
 
         with self.assertRaises(Exception) as context:
             prob.setup()
+            prob.final_setup()
 
         self.assertEqual(str(context.exception),
            "\nCollected errors for problem 'mult_conns':"
@@ -562,6 +568,38 @@ class TestAutoIVCAllowableShapeMismatch(unittest.TestCase):
         assert_near_equal(a, np.array([5., 10., 15.]))
         assert_near_equal(b, np.array([5., 10., 15.]))
 
+    def test_src_shape_allowable_shape_mismatch(self):
+
+        p = om.Problem()
+
+        c1 = p.model.add_subsystem('c1', om.ExecComp())
+        c2 = p.model.add_subsystem('c2', om.ExecComp())
+
+        # c1 takes a flat 3-vector
+        # c2 takes a column vector
+        c1.add_expr('a = 5.0 * x1', a=dict(shape=(3,)), x1=dict(shape=(3,)))
+        c2.add_expr('b = 5.0 * x2', b=dict(shape=(3,)), x2=dict(shape=(3, 1)))
+
+        # x1 takes the first index of the first dimension and whatever the remaining dimensions are
+        p.model.promotes('c1', inputs=[('x1', 'x')], src_indices=om.slicer[[0], ...])
+        # x2 takes the second index of the first dimension and whatever the remaining dimensions are
+        p.model.promotes('c2', inputs=[('x2', 'x')], src_indices=om.slicer[[1], ...])
+
+        # The source shape from the auto ivc is two column vectors (2, 3, 1)
+        p.model.set_input_defaults('x',
+                                   src_shape=(2, 3, 1),
+                                   val=np.reshape([1., 2., 3., 4., 5., 6.], (2, 3, 1)))
+
+        p.setup()
+
+        p.run_model()
+
+        a = p.get_val('c1.a')
+        b = p.get_val('c2.b')
+
+        assert_near_equal(a, 5 * np.array([1., 2., 3.]))
+        assert_near_equal(b, 5 * np.array([4., 5., 6.]))
+
 
 @unittest.skipUnless(MPI and PETScVector, "MPI and PETSc are required.")
 class TestConnectionsDistrib(unittest.TestCase):
@@ -591,6 +629,7 @@ class TestConnectionsDistrib(unittest.TestCase):
 
         try:
             prob.setup()
+            prob.final_setup()
         except Exception as err:
             self.assertTrue(
                              "\nCollected errors for problem 'serial_mpi_error':" \
@@ -622,6 +661,7 @@ class TestConnectionsDistrib(unittest.TestCase):
 
         try:
             prob.setup()
+            prob.final_setup()
         except Exception as err:
             self.assertTrue(
                              "\nCollected errors for problem 'serial_mpi_error_flat':" \
@@ -677,6 +717,7 @@ class TestConnectionsError(unittest.TestCase):
 
         with self.assertRaises(Exception) as context:
             prob.setup(check=False, mode='fwd')
+            prob.final_setup()
 
         self.assertTrue(
             "\nCollected errors for problem 'incompatible_src_indices':"

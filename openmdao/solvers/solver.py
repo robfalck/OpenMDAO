@@ -16,7 +16,7 @@ from openmdao.utils.mpi import MPI
 from openmdao.utils.options_dictionary import OptionsDictionary
 from openmdao.utils.record_util import create_local_meta, check_path
 from openmdao.utils.om_warnings import issue_warning, SolverWarning
-from openmdao.utils.general_utils import SolverMeta
+from openmdao.utils.general_utils import SolverMetaclass, is_undefined
 
 
 class SolverInfo(object):
@@ -100,7 +100,7 @@ class SolverInfo(object):
         self.prefix, self.stack = cache
 
 
-class Solver(object, metaclass=SolverMeta):
+class Solver(object, metaclass=SolverMetaclass):
     """
     Base solver class.
 
@@ -348,33 +348,35 @@ class Solver(object, metaclass=SolverMeta):
         if isinstance(self, LinearSolver) and not system._use_derivatives:
             return
 
-        self._rec_mgr.startup(self, self._problem_meta['comm'])
+        if self._rec_mgr.has_recorders():
+            self._rec_mgr.startup(self, self._problem_meta['comm'])
 
-        myoutputs = myresiduals = myinputs = []
-        incl = self.recording_options['includes']
-        excl = self.recording_options['excludes']
+            myoutputs = myresiduals = myinputs = []
+            incl = self.recording_options['includes']
+            excl = self.recording_options['excludes']
 
-        # doesn't matter if we're a linear or nonlinear solver.  The names for
-        # inputs, outputs, and residuals are the same for both the 'linear' and 'nonlinear'
-        # vectors.
-        if system.pathname:
-            incl = ['.'.join((system.pathname, i)) for i in incl]
-            excl = ['.'.join((system.pathname, i)) for i in excl]
+            # doesn't matter if we're a linear or nonlinear solver.  The names for
+            # inputs, outputs, and residuals are the same for both the 'linear' and 'nonlinear'
+            # vectors.
+            if system.pathname:
+                incl = ['.'.join((system.pathname, i)) for i in incl]
+                excl = ['.'.join((system.pathname, i)) for i in excl]
 
-        if self.recording_options['record_solver_residuals']:
-            myresiduals = [n for n in system._residuals._abs_iter() if check_path(n, incl, excl)]
+            if self.recording_options['record_solver_residuals']:
+                myresiduals = [n for n in system._residuals._abs_iter()
+                               if check_path(n, incl, excl)]
 
-        if self.recording_options['record_outputs']:
-            myoutputs = [n for n in system._outputs._abs_iter() if check_path(n, incl, excl)]
+            if self.recording_options['record_outputs']:
+                myoutputs = [n for n in system._outputs._abs_iter() if check_path(n, incl, excl)]
 
-        if self.recording_options['record_inputs']:
-            myinputs = [n for n in system._inputs._abs_iter() if check_path(n, incl, excl)]
+            if self.recording_options['record_inputs']:
+                myinputs = [n for n in system._inputs._abs_iter() if check_path(n, incl, excl)]
 
-        self._filtered_vars_to_record = {
-            'input': myinputs,
-            'output': myoutputs,
-            'residual': myresiduals
-        }
+            self._filtered_vars_to_record = {
+                'input': myinputs,
+                'output': myoutputs,
+                'residual': myresiduals
+            }
 
     def _set_solver_print(self, level=2, type_='all'):
         """
@@ -502,15 +504,16 @@ class Solver(object, metaclass=SolverMeta):
         vec_name = 'nonlinear' if isinstance(self, NonlinearSolver) else 'linear'
         filt = self._filtered_vars_to_record
         parallel = self._rec_mgr._check_parallel() if system.comm.size > 1 else False
+        local = parallel and not self._rec_mgr._check_gather()
 
         if self.recording_options['record_outputs']:
-            data['output'] = system._retrieve_data_of_kind(filt, 'output', vec_name, parallel)
+            data['output'] = system._retrieve_data_of_kind(filt, 'output', vec_name, local)
 
         if self.recording_options['record_inputs']:
-            data['input'] = system._retrieve_data_of_kind(filt, 'input', vec_name, parallel)
+            data['input'] = system._retrieve_data_of_kind(filt, 'input', vec_name, local)
 
         if self.recording_options['record_solver_residuals']:
-            data['residual'] = system._retrieve_data_of_kind(filt, 'residual', vec_name, parallel)
+            data['residual'] = system._retrieve_data_of_kind(filt, 'residual', vec_name, local)
 
         self._rec_mgr.record_iteration(self, data, metadata)
 
@@ -572,7 +575,7 @@ class Solver(object, metaclass=SolverMeta):
         """
         return True
 
-    def get_outputs_dir(self, *subdirs, mkdir=True):
+    def get_outputs_dir(self, *subdirs, mkdir=False):
         """
         Get the path under which all output files of this solver are to be placed.
 
@@ -713,8 +716,8 @@ class NonlinearSolver(Solver):
         """
         system = self._system()
         if self.options['debug_print']:
-            self._err_cache['inputs'] = system._inputs._copy_views()
-            self._err_cache['outputs'] = system._outputs._copy_views()
+            self._err_cache['inputs'] = system._inputs._copy_vars()
+            self._err_cache['outputs'] = system._outputs._copy_vars()
 
         if self.options['maxiter'] > 0:
             self._run_apply()
@@ -1217,9 +1220,9 @@ class BlockLinearSolver(LinearSolver):
         Parameters
         ----------
         slv_vars : set, None, or _UNDEFINED
-            First variable set.
+            First variable set, from the current solver.
         sys_vars : set, None, or _UNDEFINED
-            Second variable set.
+            Second variable set, from above.
 
         Returns
         -------
@@ -1228,8 +1231,11 @@ class BlockLinearSolver(LinearSolver):
         """
         if sys_vars is None or slv_vars is None:
             return None
-        if slv_vars is _UNDEFINED:
+        if is_undefined(slv_vars) or not slv_vars:
             return sys_vars
+        if not sys_vars:
+            return slv_vars
+
         return sys_vars.union(slv_vars)
 
     def _run_apply(self, init=False):
@@ -1300,8 +1306,15 @@ class BlockLinearSolver(LinearSolver):
         scope_in : set, None, or _UNDEFINED
             Inputs relevant to possible lower level calls to _apply_linear on Components.
         """
-        self._scope_out = scope_out
-        self._scope_in = scope_in
+        if is_undefined(scope_out) or scope_out is None:
+            self._scope_out = scope_out
+        else:
+            self._scope_out = scope_out.intersection(self._system()._var_abs2meta['output'])
+
+        if is_undefined(scope_in) or scope_in is None:
+            self._scope_in = scope_in
+        else:
+            self._scope_in = scope_in.intersection(self._system()._var_abs2meta['input'])
 
     def solve(self, mode, rel_systems=None):
         """

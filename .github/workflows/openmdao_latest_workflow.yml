@@ -21,10 +21,8 @@ on:
         type: choice
         options:
           - ''
-          - 'Ubuntu Latest, NumPy<2'
-          - 'Ubuntu Latest, NumPy 2 (No PETSc/pyOptSparse)'
-          - 'MacOS Latest, NumPy<2'
-          - 'MacOS Latest, NumPy 2 (No PETSc/pyOptSparse)'
+          - 'Ubuntu Latest'
+          - 'MacOS Latest'
         required: false
         default: ''
       debug_enabled:
@@ -48,37 +46,18 @@ jobs:
       matrix:
         include:
           # test latest versions on ubuntu
-          # Include PETSc/pyOptSparse, which require NumPy<2
-          - NAME: Ubuntu Latest, NumPy<2
+          - NAME: Ubuntu Latest
             OS: ubuntu-latest
             PY: 3
-            NUMPY: '<2'
+            NUMPY: 2
             PETSc: true
-            PYOPTSPARSE: true
-            SNOPT: true
-            BANDIT: true
-            BUILD_DOCS: true
-
-          # test latest versions on ubuntu
-          # Exclude PETSc/pyOptSparse, which require NumPy<2
-          - NAME: Ubuntu Latest, NumPy 2 (No PETSc/pyOptSparse)
-            OS: ubuntu-latest
-            PY: 3
 
           # test latest versions on macos
-          # Include PETSc/pyOptSparse, which require NumPy<2
-          - NAME: MacOS Latest, NumPy<2
-            OS: macos-13
+          - NAME: MacOS Latest
+            OS: macos-latest
             PY: 3
-            NUMPY: '<2'
+            NUMPY: 2
             PETSc: true
-            PYOPTSPARSE: true
-
-          # test latest versions on macos
-          # Exclude PETSc/pyOptSparse, which require NumPy<2
-          - NAME: MacOS Latest, NumPy 2 (No PETSc/pyOptSparse)
-            OS: macos-13
-            PY: 3
 
     runs-on: ${{ matrix.OS }}
 
@@ -118,12 +97,14 @@ jobs:
           echo "$SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts
 
       - name: Checkout code
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: Setup conda
         uses: conda-incubator/setup-miniconda@v3
         with:
           python-version: ${{ matrix.PY }}
+          miniforge-version: latest
+          conda-remove-defaults: true
           channels: conda-forge
 
       - name: Install MacOS-specific dependencies
@@ -136,7 +117,7 @@ jobs:
           echo "============================================================="
           echo "Install latest versions of NumPy/SciPy"
           echo "============================================================="
-          python -m pip install --upgrade --pre "numpy${{ matrix.NUMPY }}"
+          python -m pip install --upgrade --pre "numpy>=${{ matrix.NUMPY }}"
           python -m pip install --upgrade --pre scipy
 
           # remember versions so we can check them later
@@ -151,18 +132,16 @@ jobs:
           echo "============================================================="
           echo "Install latest PETSc"
           echo "============================================================="
-          if [[ "${{ matrix.NUMPY }}" == "<2" ]]; then
-            conda install mpich mpi4py petsc4py=3.21.2 -q -y
-          else
-            conda install mpich mpi4py petsc4py -q -y
-          fi
+          conda install mpich mpi4py petsc4py=3.22.2 -q -y
 
           echo "============================================================="
           echo "Check MPI and PETSc installation"
           echo "============================================================="
+          export PRTE_MCA_rmaps_default_mapping_policy=:oversubscribe
           export OMPI_MCA_rmaps_base_oversubscribe=1
           export OMPI_MCA_btl=^openib
 
+          echo "export PRTE_MCA_rmaps_default_mapping_policy=:oversubscribe" >> $GITHUB_ENV
           echo "OMPI_MCA_rmaps_base_oversubscribe=1" >> $GITHUB_ENV
           echo "OMPI_MCA_btl=^openib" >> $GITHUB_ENV
 
@@ -220,10 +199,6 @@ jobs:
           echo "============================================================="
           echo "Install OpenMDAO"
           echo "============================================================="
-          if [[ "${{ matrix.NUMPY }}" == "" ]]; then
-            sed -i.bak 's/numpy<2/numpy/g' pyproject.toml
-            grep numpy pyproject.toml
-          fi
           python -m pip install .
 
       - name: Display environment info
@@ -368,16 +343,6 @@ jobs:
           message:
             Security issue found on `${{ matrix.NAME }}` build.
             ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-
-      - name: Check NumPy 2.0 Compatibility
-        run: |
-          echo "============================================================="
-          echo "Check OpenMDAO code for NumPy 2.0 compatibility"
-          echo "See: https://numpy.org/devdocs/numpy_2_0_migration_guide.html"
-          echo "============================================================="
-          python -m pip install ruff
-          cd ${{ github.workspace }}
-          ruff check . --select NPY201
 
       - name: Slack env change
         if: steps.env_info.outputs.errors != ''

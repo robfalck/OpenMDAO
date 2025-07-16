@@ -16,7 +16,7 @@ from openmdao.core.constants import _UNDEFINED
 from openmdao.utils.general_utils import set_pyoptsparse_opt
 from openmdao.utils.reports_system import register_report, \
     list_reports, clear_reports, activate_report, _reports_registry
-from openmdao.utils.testing_utils import use_tempdirs
+from openmdao.utils.testing_utils import use_tempdirs, set_env_vars, require_pyoptsparse
 from openmdao.utils.assert_utils import assert_no_warning
 from openmdao.utils.mpi import MPI
 from openmdao.utils.tests.test_hooks import hooks_active
@@ -197,6 +197,7 @@ class TestReportsSystem(unittest.TestCase):
         self.assertTrue(path.is_file(), f'The optimizer report file, {str(path)}, was not found')
 
     @hooks_active
+    @require_pyoptsparse('IPOPT')
     def test_report_generation_linear_only_dv_scaling_report_pyoptsparse(self):
         if not OPTIMIZER:
             raise unittest.SkipTest("This test requires pyOptSparseDriver.")
@@ -205,7 +206,7 @@ class TestReportsSystem(unittest.TestCase):
         driver.declare_coloring()
 
         driver.opt_settings['max_iter'] = 1000
-        driver.opt_settings['print_level'] = 5
+        driver.opt_settings['print_level'] = 0
         driver.opt_settings['mu_strategy'] = 'monotone'
         driver.opt_settings['alpha_for_y'] = 'safer-min-dual-infeas'
         driver.opt_settings['tol'] = 1.0E-4
@@ -512,10 +513,10 @@ class TestReportsSystem(unittest.TestCase):
                          f'The N2 report file, {str(path)} was found but should not exist.')
 
     @hooks_active
+    @set_env_vars(TESTFLO_RUNNING='true')
     def test_report_generation_test_TESTFLO_RUNNING(self):
         # need to do this here again even though it is done in setup, because otherwise
         # setup_reports won't see environment variable, TESTFLO_RUNNING
-        os.environ['TESTFLO_RUNNING'] = 'true'
         clear_reports()
 
         prob = self.setup_and_run_simple_problem()

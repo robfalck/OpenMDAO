@@ -1,5 +1,7 @@
 """Define the SubmodelComp class for evaluating OpenMDAO systems within components."""
 
+from itertools import chain
+
 from openmdao.core.constants import _SetupStatus
 from openmdao.core.explicitcomponent import ExplicitComponent
 from openmdao.core.total_jac import _TotalJacInfo
@@ -275,9 +277,8 @@ class SubmodelComp(ExplicitComponent):
 
         abs2meta_out = p.model._var_allprocs_abs2meta['output']
         abs2meta_local = p.model._var_abs2meta['output']
-        prom2abs_in = p.model._var_allprocs_prom2abs_list['input']
-        prom2abs_out = p.model._var_allprocs_prom2abs_list['output']
-        abs2prom_out = p.model._var_allprocs_abs2prom['output']
+        abs2discrete_out = p.model._var_allprocs_discrete['output']
+        resolver = p.model._resolver
 
         # indep vars is a dict containing promoted names of all indep vars belonging to
         # IndepVarComps in the submodel, along with all inputs connected to _auto_ivc vars.
@@ -285,24 +286,11 @@ class SubmodelComp(ExplicitComponent):
         # in the submodel are dependent on other outputs and would be overwritten when the
         # submodel runs, erasing any values set by the SubmodelComp.
         self.indep_vars = indep_vars = {}
-        for src, meta in abs2meta_out.items():
-            if src.startswith('_auto_ivc.'):
-                continue
-            prom = abs2prom_out[src]
+        for src, meta in chain(abs2meta_out.items(), abs2discrete_out.items()):
+            prom = resolver.abs2prom(src, 'output')
             if prom not in indep_vars and 'openmdao:indep_var' in meta['tags']:
                 if src in abs2meta_local:
                     meta = abs2meta_local[src]  # get local metadata if we have it
-                indep_vars[prom] = (src, meta)
-
-        # add any inputs connected to auto_ivc vars as indep vars.  Their name will be the
-        # promoted name of the input that connects to the actual indep var.
-        for prom in prom2abs_in:
-            src = p.model.get_source(prom)
-            if src.startswith('_auto_ivc.'):
-                if src in abs2meta_local:
-                    meta = abs2meta_local[src]  # get local metadata if we have it
-                else:
-                    meta = abs2meta_out[src]
                 indep_vars[prom] = (src, meta)
 
         submodel_inputs = {}
@@ -334,14 +322,14 @@ class SubmodelComp(ExplicitComponent):
             # outer_name could still be None here
             if _is_glob(inner_prom):
                 matches = []
-                for match in pattern_filter(inner_prom, prom2abs_out):
+                for match in pattern_filter(inner_prom, resolver.prom_iter('output')):
                     if match.startswith('_auto_ivc.') or match in self._submodel_inputs:
                         continue
                     matches.append(match)
                 if not matches:
                     raise NameError(f"Pattern '{inner_prom}' doesn't match any outputs in the "
                                     "submodel.")
-            elif inner_prom in prom2abs_out:
+            elif resolver.is_prom(inner_prom, 'output'):
                 matches = [inner_prom]
             else:
                 raise NameError(f"'{inner_prom}' is not an output in the submodel.")
@@ -374,19 +362,19 @@ class SubmodelComp(ExplicitComponent):
         dict
             Updated kwargs.
         """
-        prom2abs = self._subprob.model._var_allprocs_prom2abs_list['output']
+        absname = self._subprob.model._resolver.prom2abs(prom, 'output')
 
         try:
             # look for local metadata first, in case it sets 'val'
-            meta = self._subprob.model._var_abs2meta['output'][prom2abs[prom][0]]
+            meta = self._subprob.model._var_abs2meta['output'][absname]
         except KeyError:
             try:
                 # just use global metadata
-                meta = self._subprob.model._var_allprocs_abs2meta['output'][prom2abs[prom][0]]
+                meta = self._subprob.model._var_allprocs_abs2meta['output'][absname]
             except KeyError:
                 raise KeyError(f"Output '{prom}' not found in model")
 
-        self._check_var_allowed(prom2abs[prom], meta)
+        self._check_var_allowed(absname, meta)
 
         final_kwargs = {n: v for n, v in meta.items() if n in _allowed_add_output_args}
         final_kwargs.update(kwargs)
@@ -489,21 +477,21 @@ class SubmodelComp(ExplicitComponent):
             # prevent config check that will fail due to name changes
             self._coloring_info.dynamic = True
 
-            for of, wrt, nzrows, nzcols, _, _, _, _ in coloring._subjac_sparsity_iter():
+            for of, wrt, nzrows, nzcols, _ in coloring._subjac_sparsity_iter():
                 self.declare_partials(of=self._to_outer_output(of),
                                       wrt=self._to_outer_input(wrt),
                                       rows=nzrows, cols=nzcols)
 
-    def _setup_vectors(self, root_vectors):
+    def _setup_vectors(self, parent_vectors=None):
         """
         Compute all vectors for all vec names and assign excluded variables lists.
 
         Parameters
         ----------
-        root_vectors : dict of dict of Vector
-            Root vectors: first key is 'input', 'output', or 'residual'; second key is vec_name.
+        parent_vectors : dict or None
+            Parent vectors.  Same structure as root_vectors.
         """
-        super()._setup_vectors(root_vectors)
+        super()._setup_vectors(parent_vectors)
         self._setup_transfer_idxs()
 
     def _set_complex_step_mode(self, active):
@@ -574,7 +562,7 @@ class SubmodelComp(ExplicitComponent):
                 if key not in self._zero_partials:
                     partials[key] = tot
         else:
-            for of, wrt, nzrows, nzcols, _, _, _, _ in coloring._subjac_sparsity_iter():
+            for of, wrt, nzrows, nzcols, _ in coloring._subjac_sparsity_iter():
                 partials[(self._to_outer_output(of), self._to_outer_input(wrt))] = \
                     tots[of, wrt][nzrows, nzcols].ravel()
 
@@ -586,35 +574,31 @@ class SubmodelComp(ExplicitComponent):
         submodel.
         """
         submod = self._subprob.model
-        sub_slices = submod._outputs.get_slice_dict()
-        slices = self._inputs.get_slice_dict()
+        subouts = submod._outputs
+        subins = self._inputs
         prefix = self.pathname + '.'
 
         input_ranges = []
         sub_out_ranges = []
         for inner_prom, outer_name in self._submodel_inputs.items():
-            sub_src = submod.get_source(inner_prom)
+            sub_src = submod._resolver.source(inner_prom)
             if submod._owned_size(sub_src) > 0:
-                sub_slc = sub_slices[sub_src]
-                sub_out_ranges.append((sub_slc.start, sub_slc.stop))
-                slc = slices[prefix + outer_name]
-                input_ranges.append((slc.start, slc.stop))
+                sub_out_ranges.append(subouts.get_range(sub_src))
+                input_ranges.append(subins.get_range(prefix + outer_name))
 
         self._ins_idxs = ranges2indexer(input_ranges, src_shape=(len(self._inputs),))
         self._ins2sub_outs_idxs = ranges2indexer(sub_out_ranges, src_shape=(len(submod._outputs),))
 
-        prom2abs = submod._var_allprocs_prom2abs_list['output']
-        slices = self._outputs.get_slice_dict()
+        resolver = submod._resolver
+        outs = self._outputs
         sub_out_ranges = []
         out_ranges = []
 
         for inner_prom, outer_name in self._submodel_outputs.items():
-            sub_src = prom2abs[inner_prom][0]
+            sub_src = resolver.prom2abs(inner_prom, 'output')
             if submod._owned_size(sub_src) > 0:
-                sub_slc = sub_slices[sub_src]
-                slc = slices[prefix + outer_name]
-                out_ranges.append((slc.start, slc.stop))
-                sub_out_ranges.append((sub_slc.start, sub_slc.stop))
+                out_ranges.append(outs.get_range(prefix + outer_name))
+                sub_out_ranges.append(subouts.get_range(sub_src))
 
         self._outs_idxs = ranges2indexer(out_ranges, src_shape=(len(self._outputs),))
         self._sub_outs_idxs = ranges2indexer(sub_out_ranges, src_shape=(len(submod._outputs),))
