@@ -10,6 +10,7 @@ import weakref
 import numpy as np
 import scipy.sparse as sp
 
+from openmdao.core.constants import INF_BOUND
 from openmdao.core.group import Group
 from openmdao.core.total_jac import _TotalJacInfo
 from openmdao.core.constants import INT_DTYPE, _SetupStatus
@@ -1083,7 +1084,8 @@ class Driver(object, metaclass=DriverMetaclass):
                                      driver_scaling=driver_scaling)
                 for n, obj in self._objs.items()}
 
-    def get_constraint_values(self, ctype='all', lintype='all', driver_scaling=True):
+    def get_constraint_values(self, ctype='all', lintype='all', driver_scaling=True,
+                              viol=False):
         """
         Return constraint values.
 
@@ -1099,6 +1101,13 @@ class Driver(object, metaclass=DriverMetaclass):
             When True, return values that are scaled according to either the adder and scaler or
             the ref and ref0 values that were specified when add_design_var, add_objective, and
             add_constraint were called on the model. Default is True.
+        viol : bool
+            If True, return the constraint violation rather than the actual value. This
+            is used when minimizing the constraint violation. For equality constraints
+            this is the (optionally scaled) absolute value of deviation for the desired
+            value. For inequality constraints, this is the (optionally scaled) absolute
+            value of deviation beyond the upper or lower bounds, or zero if it is within
+            bounds.
 
         Returns
         -------
@@ -1117,9 +1126,32 @@ class Driver(object, metaclass=DriverMetaclass):
             it = filter_by_meta(it, 'equals', chk_none=True, exclude=True)
 
         for name, meta in it:
-            con_dict[name] = self._get_voi_val(name, meta, self._remote_cons,
-                                               driver_scaling=driver_scaling)
+            if viol:
+                con_val = self._get_voi_val(name, meta, self._remote_cons,
+                                            driver_scaling=False)
+                size = con_val.size
+                con_dict[name] = np.zeros(size)
+                if meta['equals'] is not None:
+                    con_dict[name] += np.abs(con_val - meta['equals'])
+                else:
+                    if meta['lower'] > -INF_BOUND:
+                        con_dict[name] += np.maximum(0.0, meta['lower'] - con_val)
+                    elif meta['upper'] < INF_BOUND:
+                        con_dict[name] += np.maximum(0.0, con_val - meta['upper'])
 
+                # We didn't get the VOI with scaling, so do it now.
+                if driver_scaling:
+                    adder = meta['total_adder']
+                    if adder is not None:
+                        con_dict[name] += adder
+
+                    scaler = meta['total_scaler']
+                    if scaler is not None:
+                        con_dict[name] *= scaler
+
+            else:
+                con_dict[name] = self._get_voi_val(name, meta, self._remote_cons,
+                                                driver_scaling=False)
         return con_dict
 
     def _get_ordered_nl_responses(self):
@@ -2000,6 +2032,78 @@ class Driver(object, metaclass=DriverMetaclass):
             active_cons[key]['multipliers'] = val
 
         return active_dvs, active_cons
+
+    def minimize_constraint_violation(self, driver_scaling=True):
+        from scipy.optimize import Bounds, least_squares
+        from scipy.optimize._constraints import old_bound_to_new
+
+        desvar_vals = self.get_design_var_values()
+
+        # Size Problem
+        ndesvar = 0
+        for desvar in self._designvars.values():
+            size = desvar['global_size'] if desvar['distributed'] else desvar['size']
+            ndesvar += size
+        x_init = np.empty(ndesvar)
+
+        # Initial Design Vars
+        i = 0
+        bounds = []
+
+        for name, meta in self._designvars.items():
+            size = meta['global_size'] if meta['distributed'] else meta['size']
+            x_init[i:i + size] = desvar_vals[name]
+            i += size
+
+            meta_low = meta['lower']
+            meta_high = meta['upper']
+            for j in range(size):
+
+                if isinstance(meta_low, np.ndarray):
+                    p_low = meta_low[j]
+                else:
+                    p_low = meta_low
+
+                if isinstance(meta_high, np.ndarray):
+                    p_high = meta_high[j]
+                else:
+                    p_high = meta_high
+
+                bounds.append((p_low, p_high))
+
+        # Convert "old-style" bounds to "new_style" bounds
+        lower, upper = old_bound_to_new(bounds)  # tuple, tuple
+        keep_feasible = self.opt_settings.get('keep_feasible_bounds', True)
+        bounds = Bounds(lb=lower, ub=upper, keep_feasible=keep_feasible)
+
+        desvar_array_cache = np.empty(x_init.shape, dtype=x_init.dtype)
+
+        def f_lsq(x_new):
+            model = self._problem().model
+
+            try:
+
+                # Pass in new inputs
+                if MPI:
+                    model.comm.Bcast(x_new, root=0)
+
+                desvar_array_cache[:] = x_new
+
+                with RecordingDebugging(self._get_name(), self.iter_count, self):
+                    self.iter_count += 1
+                    with model._relevance.nonlinear_active('iter'):
+                        self._run_solve_nonlinear()
+
+                con_viol_dict = self.get_constraint_values(driver_scaling=True, viol=True)
+
+                return np.concatenate((v.ravel() for v in con_viol_dict.values()))
+
+            except Exception:
+                if self._exc_info is None:  # only record the first one
+                    self._exc_info = sys.exc_info()
+                return 0
+
+        least_squares(f_lsq, x0=x_init, bounds=bounds) #, jac=f_lsq_jac)
 
 
 class SaveOptResult(object):

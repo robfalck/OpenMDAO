@@ -2444,6 +2444,39 @@ class TestScipyOptimizeDriver(unittest.TestCase):
             prob.setup(mode='rev')
             prob.run_driver()
 
+    def test_minimize_constraint_viol(self):
+        # Define a simple model
+        prob = om.Problem()
+        model = prob.model
+
+        # Design Vars
+        ivc: om.IndepVarComp = prob.model.add_subsystem('ivc', om.IndepVarComp(), promotes_outputs=['*'])
+        ivc.add_output('x', val=5.0)
+        ivc.add_design_var('x', lower=0.0, upper=10.0)
+
+        # Constraints
+        con = model.add_subsystem('comp', om.ExecComp('y = (x)**2'), promotes=['*'])
+        con.add_constraint('y', lower=1.25, upper=4.0)
+
+        con2 = model.add_subsystem('comp2', om.ExecComp('y2 = x+0.5'), promotes=['*'])
+        con2.add_constraint('y2', equals=2)
+
+        # Objective
+        model.add_subsystem('obj_comp', om.ExecComp('obj = (x-1)**2'), promotes=['*'])
+        model.add_objective('obj')
+
+        # Driver
+        prob.driver = om.ScipyOptimizeDriver()
+        # prob.driver.options['optimizer'] = 'SLSQP'
+        # prob.driver.options['minimize_constraint_violation'] = True  # Minimize constraint violations
+
+        # Setup the problem and run the optimization
+        prob.setup()
+        prob.run_model()
+
+        print(prob.driver.get_constraint_values(ctype='all', lintype='all',
+                                                driver_scaling=True, viol=True))
+
 
 if __name__ == "__main__":
     unittest.main()
