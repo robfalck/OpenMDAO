@@ -1759,8 +1759,9 @@ class _TotalJacInfo(object):
         elif self.return_format == 'flat_dict':
             for tup, val in J.items():
                 prom_out, prom_in = tup
-                oscaler = responses[prom_out]['total_scaler']
-                iscaler = desvars[prom_in]['total_scaler']
+
+                oscaler = responses[prom_out].get('total_scaler', None)
+                iscaler = desvars[prom_in].get('total_scaler', None)
 
                 # Scale response side
                 if oscaler is not None:

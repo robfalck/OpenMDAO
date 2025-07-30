@@ -1845,8 +1845,8 @@ class Driver(object, metaclass=DriverMetaclass):
 
         return unscaled_multipliers
 
-    def compute_lagrange_multipliers(self, driver_scaling=False, feas_tol=1.0E-6,
-                                     use_sparse_solve=True):
+    def compute_lagrange_multipliers(self, other_wrt=None, driver_scaling=False, feas_tol=1.0E-6,
+                                     use_sparse_solve=True, _sens_data=None):
         """
         Get the approximated Lagrange multipliers of one or more constraints.
 
@@ -1862,12 +1862,21 @@ class Driver(object, metaclass=DriverMetaclass):
         driver_scaling : bool
             If False, return the Lagrange multipliers estimates in their physical units.
             If True, return the Lagrange multiplier estimates in a driver-scaled state.
+        other_wrt : None or Sequence
+            If given, provide other variables with respect to which the totals of the problem
+            should be computed. This can be useful if computing the lagrange multipliers
+            is being done as part of computing post-optimality sensitivities wrt parameters.
         feas_tol : float or None
             The feasibility tolerance under which the optimization was run. If None, attempt
             to determine this automatically based on the specified optimizer settings.
         use_sparse_solve : bool
             If True, use scipy.sparse.linalg.lstsq to solve for the multipliers. Otherwise, numpy
             will be used with dense arrays.
+        _sens_data : dict or None
+            This argument is used by the compute_sensitivities method to retrieve certain data computed
+            during the computation of the Lagrange multipliers so that we don't have to duplicate it
+            when determining the sensitivities.  If passed as a dict, _sens_data is populated with
+            elements needed for the sensitivities. If None, it is ignored.
 
         Returns
         -------
@@ -1895,11 +1904,16 @@ class Driver(object, metaclass=DriverMetaclass):
         active_cons, active_dvs = self._get_active_cons_and_dvs(feas_atol=feas_tol,
                                                                 feas_rtol=feas_tol)
 
+        if other_wrt is not None:
+            wrt = list(set(list(des_vars) + list(other_wrt)))
+        else:
+            wrt = list(des_vars)
+
         # Active cons and dvs provide the active indices in the design vars and constraints.
         # But these design vars and constraints may themselves be indices of a larger
         # variable.
         totals = prob.compute_totals(list(of_totals),
-                                     list(des_vars),
+                                     wrt,
                                      driver_scaling=True)
 
         grad_f = {inp: totals[obj_name, inp] for inp in des_vars.keys()}
@@ -1952,15 +1966,16 @@ class Driver(object, metaclass=DriverMetaclass):
             else:
                 active_jac_blocks.append(list(con_grad.values()))
 
+        # The gradient of the active dv bounds and constraints wrt the design variables
         if use_sparse_solve:
-            active_cons_mat = sp.block_array(active_jac_blocks)
+            grad_g_mat = sp.block_array(active_jac_blocks)
         else:
-            active_cons_mat = np.block(active_jac_blocks)
+            grad_g_mat = np.block(active_jac_blocks)
 
         if use_sparse_solve:
-            lstsq_sol = sp.linalg.lsqr(active_cons_mat.T, -grad_f_vec)
+            lstsq_sol = sp.linalg.lsqr(grad_g_mat.T, -grad_f_vec)
         else:
-            lstsq_sol = np.linalg.lstsq(active_cons_mat.T, -grad_f_vec, rcond=None)
+            lstsq_sol = np.linalg.lstsq(grad_g_mat.T, -grad_f_vec, rcond=None)
         multipliers_vec = lstsq_sol[0]
 
         dv_multipliers = dict()
@@ -1999,7 +2014,126 @@ class Driver(object, metaclass=DriverMetaclass):
         for key, val in con_multipliers.items():
             active_cons[key]['multipliers'] = val
 
+        if _sens_data is not None:
+            _sens_data['totals'] = totals
+            _sens_data['grad_f'] = grad_f_vec
+            _sens_data['grad_g'] = grad_g_mat
+
         return active_dvs, active_cons
+
+    def compute_senisivities(self, params=None, driver_scaling=False, feas_tol=1.0E-6,
+                             use_sparse_solve=True):
+        """
+        For each objective, design variable, and user-specified outputs, compute
+        the approximate sensivitity of that variable to changes in the constraint
+        bounds or other user-specified parameters to the problem.
+
+        These results are approximate in that they rely on the Lagrange multipliers
+        and finite-difference-computed derivatives of the Lagrange multipliers to
+        some variables.
+
+        Parameters
+        ----------
+        params : Sequence[str] or None
+            If provided, the parameters with respect to which we wish to compute sensitivities.
+            If None, compute sensitivities wrt all active bounds and constraint values onlt.
+        driver_scaling : bool
+            If False, return the sensitivity estimates in their physical units.
+            If True, return the sensitivity estimates in a driver-scaled state.
+        feas_tol : float or None
+            The feasibility tolerance under which the optimization was run. If None, attempt
+            to determine this automatically based on the specified optimizer settings.
+        use_sparse_solve : bool
+            If True, use scipy.sparse.linalg.lstsq to solve for the multipliers. Otherwise, numpy
+            will be used with dense arrays.
+
+        Returns
+        -------
+        active_desvars : dict[str: dict]
+            A dictionary with an entry for each active design variable.
+            For each active design variable, the corresponding dictionary
+            provides the 'multipliers', active 'indices', and 'active_bounds'.
+        active_cons : dict[str: dict]
+            A dictionary with an entry for each active constraint.
+            For each active constraint, the corresponding dictionary
+            provides the 'multipliers', active 'indices', and 'active_bounds'.
+        """
+        # prob = self._problem()
+
+        obj_name = list(self._objs.keys())[0]
+        # constraints = self._cons
+        des_vars = self._designvars
+
+        # of_totals = {obj_name}
+
+        # active_bnd_map = {-1: 'lower',
+        #                   0: 'equals',
+        #                   1: 'upper'}
+
+        sens_results = {}
+
+        # Compute the nominal Lagrange multipliers to find the active set.
+        sens_data = {}
+        active_dvs, active_cons = self.compute_lagrange_multipliers(driver_scaling=driver_scaling, other_wrt=params,
+                                                                    feas_tol=feas_tol, use_sparse_solve=use_sparse_solve,
+                                                                    _sens_data=sens_data)
+
+        # The sensitivity of the objective wrt dv bounds
+        for dv_name, meta in active_dvs.items():
+            active_bounds = np.asarray(meta['active_bounds'], dtype=int)
+            indices = np.asarray(meta['indices'], dtype=int)
+            active_lb_idxs = np.where(active_bounds == -1)[0]
+            active_ub_idxs = np.where(active_bounds == 1)[0]
+            if active_lb_idxs.size > 0:
+                sens_results[obj_name, f'{dv_name} [lower]'] = np.zeros(des_vars[dv_name]['size'])
+                sens_results[obj_name, f'{dv_name} [lower]'][indices[active_lb_idxs]] = -meta['multipliers'][active_lb_idxs]
+            if active_ub_idxs.size > 0:
+                sens_results[obj_name, f'{dv_name} [upper]'] = np.zeros(des_vars[dv_name]['size'])
+                sens_results[obj_name, f'{dv_name} [upper]'][indices[active_ub_idxs]] = -meta['multipliers'][active_ub_idxs]
+
+        # The sensitivity of the objective wrt constraint bounds
+        for con_name, meta in active_cons.items():
+            active_bounds = np.asarray(meta['active_bounds'], dtype=int)
+            indices = np.asarray(meta['indices'], dtype=int)
+            lambdas = meta['multipliers']
+            active_lb_idxs = np.where(active_bounds == -1)[0]
+            active_eq_idxs = np.where(active_bounds == 0)[0]
+            active_ub_idxs = np.where(active_bounds == 1)[0]
+            if active_lb_idxs.size > 0:
+                sens_results[obj_name, f'{con_name} [lower]'] = np.zeros(des_vars[dv_name]['size'])
+                sens_results[obj_name, f'{con_name} [lower]'][indices[active_lb_idxs]] = -lambdas[active_lb_idxs]
+            if active_eq_idxs.size > 0:
+                sens_results[obj_name, f'{con_name} [equals]'] = np.zeros(des_vars[dv_name]['size'])
+                sens_results[obj_name, f'{con_name} [equals]'][indices[active_eq_idxs]] = -lambdas[active_eq_idxs]
+            if active_ub_idxs.size > 0:
+                sens_results[obj_name, f'{con_name} [upper]'] = np.zeros(des_vars[dv_name]['size'])
+                sens_results[obj_name, f'{con_name} [upper]'][indices[active_ub_idxs]] = -lambdas[active_ub_idxs]
+
+        totals = sens_data['totals']
+        grad_f = sens_data['grad_f']
+        grad_g = sens_data['grad_g']
+
+        dobj_dparams = np.hstack([totals[obj_name, p].ravel() for p in params])
+
+        print(dobj_dparams)
+
+        print(grad_f)
+        print(grad_g.todense())
+
+        print(sens_results)
+        # print(active_cons)
+        # print(totals)
+
+
+
+
+
+
+
+
+
+
+
 
 
 class SaveOptResult(object):
