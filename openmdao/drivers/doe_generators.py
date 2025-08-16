@@ -8,11 +8,6 @@ from collections import OrderedDict
 
 import numpy as np
 
-try:
-    import pyDOE3
-except ImportError:
-    pyDOE3 = None
-
 
 _LEVELS = 2  # default number of levels for pyDOE generators
 
@@ -292,17 +287,34 @@ class _pyDOE_Generator(DOEGenerator):
         The number of evenly spaced levels between each design variable
         lower and upper bound. Dictionary input is supported by Full Factorial or
         Generalized Subset Design.
+    _fullfact : callable
+        Cached reference to pyDOE3 full factorial sampling function.
+    _lhs : callable
+        Cached reference to pyDOE3 latin hypercube sampling function.
+    _bbdesign : callable
+        Cached reference to pyDOE3 bounding box sampling function.
+    _gsd : callable
+        Cached reference to pyDOE3 generalized subset design function.
+    _pbdesign : callable
+        Cached reference to pyDOE3 Plackett-Burman design function
     """
 
     def __init__(self, levels=_LEVELS):
         """
         Initialize the _pyDOE_Generator.
         """
-        if pyDOE3 is None:
+        try:
+            import pyDOE3
+        except ImportError:
             raise RuntimeError(f"{self.__class__.__name__} requires the 'pyDOE3' package, "
                                "which can be installed with one of the following commands:\n"
                                "    pip install openmdao[doe]\n"
                                "    pip install pyDOE3")
+        self._fullfact = pyDOE3.fullfact
+        self._lhs = pyDOE3.lhs
+        self._bbdesign = pyDOE3.bbdesign
+        self._gsd = pyDOE3.gsd
+        self._pbdesign = pyDOE3.pbdesign
 
         super().__init__()
         self._levels = levels
@@ -451,7 +463,7 @@ class FullFactorialGenerator(_pyDOE_Generator):
         ndarray
             The design matrix as a size x levels array of indices.
         """
-        return pyDOE3.fullfact(self._get_all_levels())
+        return self._fullfact(self._get_all_levels())
 
 
 class GeneralizedSubsetGenerator(_pyDOE_Generator):
@@ -506,7 +518,7 @@ class GeneralizedSubsetGenerator(_pyDOE_Generator):
         ndarray
             The design matrix as a size x levels array of indices.
         """
-        return pyDOE3.gsd(levels=self._get_all_levels(), reduction=self._reduction, n=self._n)
+        return self._gsd(levels=self._get_all_levels(), reduction=self._reduction, n=self._n)
 
 
 class PlackettBurmanGenerator(_pyDOE_Generator):
@@ -534,7 +546,7 @@ class PlackettBurmanGenerator(_pyDOE_Generator):
         ndarray
             The design matrix as a size x levels array of indices.
         """
-        doe = pyDOE3.pbdesign(size)
+        doe = self._pbdesign(size)
 
         doe[doe < 0] = 0  # replace -1 with zero
 
@@ -582,7 +594,7 @@ class BoxBehnkenGenerator(_pyDOE_Generator):
                                "but must be at least 3 when using %s. " %
                                (size, self.__class__.__name__))
 
-        doe = pyDOE3.bbdesign(size, center=self._center)
+        doe = self._bbdesign(size, center=self._center)
 
         return doe + 1  # replace [-1, 0, 1] with [0, 1, 2]
 
@@ -672,10 +684,10 @@ class LatinHypercubeGenerator(DOEGenerator):
             self._samples = size
 
         # generate design
-        doe = pyDOE3.lhs(size, samples=self._samples,
-                         criterion=self._criterion,
-                         iterations=self._iterations,
-                         random_state=self._seed)
+        doe = self._lhs(size, samples=self._samples,
+                        criterion=self._criterion,
+                        iterations=self._iterations,
+                        random_state=self._seed)
 
         # yield desvar values for doe samples
         for row in doe:

@@ -9,7 +9,6 @@ from io import TextIOBase
 import numpy as np
 
 from openmdao.core.constants import _DEFAULT_OUT_STREAM
-from openmdao.utils.notebook_utils import notebook, display, HTML
 from openmdao.visualization.tables.table_builder import generate_table
 
 # string to display when an attribute is not available
@@ -57,6 +56,8 @@ def write_var_table(pathname, var_list, var_type, var_dict,
     out_stream : file-like object
         Where to send human readable output.
     """
+    from openmdao.utils.notebook_utils import notebook, display, HTML
+
     if out_stream is None:
         return
 
@@ -219,6 +220,9 @@ def write_source_table(source_dicts, out_stream):
     out_stream : file-like object
         Where to send human readable output.
     """
+    from IPython.display import display, HTML
+    from openmdao.utils.notebook_utils import notebook
+
     if out_stream is None:
         return
 

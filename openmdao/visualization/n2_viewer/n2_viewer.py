@@ -27,7 +27,6 @@ from openmdao.utils.array_utils import convert_ndarray_to_support_nans_in_json
 from openmdao.utils.class_util import overrides_method
 from openmdao.utils.general_utils import default_noraise, is_undefined
 from openmdao.utils.mpi import MPI
-from openmdao.utils.notebook_utils import notebook, display, HTML, IFrame, colab
 from openmdao.utils.om_warnings import issue_warning
 from openmdao.utils.reports_system import register_report_hook
 from openmdao.utils.file_utils import _load_and_exec, _to_filename
@@ -588,6 +587,9 @@ def n2(data_source, outfile=_default_n2_filename, path=None, values=_UNDEFINED, 
         If True, display the N2 diagram in the notebook, if this is called from a notebook.
         Defaults to True.
     """
+    from IPython.display import display, HTML, IFrame
+    from openmdao.utils.notebook_utils import notebook, colab
+
     # grab the model viewer data
     try:
         model_data = _get_viewer_data(data_source, values=values, case_id=case_id)

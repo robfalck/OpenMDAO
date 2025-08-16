@@ -18,7 +18,6 @@ from openmdao.utils.om_warnings import issue_warning, CaseRecorderWarning
 
 from openmdao.recorders.sqlite_recorder import format_version, META_KEY_SEP
 
-from openmdao.utils.notebook_utils import notebook, display, HTML
 from openmdao.visualization.tables.table_builder import generate_table
 
 import pickle
@@ -443,6 +442,9 @@ class SqliteCaseReader(BaseCaseReader):
             One or more of: `problem`, `driver`, `<system hierarchy location>`,
                             `<solver hierarchy location>`
         """
+        from IPython.display import display, HTML
+        from openmdao.utils.notebook_utils import notebook
+
         sources = []
 
         if self._driver_cases.count() > 0:

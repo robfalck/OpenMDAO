@@ -10,7 +10,6 @@ from itertools import zip_longest, chain
 from html import escape
 from dataclasses import dataclass
 from numbers import Number, Integral
-from openmdao.utils.notebook_utils import notebook, display, HTML, IFrame, colab
 from openmdao.utils.om_warnings import issue_warning
 
 
@@ -1224,6 +1223,8 @@ class HTMLTableBuilder(TableBuilder):
         str
             The name of the file where the table was written.
         """
+        from openmdao.utils.notebook_utils import notebook, display, HTML, IFrame, colab
+
         if outfile is None:
             outfile = _default_html_table
 
@@ -1613,6 +1614,9 @@ class TabulatorJSBuilder(TableBuilder):
         str
             The name of the file where the table was written.
         """
+        from IPython.display import display, HTML, IFrame
+        from openmdao.utils.notebook_utils import notebook, colab
+
         if outfile is None:
             outfile = _default_tabulator_file
 

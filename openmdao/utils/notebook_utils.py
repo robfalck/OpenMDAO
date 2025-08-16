@@ -3,12 +3,12 @@ import sys
 import importlib
 import inspect
 
-try:
-    from IPython.display import display, HTML, IFrame, Code
-    from IPython import get_ipython
-    ipy = get_ipython() is not None
-except ImportError:
-    ipy = display = HTML = IFrame = None
+# try:
+#     from IPython.display import display, HTML, Code
+#     from IPython import get_ipython
+#     ipy = get_ipython() is not None
+# except ImportError:
+#     ipy = display = HTML = IFrame = None
 
 from openmdao.utils.om_warnings import issue_warning, warn_deprecation
 
@@ -67,9 +67,10 @@ def get_code(reference, hide_doc_string=False):
         del obj[1]
         obj = ''.join(obj)
 
-    if ipy:
+    try:
+        from IPython.display import Code
         return Code(obj, language='python')
-    else:
+    except ImportError:
         issue_warning("IPython is not installed. Run `pip install openmdao[notebooks]` or "
                       "`pip install openmdao[docs]` to upgrade.")
 
@@ -85,8 +86,12 @@ def display_source(reference, hide_doc_string=False):
     hide_doc_string : bool
         Option to hide the docstring.
     """
-    if ipy:
+    try:
+        from IPython.display import display
         display(get_code(reference, hide_doc_string))
+    except ImportError:
+        issue_warning("IPython is not installed. Run `pip install openmdao[notebooks]` or "
+                      "`pip install openmdao[docs]` to upgrade.")
 
 
 def show_options_table(reference, recording_options=False, options_dict='options'):
@@ -115,7 +120,8 @@ def show_options_table(reference, recording_options=False, options_dict='options
     else:
         obj = reference
 
-    if ipy:
+    try:
+        from IPython.display import display, HTML
         if recording_options:
             warn_deprecation('Argument `recording_options` is deprecated. Use '
                              '`options_dict="recording_options" to remove this '
@@ -129,7 +135,7 @@ def show_options_table(reference, recording_options=False, options_dict='options
             raise AttributeError(f'Object {reference} has no attribute {options_dict}.')
 
         return display(HTML(str(opt.to_table(fmt='html', display=False))))
-    else:
+    except ImportError:
         issue_warning("IPython is not installed. Run `pip install openmdao[notebooks]` or "
                       "`pip install openmdao[docs]` to upgrade.")
 
@@ -159,7 +165,12 @@ def notebook_mode():
     bool
         True if the environment is an interactive notebook.
     """
-    return ipy
+    try:
+        from IPython import get_ipython
+        ipy = get_ipython() is not None
+        return ipy
+    except ImportError:
+        return False
 
 
 notebook = notebook_mode()

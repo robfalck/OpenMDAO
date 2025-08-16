@@ -13,15 +13,11 @@ Sobieszczanski-Sobieski, J., Morris, A. J., van Tooren, M. J. L. (2015)
 Multidisciplinary Design Optimization Supported by Knowledge Based Engineering.
 John Wiley & Sons, Ltd.
 """
+import importlib.util
 import os
 import copy
 
 import numpy as np
-
-try:
-    from pyDOE3 import lhs
-except ModuleNotFoundError:
-    lhs = None
 
 from openmdao.core.constants import INF_BOUND
 from openmdao.core.driver import Driver, RecordingDebugging
@@ -64,11 +60,11 @@ class DifferentialEvolutionDriver(Driver):
         """
         Initialize the DifferentialEvolutionDriver driver.
         """
-        if lhs is None:
+        if importlib.util.find_spec("pyDOE3") is None:
             raise RuntimeError(f"{self.__class__.__name__} requires the 'pyDOE3' package, "
-                               "which can be installed with one of the following commands:\n"
-                               "    pip install openmdao[doe]\n"
-                               "    pip install pyDOE3")
+                                   "which can be installed with one of the following commands:\n"
+                                   "    pip install openmdao[doe]\n"
+                                   "    pip install pyDOE3")
 
         super().__init__(**kwargs)
 
@@ -513,11 +509,14 @@ class DifferentialEvolution(object):
         """
         Initialize genetic algorithm object.
         """
-        if lhs is None:
+        try:
+            from pyDOE3 import lhs
+        except ModuleNotFoundError:
             raise RuntimeError(f"{self.__class__.__name__} requires the 'pyDOE3' package, "
                                "which can be installed with one of the following commands:\n"
                                "    pip install openmdao[doe]\n"
                                "    pip install pyDOE3")
+        self._lhs = lhs
 
         self.objfun = objfun
         self.comm = comm
@@ -548,6 +547,8 @@ class DifferentialEvolution(object):
             Differential rate.
         Pc : float
             Crossover rate.
+        _lhs : callable
+            Cached instance of pyDOE.lhs function.
 
         Returns
         -------
@@ -587,7 +588,7 @@ class DifferentialEvolution(object):
         rng = np.random.default_rng(seed)
 
         # create LHS initial population (scaled to bounds) + user initial condition
-        population = lhs(self.lchrom, self.npop - 1, criterion='center', random_state=seed)
+        population = self._lhs(self.lchrom, self.npop - 1, criterion='center', random_state=seed)
         population = population * (vub - vlb) + vlb  # scale to bounds
         population = np.vstack((population, x0))
         fitness = np.ones(self.npop) * np.inf  # initialize fitness to infinitely bad

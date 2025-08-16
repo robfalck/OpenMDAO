@@ -20,15 +20,11 @@ Sobieszczanski-Sobieski, J., Morris, A. J., van Tooren, M. J. L. (2015)
 Multidisciplinary Design Optimization Supported by Knowledge Based Engineering.
 John Wiley & Sons, Ltd.
 """
+import importlib.util
 import os
 import copy
 
 import numpy as np
-
-try:
-    from pyDOE3 import lhs
-except ModuleNotFoundError:
-    lhs = None
 
 from openmdao.core.constants import INF_BOUND
 from openmdao.core.driver import Driver, RecordingDebugging
@@ -69,11 +65,11 @@ class SimpleGADriver(Driver):
         """
         Initialize the SimpleGADriver driver.
         """
-        if lhs is None:
+        if importlib.util.find_spec("pyDOE3") is None:
             raise RuntimeError(f"{self.__class__.__name__} requires the 'pyDOE3' package, "
-                               "which can be installed with one of the following commands:\n"
-                               "    pip install openmdao[doe]\n"
-                               "    pip install pyDOE3")
+                                   "which can be installed with one of the following commands:\n"
+                                   "    pip install openmdao[doe]\n"
+                                   "    pip install pyDOE3")
 
         super().__init__(**kwargs)
 
@@ -595,6 +591,8 @@ class GeneticAlgorithm(object):
         so when used Pc should be increased and Pm reduced.
     lchrom : int
         Chromosome length.
+    _lhs : callable
+        Cached import of the pyDOE latin hypercube sampling function.
     model_mpi : None or tuple
         If the model in objfun is also parallel, then this will contain a tuple with the the
         total number of population points to evaluate concurrently, and the color of the point
@@ -611,7 +609,10 @@ class GeneticAlgorithm(object):
         """
         Initialize genetic algorithm object.
         """
-        if lhs is None:
+        try:
+            from pyDOE3 import lhs
+            self._lhs = lhs
+        except ModuleNotFoundError:
             raise RuntimeError(f"{self.__class__.__name__} requires the 'pyDOE3' package, "
                                "which can be installed with one of the following commands:\n"
                                "    pip install openmdao[doe]\n"
@@ -694,8 +695,8 @@ class GeneticAlgorithm(object):
             Pm = (self.lchrom + 1.0) / (2.0 * pop_size * np.sum(bits))
         elite = self.elite
 
-        new_gen = np.round(lhs(self.lchrom, self.npop, criterion='center',
-                               random_state=random_state))
+        new_gen = np.round(self._lhs(self.lchrom, self.npop, criterion='center',
+                                     random_state=random_state))
         new_gen[0] = self.encode(x0, vlb, vub, bits)
 
         # Main Loop

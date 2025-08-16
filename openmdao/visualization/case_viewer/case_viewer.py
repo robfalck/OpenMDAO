@@ -10,12 +10,6 @@ from openmdao.recorders.case_reader import CaseReader
 # Enable _DEBUG to prevent the debug_output display from clearing itself.
 _DEBUG = False
 
-try:
-    import matplotlib.pyplot as plt
-    import matplotlib as mpl
-    from matplotlib import cm
-except ImportError:
-    mpl = None
 
 try:
     import ipywidgets as ipw
@@ -298,7 +292,11 @@ class CaseViewer(object):
         """
         Initialize the case viewer interface.
         """
-        if mpl is None:
+        try:
+            import matplotlib.pyplot as plt
+            import matplotlib as mpl
+            from matplotlib import cm
+        except ImportError:
             raise RuntimeError('CaseViewer requires matplotlib and ipympl')
         if get_ipython is None:
             raise RuntimeError('CaseViewer requires jupyter')
