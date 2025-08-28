@@ -69,9 +69,9 @@ class _SysInfo(object):
 
 
 class _PromotesInfo(object):
-    __slots__ = ['src_indices', 'flat', 'src_shape', 'promoted_from', 'prom']
+    __slots__ = ['src_indices', 'flat', 'src_shape', 'promoted_from', 'prom', 'name_func']
 
-    def __init__(self, src_indices=None, flat=None, src_shape=None, promoted_from='', prom=None):
+    def __init__(self, src_indices=None, flat=None, src_shape=None, promoted_from='', prom=None, name_func=None):
         self.flat = flat
         self.src_shape = src_shape
         if src_indices is not None:
@@ -84,6 +84,7 @@ class _PromotesInfo(object):
             self.src_indices = None
         self.promoted_from = promoted_from  # pathname of promoting system
         self.prom = prom  # local promoted name of input
+        self.name_func = name_func # promote as alias function
 
     def __iter__(self):
         yield self.src_indices
@@ -3380,7 +3381,7 @@ class Group(System):
     @collect_errors
     def promotes(self, subsys_name, any=None, inputs=None, outputs=None,
                  src_indices=None, flat_src_indices=None, src_shape=None,
-                 as_func=None):
+                 name_func=None):
         """
         Promote a variable in the model tree.
 
@@ -3414,11 +3415,11 @@ class Group(System):
             to the number of dimensions of the source.
         src_shape : int or tuple
             Assumed shape of any connected source or higher level promoted input.
-        as_func : Callable or None
-            If given, provides a function with the signature f(subsys_name, var_name)
+        name_func : Callable or None
+            If given, provides a function with the signature f(subsys_name, io_type, var_name)
             that returns the "promoted as" name of a matched variable. This is useful
-            in cases where glob patterns are used. If this is provided in addition
-            to any classic "promotes as" variables (tuples), then an error is raised.
+            in cases where glob patterns are used. Any "promote as" tuples in the promotion
+            lists take precedence over this.
         """
         sys_patterns = [subsys_name] if isinstance(subsys_name, str) else subsys_name
         subsystems = set()
@@ -3471,7 +3472,7 @@ class Group(System):
 
                 try:
                     prominfo = _PromotesInfo(src_indices, flat_src_indices, src_shape,
-                                            promoted_from=subsys.pathname)
+                                             promoted_from=subsys.pathname, as_func=name_func)
                 except Exception as err:
                     lst = []
                     if any is not None:
@@ -3488,6 +3489,7 @@ class Group(System):
                 subsys._var_promotes['input'].extend((i, prominfo) for i in inputs)
             if outputs:
                 subsys._var_promotes['output'].extend((o, None) for o in outputs)
+            subsys._var_promotes['name_func'] = name_func
 
             # check for attempt to promote with different alias
             for prom_kind in ('input', 'output', 'any'):

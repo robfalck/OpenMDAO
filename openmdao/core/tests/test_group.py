@@ -2405,7 +2405,37 @@ class TestGroupPromotes(unittest.TestCase):
         assert_near_equal(p.get_val('a3'), 3.)
         assert_near_equal(p.get_val('a4'), 2.5)
 
-    def test_promotes_multiple(self):
+    def test_promotes_multiple_subsys_with_aliases(self):
+        p = om.Problem()
+
+        p.model.add_subsystem('c1', om.ExecComp('a1=b+c'))
+        p.model.add_subsystem('c2', om.ExecComp('a2=b*c'))
+        p.model.add_subsystem('c3', om.ExecComp('a3=b-c'))
+        p.model.add_subsystem('c4', om.ExecComp('a4=b/c'))
+
+
+        p.model.promotes(['c1', 'c2'],
+                         any=['a*', ('b', 'b12'), ('c', 'c12')])
+        p.model.promotes(['c3', 'c4'],
+                         any=['a*', ('b', 'b34'), ('c', 'c34')])
+
+        p.setup()
+
+        p.set_val('b12', 5.0)
+        p.set_val('c12', 2.0)
+
+        p.set_val('b34', 10.0)
+        p.set_val('c34', 5.0)
+
+        p.run_model()
+
+        assert_near_equal(p.get_val('a1'), 7.)
+        assert_near_equal(p.get_val('a2'), 10.)
+
+        assert_near_equal(p.get_val('a3'), 5.)
+        assert_near_equal(p.get_val('a4'), 2.)
+
+    def test_promotes_multiple_subsys_with_aliases_and_name_func(self):
         p = om.Problem()
 
         p.model.add_subsystem('c1', om.ExecComp('a1=b+c'))
@@ -2416,13 +2446,10 @@ class TestGroupPromotes(unittest.TestCase):
 
         p.model.promotes(['c1', 'c2'],
                          any=['a*', ('b', 'b12'), ('c', 'c12')],
-                         as_func=lambda sys_name, var_name: f'{var_name}12')
+                         name_func=lambda sys_name, io_type, var_name: f'{var_name}12')
         p.model.promotes(['c3', 'c4'],
                          any=['a*', ('b', 'b34'), ('c', 'c34')],
-                         as_func=lambda sys_name, var_name: f'{var_name}12')
-
-        # p.model.promotes(['c1', 'c2'], any=['*'], as_func=lambda sys_name, var_name: f'{var_name}12')
-        # p.model.promotes(['c3', 'c4'], any=['*'], as_func=lambda sys_name, var_name: f'{var_name}34')
+                         name_func=lambda sys_name, io_type, var_name: f'{var_name}12')
 
         p.setup()
 
@@ -2448,16 +2475,12 @@ class TestGroupPromotes(unittest.TestCase):
         p.model.add_subsystem('c3', om.ExecComp('a3=b-c'))
         p.model.add_subsystem('c4', om.ExecComp('a4=b/c'))
 
-
-        # p.model.promotes(['c1', 'c2'],
-        #                  any=['a*', ('b', 'b12'), ('c', 'c12')],
-        #                  as_func=lambda sys_name, var_name: f'{var_name}12')
-        # p.model.promotes(['c3', 'c4'],
-        #                  any=['a*', ('b', 'b34'), ('c', 'c34')],
-        #                  as_func=lambda sys_name, var_name: f'{var_name}12')
-
-        p.model.promotes(['c1', 'c2'], any=['*'], as_func=lambda sys_name, var_name: f'{var_name}12')
-        p.model.promotes(['c3', 'c4'], any=['*'], as_func=lambda sys_name, var_name: f'{var_name}34')
+        p.model.promotes(['c1', 'c2'], any=['*'],
+                         name_func=lambda sys_name, io_type, var_name:
+                             f'{var_name}12' if io_type == 'input' else var_name)
+        p.model.promotes(['c3', 'c4'], any=['*'],
+                         name_func=lambda sys_name, io_type, var_name:
+                             f'{var_name}34' if io_type == 'input' else var_name)
 
         p.setup()
 

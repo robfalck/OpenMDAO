@@ -238,7 +238,7 @@ class System(object, metaclass=SystemMetaclass):
         Dict mapping subsystem name to SysInfo(system, index) for children of this system.
     _subsystems_myproc : [<System>, ...]
         List of local subsystems that exist on this proc.
-    _var_promotes : { 'any': [], 'input': [], 'output': [] }
+    _var_promotes : { 'any': [], 'input': [], 'output': [], 'name_func': Callable or None }
         Dictionary of lists of variable names/wildcards specifying promotion
         (used to calculate promoted names)
     _var_prom2inds : dict
@@ -455,7 +455,7 @@ class System(object, metaclass=SystemMetaclass):
         self._subsystems_myproc = []
         self._vars_to_gather = {}
 
-        self._var_promotes = {'input': [], 'output': [], 'any': []}
+        self._var_promotes = {'input': [], 'output': [], 'any': [], 'name_func': None}
 
         self._resolver = NameResolver(self.pathname, self.msginfo)
         self._var_prom2inds = {}
@@ -2774,7 +2774,10 @@ class System(object, metaclass=SystemMetaclass):
 
             return match_type == _MatchType.PATTERN
 
-        def resolve(to_match, io_types, matches, resolver):
+        def _default_name_func(sys_name, io_type, var_name):
+            return var_name
+
+        def resolve(to_match, io_types, matches, resolver, name_func):
             """
             Determine the mapping of promoted names to the parent scope for a promotion type.
 
@@ -2787,6 +2790,8 @@ class System(object, metaclass=SystemMetaclass):
             # system has no variables of that io type)
             found = {'*'}
 
+            f_rename = name_func or _default_name_func
+
             for match_type, key, tup in split_list(to_match):
                 s, pinfo = tup
                 if match_type == _MatchType.PATTERN:
@@ -2794,7 +2799,7 @@ class System(object, metaclass=SystemMetaclass):
                         if io == 'output':
                             pinfo = None
                         if key == '*' and not matches[io]:  # special case. add everything
-                            matches[io] = pmap = {n: (n, key, pinfo, match_type)
+                            matches[io] = pmap = {n: (f_rename(self.pathname, io, n), key, pinfo, match_type)
                                                   for n in resolver.prom_iter(io)}
                         else:
                             pmap = matches[io]
@@ -2814,10 +2819,15 @@ class System(object, metaclass=SystemMetaclass):
                         if resolver.is_prom(key, io):
                             if key in pmap:
                                 _check_dup(io, matches, match_type, key, tup)
-                            pmap[key] = (s, key, pinfo, match_type)
+                            promoted_as = f_rename(self.pathname, io, s)
+                            pmap[key] = (promoted_as, key, pinfo, match_type)
                             if match_type == _MatchType.NAME:
                                 found.add(key)
                             else:
+                                if f_rename is name_func:
+                                    raise RuntimeError('The promotion name_func argument cannot '
+                                                       'be used at the same time as promotion '
+                                                       'with tuples indicating "promote as" behavior.')
                                 found.add((key, s))
 
             not_found = set(n for n, _ in to_match) - found
@@ -2841,10 +2851,12 @@ class System(object, metaclass=SystemMetaclass):
             if self._var_promotes['any']:
                 raise RuntimeError("%s: 'promotes' cannot be used at the same time as "
                                    "'promotes_inputs' or 'promotes_outputs'." % self.msginfo)
-            resolve(self._var_promotes['input'], ('input',), maps, self._resolver)
-            resolve(self._var_promotes['output'], ('output',), maps, self._resolver)
+            name_func = self._var_promotes['name_func']
+            resolve(self._var_promotes['input'], ('input',), maps, self._resolver, name_func)
+            resolve(self._var_promotes['output'], ('output',), maps, self._resolver, name_func)
         else:
-            resolve(self._var_promotes['any'], ('input', 'output'), maps, self._resolver)
+            name_func = self._var_promotes['name_func']
+            resolve(self._var_promotes['any'], ('input', 'output'), maps, self._resolver, name_func)
 
         return maps
 
