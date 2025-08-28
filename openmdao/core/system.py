@@ -238,7 +238,7 @@ class System(object, metaclass=SystemMetaclass):
         Dict mapping subsystem name to SysInfo(system, index) for children of this system.
     _subsystems_myproc : [<System>, ...]
         List of local subsystems that exist on this proc.
-    _var_promotes : { 'any': [], 'input': [], 'output': [] }
+    _var_promotes : { 'any': [], 'input': [], 'output': [], 'name_func': Callable or None }
         Dictionary of lists of variable names/wildcards specifying promotion
         (used to calculate promoted names)
     _var_prom2inds : dict
@@ -455,7 +455,7 @@ class System(object, metaclass=SystemMetaclass):
         self._subsystems_myproc = []
         self._vars_to_gather = {}
 
-        self._var_promotes = {'input': [], 'output': [], 'any': []}
+        self._var_promotes = {'input': [], 'output': [], 'any': [], 'name_func': None}
 
         self._resolver = NameResolver(self.pathname, self.msginfo)
         self._var_prom2inds = {}
@@ -2682,8 +2682,6 @@ class System(object, metaclass=SystemMetaclass):
             dictionary mapping input/output variable names
             to (promoted name, promotion_info) tuple.
         """
-        from openmdao.core.group import Group
-
         def split_list(lst):
             """
             Yield match type, name/pattern/tuple info, and src_indices info.
@@ -2774,18 +2772,28 @@ class System(object, metaclass=SystemMetaclass):
 
             return match_type == _MatchType.PATTERN
 
-        def resolve(to_match, io_types, matches, resolver):
+        def _default_name_func(sys_name, io_type, var_name):
+            return var_name
+
+        def resolve(to_match, io_types, matches, resolver, name_func):
             """
             Determine the mapping of promoted names to the parent scope for a promotion type.
 
             This is called once for promotes or separately for promotes_inputs and promotes_outputs.
+
+            Returns
+            -------
+            set
+                A set of the promoted names in the system for which matches were not found.
             """
             if not to_match:
-                return
+                return set()
 
             # always add '*' so we won't report if it matches nothing (in the case where the
             # system has no variables of that io type)
             found = {'*'}
+
+            f_rename = name_func or _default_name_func
 
             for match_type, key, tup in split_list(to_match):
                 s, pinfo = tup
@@ -2794,7 +2802,7 @@ class System(object, metaclass=SystemMetaclass):
                         if io == 'output':
                             pinfo = None
                         if key == '*' and not matches[io]:  # special case. add everything
-                            matches[io] = pmap = {n: (n, key, pinfo, match_type)
+                            matches[io] = pmap = {n: (f_rename(self.pathname, io, n), key, pinfo, match_type)
                                                   for n in resolver.prom_iter(io)}
                         else:
                             pmap = matches[io]
@@ -2814,39 +2822,48 @@ class System(object, metaclass=SystemMetaclass):
                         if resolver.is_prom(key, io):
                             if key in pmap:
                                 _check_dup(io, matches, match_type, key, tup)
-                            pmap[key] = (s, key, pinfo, match_type)
+                            promoted_as = f_rename(self.pathname, io, s)
+                            pmap[key] = (promoted_as, key, pinfo, match_type)
                             if match_type == _MatchType.NAME:
                                 found.add(key)
                             else:
+                                if f_rename is name_func:
+                                    raise RuntimeError('The promotion name_func argument cannot '
+                                                       'be used at the same time as promotion '
+                                                       'with tuples indicating "promote as" behavior.')
                                 found.add((key, s))
 
             not_found = set(n for n, _ in to_match) - found
-            if not_found:
-                if (self._resolver.num_abs(local=True) == 0 and isinstance(self, Group)):
-                    empty_group_msg = ' Group contains no variables.'
-                else:
-                    empty_group_msg = ''
-                if len(io_types) == 2:
-                    call = 'promotes'
-                else:
-                    call = 'promotes_%ss' % io_types[0]
+            # TODO: Is this necessary any more?
+            # if not_found:
+            #     if (self._resolver.num_abs(local=True) == 0 and isinstance(self, Group)):
+            #         empty_group_msg = ' Group contains no variables.'
+            #     else:
+            #         empty_group_msg = ''
+            #     if len(io_types) == 2:
+            #         call = 'promotes'
+            #     else:
+            #         call = 'promotes_%ss' % io_types[0]
 
-                not_found = sorted(not_found, key=lambda x: x if isinstance(x, str) else x[0])
-                raise RuntimeError(f"{self.msginfo}: '{call}' failed to find any matches for the "
-                                   f"following names or patterns: {not_found}.{empty_group_msg}")
+                # not_found = sorted(not_found, key=lambda x: x if isinstance(x, str) else x[0])
+                # TODO: How to detect if we haven't found this in any promotes with multiple systems.
+                # raise RuntimeError(f"{self.msginfo}: '{call}' failed to find any matches for the "
+                #                    f"following names or patterns: {not_found}.{empty_group_msg}")
+            return not_found
 
         maps = {'input': {}, 'output': {}}
+        name_func = self._var_promotes['name_func']
 
         if self._var_promotes['input'] or self._var_promotes['output']:
             if self._var_promotes['any']:
                 raise RuntimeError("%s: 'promotes' cannot be used at the same time as "
                                    "'promotes_inputs' or 'promotes_outputs'." % self.msginfo)
-            resolve(self._var_promotes['input'], ('input',), maps, self._resolver)
-            resolve(self._var_promotes['output'], ('output',), maps, self._resolver)
+            not_found = resolve(self._var_promotes['input'], ('input',), maps, self._resolver, name_func)
+            not_found.update(resolve(self._var_promotes['output'], ('output',), maps, self._resolver, name_func))
         else:
-            resolve(self._var_promotes['any'], ('input', 'output'), maps, self._resolver)
+            not_found = resolve(self._var_promotes['any'], ('input', 'output'), maps, self._resolver, name_func)
 
-        return maps
+        return maps, not_found
 
     @contextmanager
     def _unscaled_context(self, outputs=(), residuals=()):
@@ -6755,7 +6772,7 @@ class System(object, metaclass=SystemMetaclass):
             parent_node = tree[parent]
             out_promotions = parent_node['proms_out']
             in_promotions = parent_node['proms_in']
-            maps = self._get_promotion_maps()
+            maps, _ = self._get_promotion_maps()
             for prom_out, tup in maps['output'].items():
                 out_promotions[tup[0]].add(self.name + '.' + prom_out)
             for prom_in, tup in maps['input'].items():
