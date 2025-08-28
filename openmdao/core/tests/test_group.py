@@ -2499,8 +2499,6 @@ class TestGroupPromotes(unittest.TestCase):
         assert_near_equal(p.get_val('a4'), 2.)
 
 
-
-
 class MyComp(om.ExplicitComponent):
     def __init__(self, input_shape, src_indices=None, flat_src_indices=False):
         super().__init__()
