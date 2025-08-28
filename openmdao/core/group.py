@@ -1827,11 +1827,12 @@ class Group(System):
                     # accurately reflect this proc's var size instead of one from some other proc.
                     allprocs_abs2meta[io].update(old_abs2meta[io])
 
-        invalid_proms = set.intersection(*not_found_all_subsys.values())
-        if invalid_proms:
-            raise RuntimeError('The following variables promoted promoted '
-                                f"in group '{self.pathname}' were not found:"
-                                '\n' + '\n'.join(sorted(invalid_proms)))
+        if not_found_all_subsys:
+            invalid_proms = set.intersection(*not_found_all_subsys.values())
+            if invalid_proms:
+                raise RuntimeError('The following variables promoted in group '
+                                    f"'{self.pathname}' were not found:"
+                                    '\n  - ' + '\n  - '.join(sorted(invalid_proms)))
 
         self._var_allprocs_abs2meta = allprocs_abs2meta
 
@@ -3483,7 +3484,7 @@ class Group(System):
 
                 try:
                     prominfo = _PromotesInfo(src_indices, flat_src_indices, src_shape,
-                                             promoted_from=subsys.pathname, as_func=name_func)
+                                             promoted_from=subsys.pathname, name_func=name_func)
                 except Exception as err:
                     lst = []
                     if any is not None:

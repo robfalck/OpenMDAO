@@ -2780,9 +2780,14 @@ class System(object, metaclass=SystemMetaclass):
             Determine the mapping of promoted names to the parent scope for a promotion type.
 
             This is called once for promotes or separately for promotes_inputs and promotes_outputs.
+
+            Returns
+            -------
+            set
+                A set of the promoted names in the system for which matches were not found.
             """
             if not to_match:
-                return
+                return set()
 
             # always add '*' so we won't report if it matches nothing (in the case where the
             # system has no variables of that io type)
@@ -2854,7 +2859,7 @@ class System(object, metaclass=SystemMetaclass):
                 raise RuntimeError("%s: 'promotes' cannot be used at the same time as "
                                    "'promotes_inputs' or 'promotes_outputs'." % self.msginfo)
             not_found = resolve(self._var_promotes['input'], ('input',), maps, self._resolver, name_func)
-            not_found.add(resolve(self._var_promotes['output'], ('output',), maps, self._resolver, name_func))
+            not_found.update(resolve(self._var_promotes['output'], ('output',), maps, self._resolver, name_func))
         else:
             not_found = resolve(self._var_promotes['any'], ('input', 'output'), maps, self._resolver, name_func)
 
