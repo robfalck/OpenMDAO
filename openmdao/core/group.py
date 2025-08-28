@@ -1,5 +1,6 @@
 """Define the Group class."""
 import sys
+from fnmatch import fnmatchcase
 from collections import Counter, defaultdict
 from collections.abc import Iterable
 
@@ -3378,14 +3379,17 @@ class Group(System):
 
     @collect_errors
     def promotes(self, subsys_name, any=None, inputs=None, outputs=None,
-                 src_indices=None, flat_src_indices=None, src_shape=None):
+                 src_indices=None, flat_src_indices=None, src_shape=None,
+                 as_func=None):
         """
         Promote a variable in the model tree.
 
         Parameters
         ----------
-        subsys_name : str
+        subsys_name : Sequence of str or str
             The name of the child subsystem whose inputs/outputs are being promoted.
+            If provided as a Sequence and/or glob pattern, promote from all systems
+            where the variable exists.
         any : Sequence of str or tuple
             A Sequence of variable names (or tuples) to be promoted, regardless
             of if they are inputs or outputs. This is equivalent to the items
@@ -3410,11 +3414,22 @@ class Group(System):
             to the number of dimensions of the source.
         src_shape : int or tuple
             Assumed shape of any connected source or higher level promoted input.
+        as_func : Callable or None
+            If given, provides a function with the signature f(subsys_name, var_name)
+            that returns the "promoted as" name of a matched variable. This is useful
+            in cases where glob patterns are used. If this is provided in addition
+            to any classic "promotes as" variables (tuples), then an error is raised.
         """
-        try:
-            subsys = getattr(self, subsys_name)
-        except AttributeError:
-            raise AttributeError(f"{self.msginfo}: subsystem '{subsys_name}' does not exist.")
+        sys_patterns = [subsys_name] if isinstance(subsys_name, str) else subsys_name
+        subsystems = set()
+        for pat in sys_patterns:
+            for sub_name, sub_info in chain(self._static_subsystems_allprocs.items(), self._subsystems_allprocs.items()):
+                if fnmatchcase(sub_name, pat):
+                    subsystems.add(sub_info.system)
+
+        if not subsystems:
+            raise AttributeError(f"{self.msginfo}: promotes called with subsys_name that is not "
+                                 f"any found in this Group: {subsys_name}")
 
         if isinstance(any, str):
             self._collect_error(f"{self.msginfo}: Trying to promote any='{any}', "
@@ -3431,62 +3446,64 @@ class Group(System):
 
         src_shape = shape2tuple(src_shape)
 
-        if src_indices is None:
-            prominfo = None
-            if flat_src_indices is not None or src_shape is not None:
-                issue_warning("ignored flat_src_indices and/or src_shape because"
-                              " src_indices was not specified.", prefix=self.msginfo,
-                              category=UnusedOptionWarning)
+        for subsys in subsystems:
+            if src_indices is None:
+                prominfo = None
+                if flat_src_indices is not None or src_shape is not None:
+                    issue_warning("ignored flat_src_indices and/or src_shape because"
+                                " src_indices was not specified.", prefix=self.msginfo,
+                                category=UnusedOptionWarning)
 
-        else:
-            promoted = inputs if inputs else any
-            try:
-                src_indices = indexer(src_indices, flat_src=flat_src_indices)
-            except Exception:
-                type_exc, exc, tb = sys.exc_info()
-                self._collect_error(f"{self.msginfo}: When promoting {promoted} from "
-                                    f"'{subsys_name}': {exc}", exc_type=type_exc, tback=tb,
-                                    ident=(self.pathname, tuple(promoted)))
+            else:
+                promoted = inputs if inputs else any
+                try:
+                    src_indices = indexer(src_indices, flat_src=flat_src_indices)
+                except Exception:
+                    type_exc, exc, tb = sys.exc_info()
+                    self._collect_error(f"{self.msginfo}: When promoting {promoted} from "
+                                        f"'{subsys.name}': {exc}", exc_type=type_exc, tback=tb,
+                                        ident=(self.pathname, tuple(promoted)))
 
+                if outputs:
+                    self._collect_error(f"{self.msginfo}: Trying to promote outputs {outputs} while "
+                                        f"specifying src_indices {src_indices} is not meaningful.")
+                    return
+
+                try:
+                    prominfo = _PromotesInfo(src_indices, flat_src_indices, src_shape,
+                                            promoted_from=subsys.pathname)
+                except Exception as err:
+                    lst = []
+                    if any is not None:
+                        lst.extend(any)
+                    if inputs is not None:
+                        lst.extend(inputs)
+                    self._collect_error(f"{self.msginfo}: When promoting {sorted(lst)}: {err}",
+                                        ident=(self.pathname, tuple(lst)))
+                    return
+
+            if any:
+                subsys._var_promotes['any'].extend((a, prominfo) for a in any)
+            if inputs:
+                subsys._var_promotes['input'].extend((i, prominfo) for i in inputs)
             if outputs:
-                self._collect_error(f"{self.msginfo}: Trying to promote outputs {outputs} while "
-                                    f"specifying src_indices {src_indices} is not meaningful.")
-                return
+                subsys._var_promotes['output'].extend((o, None) for o in outputs)
 
-            try:
-                prominfo = _PromotesInfo(src_indices, flat_src_indices, src_shape,
-                                         promoted_from=subsys.pathname)
-            except Exception as err:
-                lst = []
-                if any is not None:
-                    lst.extend(any)
-                if inputs is not None:
-                    lst.extend(inputs)
-                self._collect_error(f"{self.msginfo}: When promoting {sorted(lst)}: {err}",
-                                    ident=(self.pathname, tuple(lst)))
-                return
+            # check for attempt to promote with different alias
+            for prom_kind in ('input', 'output', 'any'):
+                list_comp = [i if isinstance(i, tuple) else (i, i)
+                             for i, _ in subsys._var_promotes[prom_kind]]
 
-        if any:
-            subsys._var_promotes['any'].extend((a, prominfo) for a in any)
-        if inputs:
-            subsys._var_promotes['input'].extend((i, prominfo) for i in inputs)
-        if outputs:
-            subsys._var_promotes['output'].extend((o, None) for o in outputs)
+                for original, new in list_comp:
+                    for original_inside, new_inside in list_comp:
+                        if original == original_inside and new != new_inside:
+                            self._collect_error("%s: Trying to promote '%s' when it has been aliased to "
+                                                "'%s'." % (self.msginfo, original_inside, new))
+                            continue
 
-        # check for attempt to promote with different alias
-        list_comp = [i if isinstance(i, tuple) else (i, i)
-                     for i, _ in subsys._var_promotes['input']]
-
-        for original, new in list_comp:
-            for original_inside, new_inside in list_comp:
-                if original == original_inside and new != new_inside:
-                    self._collect_error("%s: Trying to promote '%s' when it has been aliased to "
-                                        "'%s'." % (self.msginfo, original_inside, new))
-                    continue
-
-        # if this was called during configure(), mark this group as modified
-        if self._problem_meta is not None and self._problem_meta['config_info'] is not None:
-            self._problem_meta['config_info']._prom_added(self.pathname)
+            # if this was called during configure(), mark this group as modified
+            if self._problem_meta is not None and self._problem_meta['config_info'] is not None:
+                self._problem_meta['config_info']._prom_added(self.pathname)
 
     def add_subsystem(self, name, subsys, promotes=None,
                       promotes_inputs=None, promotes_outputs=None,

@@ -1885,32 +1885,40 @@ class TestGroupPromotes(unittest.TestCase):
             top.setup()
 
     def test_promotes_alias_from_parent_err(self):
-        class SubGroup(om.Group):
-            def setup(self):
-                self.add_subsystem('comp1', om.ExecComp('x=2.0*a+3.0*b+c', a=3.0, b=4.0))
+        for promotes_kwargs in [{'inputs': [('b', 'bb')]},
+                                {'outputs': [('x', 'xx')]}]:
+                                # {'any': [('b', 'bb')]}]:
+            with self.subTest(f'{promotes_kwargs=}'):
+                argname, promlist = list(promotes_kwargs.items())[0]
+                prom_from, prom_as = promlist[0]
+                class SubGroup(om.Group):
+                    def setup(self):
+                        self.add_subsystem('comp1', om.ExecComp('x=2.0*a+3.0*b+c', a=3.0, b=4.0))
 
-            def configure(self):
-                self.promotes('comp1', inputs=[('b', 'bb')])
+                    def configure(self):
+                        self.promotes('comp1', **promotes_kwargs)
 
-        class TopGroup(om.Group):
-            def setup(self):
-                self.add_subsystem('sub', SubGroup())
+                class TopGroup(om.Group):
+                    def setup(self):
+                        self.add_subsystem('sub', SubGroup())
 
-            def configure(self):
-                self.sub.promotes('comp1', inputs=['b'])
+                    def configure(self):
+                        self.sub.promotes('comp1', **{argname: [prom_from]})
 
-        top = om.Problem(model=TopGroup(), name='alias_from_parent')
+                top = om.Problem(model=TopGroup(), name='alias_from_parent')
 
-        with self.assertRaises(RuntimeError) as context:
-            top.setup()
-            top.final_setup()
+                with self.assertRaises(RuntimeError) as context:
+                    top.setup()
+                    top.final_setup()
 
-        self.assertEqual(str(context.exception),
-            "\nCollected errors for problem 'alias_from_parent':"
-            "\n   'sub' <class SubGroup>: Trying to promote 'b' when it has been aliased to 'bb'."
-            "\n   'sub' <class SubGroup>: Trying to promote 'b' when it has been aliased to 'b'."
-            "\n   'sub.comp1' <class ExecComp>: Can't alias promoted input 'b' to 'b' because 'b' "
-            "has already been promoted as '('bb', 'b')'.")
+                self.maxDiff = 10_000
+
+                self.assertEqual(str(context.exception),
+                    "\nCollected errors for problem 'alias_from_parent':"
+                    "\n   " + f"'sub' <class SubGroup>: Trying to promote '{prom_from}' when it has been aliased to '{prom_as}'."
+                    "\n   " + f"'sub' <class SubGroup>: Trying to promote '{prom_from}' when it has been aliased to '{prom_from}'."
+                    "\n   " + f"'sub.comp1' <class ExecComp>: Can't alias promoted {argname[:-1]} '{prom_from}' to '{prom_from}' because '{prom_from}' "
+                    f"has already been promoted as '('{prom_as}', '{prom_from}')'.")
 
     def test_promotes_alias_src_indices(self):
 
@@ -2042,13 +2050,19 @@ class TestGroupPromotes(unittest.TestCase):
         class TopGroup(om.Group):
             def setup(self):
                 self.add_subsystem('sub', SubGroup())
+                print('added!')
 
             def configure(self):
                 self.sub.promotes('comp1', inputs=['b'])
+                print('configuring!')
                 self.promotes('sub', inputs=['b'])
+                print('promoted!')
 
         top = om.Problem(model=TopGroup())
         top.setup()
+        top.final_setup()
+
+        top.model.list_vars()
 
         self.assertEqual(top['sub.a'], 3)
         self.assertEqual(top['b'], 4)
@@ -2368,6 +2382,100 @@ class TestGroupPromotes(unittest.TestCase):
         p.setup()
         p.run_model()
         # If working correctly, no exception raised.
+
+    def test_promotes_glob(self):
+        p = om.Problem()
+
+        p.model.add_subsystem('c1', om.ExecComp('a1=b+c'))
+        p.model.add_subsystem('c2', om.ExecComp('a2=b*c'))
+        p.model.add_subsystem('c3', om.ExecComp('a3=b-c'))
+        p.model.add_subsystem('c4', om.ExecComp('a4=b/c'))
+
+        p.model.promotes('c*', any=['*'])
+
+        p.setup()
+
+        p.set_val('b', 5.0)
+        p.set_val('c', 2.0)
+
+        p.run_model()
+
+        assert_near_equal(p.get_val('a1'), 7.)
+        assert_near_equal(p.get_val('a2'), 10.)
+        assert_near_equal(p.get_val('a3'), 3.)
+        assert_near_equal(p.get_val('a4'), 2.5)
+
+    def test_promotes_multiple(self):
+        p = om.Problem()
+
+        p.model.add_subsystem('c1', om.ExecComp('a1=b+c'))
+        p.model.add_subsystem('c2', om.ExecComp('a2=b*c'))
+        p.model.add_subsystem('c3', om.ExecComp('a3=b-c'))
+        p.model.add_subsystem('c4', om.ExecComp('a4=b/c'))
+
+
+        p.model.promotes(['c1', 'c2'],
+                         any=['a*', ('b', 'b12'), ('c', 'c12')],
+                         as_func=lambda sys_name, var_name: f'{var_name}12')
+        p.model.promotes(['c3', 'c4'],
+                         any=['a*', ('b', 'b34'), ('c', 'c34')],
+                         as_func=lambda sys_name, var_name: f'{var_name}12')
+
+        # p.model.promotes(['c1', 'c2'], any=['*'], as_func=lambda sys_name, var_name: f'{var_name}12')
+        # p.model.promotes(['c3', 'c4'], any=['*'], as_func=lambda sys_name, var_name: f'{var_name}34')
+
+        p.setup()
+
+        p.set_val('b12', 5.0)
+        p.set_val('c12', 2.0)
+
+        p.set_val('b34', 10.0)
+        p.set_val('c34', 5.0)
+
+        p.run_model()
+
+        assert_near_equal(p.get_val('a1'), 7.)
+        assert_near_equal(p.get_val('a2'), 10.)
+
+        assert_near_equal(p.get_val('a3'), 5.)
+        assert_near_equal(p.get_val('a4'), 2.)
+
+    def test_promotes_multiple_name_func(self):
+        p = om.Problem()
+
+        p.model.add_subsystem('c1', om.ExecComp('a1=b+c'))
+        p.model.add_subsystem('c2', om.ExecComp('a2=b*c'))
+        p.model.add_subsystem('c3', om.ExecComp('a3=b-c'))
+        p.model.add_subsystem('c4', om.ExecComp('a4=b/c'))
+
+
+        # p.model.promotes(['c1', 'c2'],
+        #                  any=['a*', ('b', 'b12'), ('c', 'c12')],
+        #                  as_func=lambda sys_name, var_name: f'{var_name}12')
+        # p.model.promotes(['c3', 'c4'],
+        #                  any=['a*', ('b', 'b34'), ('c', 'c34')],
+        #                  as_func=lambda sys_name, var_name: f'{var_name}12')
+
+        p.model.promotes(['c1', 'c2'], any=['*'], as_func=lambda sys_name, var_name: f'{var_name}12')
+        p.model.promotes(['c3', 'c4'], any=['*'], as_func=lambda sys_name, var_name: f'{var_name}34')
+
+        p.setup()
+
+        p.set_val('b12', 5.0)
+        p.set_val('c12', 2.0)
+
+        p.set_val('b34', 10.0)
+        p.set_val('c34', 5.0)
+
+        p.run_model()
+
+        assert_near_equal(p.get_val('a1'), 7.)
+        assert_near_equal(p.get_val('a2'), 10.)
+
+        assert_near_equal(p.get_val('a3'), 5.)
+        assert_near_equal(p.get_val('a4'), 2.)
+
+
 
 
 class MyComp(om.ExplicitComponent):
