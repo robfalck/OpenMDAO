@@ -1705,6 +1705,9 @@ class Group(System):
         # sort the subsystems alphabetically in order to make the ordering
         # of vars in vectors and other data structures independent of the
         # execution order.
+
+        # Check the returned var maps here and see if any not_found vars exist in all subsystems.
+        not_found_all_subsys = {}
         for subsys in self._sorted_sys_iter():
             self._has_output_scaling |= subsys._has_output_scaling
             self._has_output_adder |= subsys._has_output_adder
@@ -1713,7 +1716,8 @@ class Group(System):
             if len(subsys._subsystems_allprocs) > 0:
                 self._has_fd_group |= subsys._has_fd_group
 
-            var_maps = subsys._get_promotion_maps()
+            var_maps, not_found = subsys._get_promotion_maps()
+            not_found_all_subsys[subsys.name] = not_found
 
             sub_prefix = subsys.name + '.'
 
@@ -1771,7 +1775,7 @@ class Group(System):
                 raw = (allprocs_discrete, resolver, allprocs_abs2meta,
                        self._has_output_scaling, self._has_output_adder,
                        self._has_resid_scaling, self._group_inputs, self._has_distrib_vars,
-                       self._has_fd_group)
+                       self._has_fd_group, not_found_all_subsys)
             else:
                 raw = (
                     {'input': {}, 'output': {}},
@@ -1783,6 +1787,7 @@ class Group(System):
                     {},
                     False,
                     False,
+                    {}
                 )
 
             gathered = self.comm.allgather(raw)
@@ -1794,7 +1799,7 @@ class Group(System):
             myrank = self.comm.rank
             for rank, (proc_discrete, proc_resolver, proc_abs2meta,
                        oscale, oadd, rscale, ginputs, has_dist_vars,
-                       has_fd_group) in enumerate(gathered):
+                       has_fd_group, unfound_proms) in enumerate(gathered):
                 self._has_output_scaling |= oscale
                 self._has_output_adder |= oadd
                 self._has_resid_scaling |= rscale
@@ -1821,6 +1826,12 @@ class Group(System):
                     # consistent order for our dict), so that the 'size' metadata will
                     # accurately reflect this proc's var size instead of one from some other proc.
                     allprocs_abs2meta[io].update(old_abs2meta[io])
+
+        invalid_proms = set.intersection(*not_found_all_subsys.values())
+        if invalid_proms:
+            raise RuntimeError('The following variables promoted promoted '
+                                f"in group '{self.pathname}' were not found:"
+                                '\n' + '\n'.join(sorted(invalid_proms)))
 
         self._var_allprocs_abs2meta = allprocs_abs2meta
 

@@ -2682,8 +2682,6 @@ class System(object, metaclass=SystemMetaclass):
             dictionary mapping input/output variable names
             to (promoted name, promotion_info) tuple.
         """
-        from openmdao.core.group import Group
-
         def split_list(lst):
             """
             Yield match type, name/pattern/tuple info, and src_indices info.
@@ -2831,34 +2829,36 @@ class System(object, metaclass=SystemMetaclass):
                                 found.add((key, s))
 
             not_found = set(n for n, _ in to_match) - found
-            if not_found:
-                if (self._resolver.num_abs(local=True) == 0 and isinstance(self, Group)):
-                    empty_group_msg = ' Group contains no variables.'
-                else:
-                    empty_group_msg = ''
-                if len(io_types) == 2:
-                    call = 'promotes'
-                else:
-                    call = 'promotes_%ss' % io_types[0]
+            # TODO: Is this necessary any more?
+            # if not_found:
+            #     if (self._resolver.num_abs(local=True) == 0 and isinstance(self, Group)):
+            #         empty_group_msg = ' Group contains no variables.'
+            #     else:
+            #         empty_group_msg = ''
+            #     if len(io_types) == 2:
+            #         call = 'promotes'
+            #     else:
+            #         call = 'promotes_%ss' % io_types[0]
 
-                not_found = sorted(not_found, key=lambda x: x if isinstance(x, str) else x[0])
-                raise RuntimeError(f"{self.msginfo}: '{call}' failed to find any matches for the "
-                                   f"following names or patterns: {not_found}.{empty_group_msg}")
+                # not_found = sorted(not_found, key=lambda x: x if isinstance(x, str) else x[0])
+                # TODO: How to detect if we haven't found this in any promotes with multiple systems.
+                # raise RuntimeError(f"{self.msginfo}: '{call}' failed to find any matches for the "
+                #                    f"following names or patterns: {not_found}.{empty_group_msg}")
+            return not_found
 
         maps = {'input': {}, 'output': {}}
+        name_func = self._var_promotes['name_func']
 
         if self._var_promotes['input'] or self._var_promotes['output']:
             if self._var_promotes['any']:
                 raise RuntimeError("%s: 'promotes' cannot be used at the same time as "
                                    "'promotes_inputs' or 'promotes_outputs'." % self.msginfo)
-            name_func = self._var_promotes['name_func']
-            resolve(self._var_promotes['input'], ('input',), maps, self._resolver, name_func)
-            resolve(self._var_promotes['output'], ('output',), maps, self._resolver, name_func)
+            not_found = resolve(self._var_promotes['input'], ('input',), maps, self._resolver, name_func)
+            not_found.add(resolve(self._var_promotes['output'], ('output',), maps, self._resolver, name_func))
         else:
-            name_func = self._var_promotes['name_func']
-            resolve(self._var_promotes['any'], ('input', 'output'), maps, self._resolver, name_func)
+            not_found = resolve(self._var_promotes['any'], ('input', 'output'), maps, self._resolver, name_func)
 
-        return maps
+        return maps, not_found
 
     @contextmanager
     def _unscaled_context(self, outputs=(), residuals=()):
@@ -6767,7 +6767,7 @@ class System(object, metaclass=SystemMetaclass):
             parent_node = tree[parent]
             out_promotions = parent_node['proms_out']
             in_promotions = parent_node['proms_in']
-            maps = self._get_promotion_maps()
+            maps, _ = self._get_promotion_maps()
             for prom_out, tup in maps['output'].items():
                 out_promotions[tup[0]].add(self.name + '.' + prom_out)
             for prom_in, tup in maps['input'].items():

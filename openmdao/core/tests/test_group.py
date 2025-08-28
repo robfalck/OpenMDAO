@@ -2405,6 +2405,31 @@ class TestGroupPromotes(unittest.TestCase):
         assert_near_equal(p.get_val('a3'), 3.)
         assert_near_equal(p.get_val('a4'), 2.5)
 
+    def test_promotes_if_present(self):
+        p = om.Problem()
+
+        p.model.add_subsystem('c1', om.ExecComp('a1=b+c'))
+        p.model.add_subsystem('c2', om.ExecComp('a2=b*c'))
+        p.model.add_subsystem('c3', om.ExecComp('a3=k-j'))
+        p.model.add_subsystem('c4', om.ExecComp('a4=k/j'))
+
+        p.model.promotes('c*', any=['a*', 'b', 'c', 'k', 'j', 'w'])
+
+        p.setup()
+
+        p.set_val('b', 5.0)
+        p.set_val('c', 2.0)
+
+        p.set_val('k', 10.0)
+        p.set_val('j', 5.0)
+
+        p.run_model()
+
+        assert_near_equal(p.get_val('a1'), 7.)
+        assert_near_equal(p.get_val('a2'), 10.)
+        assert_near_equal(p.get_val('a3'), 5.)
+        assert_near_equal(p.get_val('a4'), 2.)
+
     def test_promotes_multiple_subsys_with_aliases(self):
         p = om.Problem()
 
