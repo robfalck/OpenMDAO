@@ -273,7 +273,7 @@ class Problem(object, metaclass=ProblemMetaclass):
                              default=os.path.join(default_workdir, 'coloring_files'),
                              desc='Directory containing coloring files (if any) for this Problem.')
         self.options.declare('group_by_pre_opt_post', types=bool,
-                             default=False,
+                             default=True,
                              desc="If True, group subsystems of the top level model into "
                              "pre-optimization, optimization, and post-optimization, and only "
                              "iterate over the optimization subsystems during optimization.  This "
@@ -679,7 +679,6 @@ class Problem(object, metaclass=ProblemMetaclass):
         case_prefix : str or None
             Prefix to prepend to coordinates when recording.  None means keep the preexisting
             prefix.
-
         reset_iter_counts : bool
             If True and model has been run previously, reset all iteration counters.
 
@@ -727,6 +726,132 @@ class Problem(object, metaclass=ProblemMetaclass):
             model._clear_iprint()
 
             return driver._run()
+        finally:
+            self._recording_iter.prefix = old_prefix
+
+    def find_feasible(self, case_prefix=None, reset_iter_counts=True,
+                      driver_scaling=True, exclude_desvars=None,
+                      method='trf', ftol=1e-08, xtol=1e-08, gtol=1e-08,
+                      x_scale=1., loss='linear', loss_tol=1.0E-8, f_scale=1.0,
+                      max_nfev=None, tr_solver=None, tr_options=None, iprint=1):
+        """
+        Attempt to find design variable values which minimize the constraint violation.
+
+        If the problem is feasible, this method should find the solution for which the
+        violation of each constraint is zero.
+
+        This approach uses a least-squares minimization of the constraint violation.  If
+        the problem has a feasible solution, this should find the feasible solution
+        closest to the current design variable values.
+
+        Arguments method, ftol, xtol, gtol, x_scale, loss, f_scale, diff_step,
+        tr_solver, tr_options, and verbose are passed to `scipy.optimize.least_squares`, see
+        the documentation of that function for more information:
+        https://docs.scipy.org/doc/scipy/reference/generated/scipy.optimize.least_squares.html
+
+        Parameters
+        ----------
+        case_prefix : str or None
+            Prefix to prepend to coordinates when recording.  None means keep the preexisting
+            prefix.
+        reset_iter_counts : bool
+            If True and model has been run previously, reset all iteration counters.
+        driver_scaling : bool
+            If True, consider the constraint violation in driver-scaled units. Otherwise, it
+            will be computed in the model's units.
+        exclude_desvars : str or Sequence[str] or None
+            If given, a pattern of one or more design variables to be excluded from
+            the least-squares search.  The allows for finding a feasible (or least infeasible)
+            solution when holding one or more design variables to their current values.
+        method : {'trf', 'dogbox', or 'lm'}
+            The method used by scipy.optimize.least_squares. One or 'trf', 'dogbox', or 'lm'.
+        ftol : float or None
+            The change in the cost function from one iteration to the next which triggers
+            a termination of the minimization.
+        xtol : float or None
+            The change in the design variable vector norm from one iteration to the next
+            which triggers a termination of the minimization.
+        gtol : float or None
+            The change in the gradient norm from one iteration to the next which triggers
+            a termination of the minimization.
+        x_scale : {float, array-like, or 'jac'}
+            Additional scaling applied by the least-squares algorithm. Behavior is method-dependent.
+            For additional details, see the scipy documentation.
+        loss : {'linear', 'soft_l1', 'huber', 'cauchy', or 'arctan'}
+            The loss aggregation method. Options of interest are:
+            - 'linear' gives the standard "sum-of-squares".
+            - 'soft_l1' gives a smooth approximation for the L1-norm of constraint violation.
+            For other options, see the scipy documentation.
+        loss_tol : float
+            The tolerance on the loss value above which the algorithm is considered to have
+            failed to find a feasible solution. This will result in the `DriverResult.success`
+            attribute being False, and this method will return as _failed_.
+        f_scale : float or None
+            Value of margin between inlier and outlier residuals when loss is not 'linear'.
+            For more information, see the scipy documentation.
+        max_nfev : int or None
+            The maximum allowable number of model evaluations.  If not provided scipy will
+            determine it automatically based on the size of the design variable vector.
+        tr_solver : {None, 'exact', or 'lsmr'}
+            The solver used by trust region (trf) method.
+            For more details, see the scipy documentation.
+        tr_options : dict or None
+            Additional options for the trust region (trf) method.
+            For more details, see the scipy documentation.
+        iprint : int
+            Verbosity of the output. Use 2 for the full verbose least_squares output.
+            Use 1 for a convergence summary, and 0 to suppress output.
+
+        Returns
+        -------
+        bool
+            Failure flag; True if failed to converge, False is successful.
+        """
+        model = self.model
+        driver = self.driver
+
+        if self._metadata['setup_status'] < _SetupStatus.POST_SETUP:
+            raise RuntimeError(self.msginfo +
+                               ": The `setup` method must be called before `run_driver`.")
+
+        if not model._have_output_solver_options_been_applied():
+            raise RuntimeError(self.msginfo +
+                               ": Before calling `run_driver`, the `setup` method must be called "
+                               "if set_output_solver_options has been called.")
+
+        if 'singular_jac_behavior' in driver.options:
+            self._metadata['singular_jac_behavior'] = driver.options['singular_jac_behavior']
+
+        old_prefix = self._recording_iter.prefix
+
+        if case_prefix is not None:
+            if not isinstance(case_prefix, str):
+                raise TypeError(self.msginfo + ": The 'case_prefix' argument should be a string.")
+            self._recording_iter.prefix = case_prefix
+
+        try:
+            if model.iter_count > 0 and reset_iter_counts:
+                driver.iter_count = 0
+                model._reset_iter_counts()
+
+            self.final_setup()
+
+            # for optimizing drivers, check that constraints are affected by design vars
+            if driver.supports['optimization'] and self._metadata['use_derivatives']:
+                driver.check_relevance()
+
+            self._run_counter += 1
+            record_model_options(self, self._run_counter)
+
+            model._clear_iprint()
+
+            return driver._find_feasible(driver_scaling=driver_scaling,
+                                         exclude_desvars=exclude_desvars,
+                                         method=method, ftol=ftol, xtol=xtol,
+                                         gtol=gtol, x_scale=x_scale,
+                                         loss=loss, loss_tol=loss_tol, f_scale=f_scale,
+                                         max_nfev=max_nfev, tr_solver=tr_solver,
+                                         tr_options=tr_options, iprint=iprint)
         finally:
             self._recording_iter.prefix = old_prefix
 
@@ -1775,9 +1900,9 @@ class Problem(object, metaclass=ProblemMetaclass):
                          show_promoted_name=True,
                          print_arrays=False,
                          driver_scaling=True,
-                         desvar_opts=[],
-                         cons_opts=[],
-                         objs_opts=[],
+                         desvar_opts=None,
+                         cons_opts=None,
+                         objs_opts=None,
                          out_stream=_DEFAULT_OUT_STREAM,
                          return_format='list'
                          ):
@@ -1799,17 +1924,20 @@ class Problem(object, metaclass=ProblemMetaclass):
             the ref and ref0 values that were specified when add_design_var, add_objective, and
             add_constraint were called on the model. Default is True.
         desvar_opts : list of str
-            List of optional columns to be displayed in the desvars table.
+            List of optional columns to be displayed in the desvars table. All are displayed by
+            defualt.
             Allowed values are:
             ['lower', 'upper', 'ref', 'ref0', 'indices', 'adder', 'scaler', 'parallel_deriv_color',
             'cache_linear_solution', 'units', 'min', 'max'].
         cons_opts : list of str
-            List of optional columns to be displayed in the cons table.
+            List of optional columns to be displayed in the cons table. All are displayed by
+            defualt.
             Allowed values are:
             ['lower', 'upper', 'equals', 'ref', 'ref0', 'indices', 'adder', 'scaler',
             'linear', 'parallel_deriv_color', 'cache_linear_solution', 'units', 'min', 'max'].
         objs_opts : list of str
-            List of optional columns to be displayed in the objs table.
+            List of optional columns to be displayed in the objs table. All are displayed by
+            defualt.
             Allowed values are:
             ['ref', 'ref0', 'indices', 'adder', 'scaler', 'units',
             'parallel_deriv_color', 'cache_linear_solution'].
@@ -1847,8 +1975,12 @@ class Problem(object, metaclass=ProblemMetaclass):
                 if 'upper' in meta:
                     meta['upper'] = meta['upper'] / scaler - adder
         header = "Design Variables"
+        if desvar_opts is None:
+            desvar_opts = ['lower', 'upper', 'ref', 'ref0', 'indices', 'adder', 'scaler',
+                           'parallel_deriv_color', 'cache_linear_solution', 'units', 'min', 'max']
         def_desvar_opts = [opt for opt in ('indices',) if opt not in desvar_opts and
                            _find_dict_meta(desvars, opt)]
+        desvar_opts = [opt for opt in desvar_opts if _find_dict_meta(desvars, opt)]
         col_names = default_col_names + def_desvar_opts + desvar_opts
         if out_stream:
             self._write_var_info_table(header, col_names, desvars, vals,
@@ -1875,9 +2007,14 @@ class Problem(object, metaclass=ProblemMetaclass):
                 if 'upper' in meta:
                     meta['upper'] = meta['upper'] / scaler - adder
         header = "Constraints"
+        if cons_opts is None:
+            cons_opts = ['lower', 'upper', 'equals', 'ref', 'ref0', 'indices', 'adder', 'scaler',
+                         'linear', 'parallel_deriv_color', 'cache_linear_solution', 'units', 'min',
+                         'max']
         # detect any cons that use aliases
         def_cons_opts = [opt for opt in ('indices', 'alias') if opt not in cons_opts and
                          _find_dict_meta(cons, opt)]
+        cons_opts = [opt for opt in cons_opts if _find_dict_meta(cons, opt)]
         col_names = default_col_names + def_cons_opts + cons_opts
         if out_stream:
             self._write_var_info_table(header, col_names, cons, vals,
@@ -1894,8 +2031,12 @@ class Problem(object, metaclass=ProblemMetaclass):
         objs = self.driver._objs
         vals = self.driver.get_objective_values(driver_scaling=driver_scaling)
         header = "Objectives"
+        if objs_opts is None:
+            objs_opts = ['ref', 'ref0', 'indices', 'adder', 'scaler', 'units',
+                         'parallel_deriv_color', 'cache_linear_solution']
         def_obj_opts = [opt for opt in ('indices',) if opt not in objs_opts and
                         _find_dict_meta(objs, opt)]
+        objs_opts = [opt for opt in objs_opts if _find_dict_meta(objs, opt)]
         col_names = default_col_names + def_obj_opts + objs_opts
         if out_stream:
             self._write_var_info_table(header, col_names, objs, vals,

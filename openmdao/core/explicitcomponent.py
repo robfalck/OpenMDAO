@@ -180,8 +180,9 @@ class ExplicitComponent(Component):
 
     def add_output(self, name, val=1.0, shape=None, units=None, res_units=None, desc='',
                    lower=None, upper=None, ref=1.0, ref0=0.0, res_ref=None, tags=None,
-                   shape_by_conn=False, copy_shape=None, compute_shape=None, distributed=None,
-                   primal_name=None):
+                   shape_by_conn=False, copy_shape=None, compute_shape=None,
+                   units_by_conn=False, compute_units=None, copy_units=None,
+                   distributed=None, primal_name=None):
         """
         Add an output variable to the component.
 
@@ -234,6 +235,13 @@ class ExplicitComponent(Component):
             the named variable.
         compute_shape : function or None
             If a function, that function is called to determine the shape of this output.
+        units_by_conn : bool
+            If True, units are computed by the connected input(s).
+        compute_units : function or None
+            If a function, that function is called to determine the units of this output.
+        copy_units : str or None
+            If a str, that str is the name of a variable. Units this output to match that of
+            the named variable.
         distributed : bool
             If True, this variable is a distributed variable, so it can have different sizes/values
             across MPI processes.
@@ -255,6 +263,8 @@ class ExplicitComponent(Component):
                                   ref=ref, ref0=ref0, res_ref=res_ref,
                                   tags=tags, shape_by_conn=shape_by_conn,
                                   copy_shape=copy_shape, compute_shape=compute_shape,
+                                  units_by_conn=units_by_conn, compute_units=compute_units,
+                                  copy_units=copy_units,
                                   distributed=distributed, primal_name=primal_name)
 
     def _approx_subjac_keys_iter(self):

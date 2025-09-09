@@ -8,6 +8,7 @@ from openmdao.core.explicitcomponent import ExplicitComponent
 from openmdao.core.implicitcomponent import ImplicitComponent
 from openmdao.core.indepvarcomp import IndepVarComp
 from openmdao.core.analysis_error import AnalysisError
+from openmdao.core.system import ValidationError
 
 
 # Components
@@ -90,6 +91,14 @@ from openmdao.drivers.doe_generators import ListGenerator, CSVGenerator, Uniform
 from openmdao.drivers.analysis_driver import AnalysisDriver
 from openmdao.drivers.analysis_generator import ProductGenerator, ZipGenerator, SequenceGenerator, \
     CSVGenerator as CSVAnalysisGenerator
+from openmdao.drivers.sampling.uniform_generator import \
+    UniformGenerator as UniformAnalysisGenerator
+from openmdao.drivers.sampling.pyDOE_generators import \
+    LatinHypercubeGenerator as LatinHypercubeAnalysisGenerator, \
+    BoxBehnkenGenerator as BoxBehnkenAnalysisGenerator, \
+    PlackettBurmanGenerator as PlackettBurmanAnalysisGenerator, \
+    FullFactorialGenerator as FullFactorialAnalysisGenerator, \
+    GeneralizedSubsetGenerator as GeneralizedSubsetAnalysisGenerator
 
 # System-Building Tools
 from openmdao.utils.options_dictionary import OptionsDictionary
@@ -123,7 +132,7 @@ from openmdao.utils.om_warnings import issue_warning, reset_warnings, OpenMDAOWa
     OMInvalidCheckDerivativesOptionsWarning
 
 # Utils
-from openmdao.utils.general_utils import wing_dbg, env_truthy, om_dump, is_undefined
+from openmdao.utils.general_utils import setup_dbg, env_truthy, om_dump, is_undefined
 from openmdao.utils.array_utils import shape_to_len
 
 # Reports System
@@ -132,7 +141,7 @@ from openmdao.utils.reports_system import register_report, unregister_report, ge
 
 import os
 
-wing_dbg()
+setup_dbg()
 
 # set up tracing or memory profiling if env vars are set.
 if env_truthy('OPENMDAO_TRACE'):  # pragma: no cover
