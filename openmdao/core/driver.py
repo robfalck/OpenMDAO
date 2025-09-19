@@ -1747,7 +1747,7 @@ class Driver(object, metaclass=DriverMetaclass):
             a dict of the active indices and the active bound (0='equals',
             -1='lower', 1='upper') is provided. These are the active indices
             _of_ the constraint "indices".
-        active_dvs : list[str]
+        active_dvs : dict[str: dict]
             The names of the active design variables. For each active design
             variable, a dict of the active indices and the active bound
             (0='equals', -1='lower', 1='upper') is provided. An active
@@ -1881,7 +1881,170 @@ class Driver(object, metaclass=DriverMetaclass):
 
         return unscaled_multipliers
 
-    def compute_lagrange_multipliers(self, other_wrt=None, driver_scaling=False, feas_tol=1.0E-6,
+    def _compute_lagrangian_gradients(self, active_cons=None, active_dvs=None, feas_tol=1.0E-6, use_sparse=True,
+                                      driver_scaling=True):
+        """
+        Compute the gradients that are used to formulate the gradient of the Lagrangian.
+
+        This returns the gradient vector of the objective and the jacobian matrix of the _active_ constraints.
+
+        Parameters
+        ----------
+        active_cons : dict[str: dict] or None
+            A dictionary of the active constraints and their metadata as given by _get_active_cons_and_dvs.
+            If not provided, this method will call _get_active_cons_and_dvs to retrieve them.
+        active_dvs : dict[str:dict] or None
+            A dictionary of the active design variables and their metadata as given by _get_active_cons_and_dvs.
+            If not provided, this method will call _get_active_cons_and_dvs to retrieve them.
+        feas_tol : float
+            The feasibility tolerance used if computing the active constraints and design variables.
+        use_sparse : bool
+            If True, use a sparse matrix for the resulting active constraint gradient.
+        driver_scaling : bool
+            If True, assume driver-scaled values of the design variables and responses.
+
+        Returns
+        -------
+        grad_f : array-like
+            The gradient vector of the objective wrt the design variables.
+        jac_g : array-like or None
+            The jacobian of the constraint gradient. For the purposes in OpenMDAO, this treats
+            any active design variable bounds as constraints. This is returned as None if
+            there are not active constraints or design variables.
+        """
+        if not self.supports['optimization']:
+            raise NotImplementedError('Lagrange multipliers are only available for '
+                                      'drivers which support optimization.')
+
+        prob = self._problem()
+
+        obj_name = list(self._objs.keys())[0]
+        constraints = self._cons
+        des_vars = self._designvars
+
+        ofs = {obj_name, *constraints.keys()}
+        wrts = list(des_vars)
+
+        if active_cons is None or active_dvs is None:
+            active_cons, active_dvs = self._get_active_cons_and_dvs(feas_atol=feas_tol,
+                                                                    feas_rtol=feas_tol)
+
+        # Active cons and dvs provide the active indices in the design vars and constraints.
+        # But these design vars and constraints may themselves be indices of a larger
+        # variable.
+        totals = prob.compute_totals(list(ofs), wrts, driver_scaling=driver_scaling)
+
+        grad_f = {inp: totals[obj_name, inp] for inp in des_vars.keys()}
+
+        n = sum([grad_f_val.size for grad_f_val in grad_f.values()])
+
+        grad_f_vec = np.zeros((n))
+        offset = 0
+        for grad_f_val in grad_f.values():
+            inp_size = grad_f_val.size
+            grad_f_vec[offset:offset + inp_size] = grad_f_val
+            offset += inp_size
+
+        active_jac_blocks = []
+
+        if not active_cons and not active_dvs:
+            grad_g_mat = None
+        else:
+            for (dv_name, active_meta) in active_dvs.items():
+                # For active design variable bounds, the constraint gradient
+                # wrt des vars is just an identity matrix sized by the number of
+                # active elements in the design variable.
+                active_idxs = active_meta['indices']
+
+                size = des_vars[dv_name]['size']
+                con_grad = {(dv_name, inp): np.eye(size)[active_idxs, ...] if inp == dv_name
+                            else np.zeros((size, dv_meta['size']))[active_idxs, ...]
+                            for (inp, dv_meta) in des_vars.items()}
+
+                if use_sparse:
+                    active_jac_blocks.append([sp.csr_matrix(cg) for cg in con_grad.values()])
+                else:
+                    active_jac_blocks.append(list(con_grad.values()))
+
+            for (con_name, active_meta) in active_cons.items():
+                # If the constraint is a design variable, the constraint gradient
+                # wrt des vars is just an identity matrix sized by the number of
+                # active elements in the design variable.
+                active_idxs = active_meta['indices']
+                if con_name in des_vars.keys():
+                    size = des_vars[con_name]['size']
+                    con_grad = {(con_name, inp): np.eye(size)[active_idxs, ...] if inp == con_name
+                                else np.zeros((size, dv_meta['size']))[active_idxs, ...]
+                                for (inp, dv_meta) in des_vars.items()}
+                else:
+                    con_grad = {(con_name, inp): totals[con_name, inp][active_idxs, ...]
+                                for inp in des_vars.keys()}
+                if use_sparse:
+                    active_jac_blocks.append([sp.csr_matrix(cg) for cg in con_grad.values()])
+                else:
+                    active_jac_blocks.append(list(con_grad.values()))
+
+            # The gradient of the active dv bounds and constraints wrt the design variables
+            if use_sparse:
+                grad_g_mat = sp.block_array(active_jac_blocks)
+            else:
+                grad_g_mat = np.block(active_jac_blocks)
+
+        return grad_f_vec, grad_g_mat
+
+    def _compute_lagrangian_hessians(self, active_cons=None, active_dvs=None, feas_tol=1.0E-6, use_sparse=True):
+        """
+        Compute the Hessian of the Lagrangian that are used to formulate the gradient of the Lagrangian.
+
+        This returns the gradient vector of the objective and the jacobian matrix of the _active_ constraints.
+
+        Parameters
+        ----------
+        active_cons : dict[str: dict] or None
+            A dictionary of the active constraints and their metadata as given by _get_active_cons_and_dvs.
+            If not provided, this method will call _get_active_cons_and_dvs to retrieve them.
+        active_dvs : dict[str:dict] or None
+            A dictionary of the active design variables and their metadata as given by _get_active_cons_and_dvs.
+            If not provided, this method will call _get_active_cons_and_dvs to retrieve them.
+        feas_tol : float
+            The feasibility tolerance used if computing the active constraints and design variables.
+        use_sparse : bool
+            If True, use a sparse matrix for the resulting active constraint gradient.
+
+        Returns
+        -------
+        ∇²f : array-like
+            The derivative of the objective gradient vector with respect to the design variables.
+        ∇²g : array-like or None
+            The derivative of the constraint jacobian matrix with respect to the design variables.
+        """
+
+        # Compute the nominal gradients
+        active_cons, active_dvs = self._get_active_cons_and_dvs(feas_atol=feas_tol,
+                                                                feas_rtol=feas_tol)
+
+        grad_f_vec, grad_g_mat = self._compute_lagrangian_gradients(active_cons=active_cons, active_dvs=active_dvs, feas_tol=feas_tol,
+                                                                    use_sparse=use_sparse)
+
+        # To finite difference the gradient of f, we just perturb each design variable.
+        # The finite difference for each design var becomes a column in the hessian of f.
+        n = grad_f_vec.size
+
+        # TODO: This is an ugly hack, but for now just naively perturb each design variable index to
+        # finite difference the gradients of f and g.
+        grad_L_f = 1
+
+
+        desvars = self._designvars
+
+        # for i in range(n):
+
+
+
+        return grad_f_vec, grad_g_mat
+
+
+    def compute_lagrange_multipliers(self, driver_scaling=False, feas_tol=1.0E-6,
                                      use_sparse_solve=True, _sens_data=None):
         """
         Get the approximated Lagrange multipliers of one or more constraints.
@@ -1929,84 +2092,16 @@ class Driver(object, metaclass=DriverMetaclass):
             raise NotImplementedError('Lagrange multipliers are only available for '
                                       'drivers which support optimization.')
 
-        prob = self._problem()
-
-        obj_name = list(self._objs.keys())[0]
-        constraints = self._cons
         des_vars = self._designvars
-
-        of_totals = {obj_name, *constraints.keys()}
 
         active_cons, active_dvs = self._get_active_cons_and_dvs(feas_atol=feas_tol,
                                                                 feas_rtol=feas_tol)
 
-        if other_wrt is not None:
-            wrt = list(set(list(des_vars) + list(other_wrt)))
-        else:
-            wrt = list(des_vars)
-
-        # Active cons and dvs provide the active indices in the design vars and constraints.
-        # But these design vars and constraints may themselves be indices of a larger
-        # variable.
-        totals = prob.compute_totals(list(of_totals),
-                                     wrt,
-                                     driver_scaling=True)
-
-        grad_f = {inp: totals[obj_name, inp] for inp in des_vars.keys()}
-
-        n = sum([grad_f_val.size for grad_f_val in grad_f.values()])
-
-        grad_f_vec = np.zeros((n))
-        offset = 0
-        for grad_f_val in grad_f.values():
-            inp_size = grad_f_val.size
-            grad_f_vec[offset:offset + inp_size] = grad_f_val
-            offset += inp_size
-
-        active_jac_blocks = []
-
         if not active_cons and not active_dvs:
             return {}, {}
 
-        for (dv_name, active_meta) in active_dvs.items():
-            # For active design variable bounds, the constraint gradient
-            # wrt des vars is just an identity matrix sized by the number of
-            # active elements in the design variable.
-            active_idxs = active_meta['indices']
-
-            size = des_vars[dv_name]['size']
-            con_grad = {(dv_name, inp): np.eye(size)[active_idxs, ...] if inp == dv_name
-                        else np.zeros((size, dv_meta['size']))[active_idxs, ...]
-                        for (inp, dv_meta) in des_vars.items()}
-
-            if use_sparse_solve:
-                active_jac_blocks.append([sp.csr_matrix(cg) for cg in con_grad.values()])
-            else:
-                active_jac_blocks.append(list(con_grad.values()))
-
-        for (con_name, active_meta) in active_cons.items():
-            # If the constraint is a design variable, the constraint gradient
-            # wrt des vars is just an identity matrix sized by the number of
-            # active elements in the design variable.
-            active_idxs = active_meta['indices']
-            if con_name in des_vars.keys():
-                size = des_vars[con_name]['size']
-                con_grad = {(con_name, inp): np.eye(size)[active_idxs, ...] if inp == con_name
-                            else np.zeros((size, dv_meta['size']))[active_idxs, ...]
-                            for (inp, dv_meta) in des_vars.items()}
-            else:
-                con_grad = {(con_name, inp): totals[con_name, inp][active_idxs, ...]
-                            for inp in des_vars.keys()}
-            if use_sparse_solve:
-                active_jac_blocks.append([sp.csr_matrix(cg) for cg in con_grad.values()])
-            else:
-                active_jac_blocks.append(list(con_grad.values()))
-
-        # The gradient of the active dv bounds and constraints wrt the design variables
-        if use_sparse_solve:
-            grad_g_mat = sp.block_array(active_jac_blocks)
-        else:
-            grad_g_mat = np.block(active_jac_blocks)
+        grad_f_vec, grad_g_mat = self._compute_lagrangian_gradients(active_cons=active_cons, active_dvs=active_dvs, feas_tol=feas_tol,
+                                                                    use_sparse=use_sparse_solve)
 
         if use_sparse_solve:
             lstsq_sol = sp.linalg.lsqr(grad_g_mat.T, -grad_f_vec)
@@ -2051,7 +2146,6 @@ class Driver(object, metaclass=DriverMetaclass):
             active_cons[key]['multipliers'] = val
 
         if _sens_data is not None:
-            _sens_data['totals'] = totals
             _sens_data['grad_f'] = grad_f_vec
             _sens_data['grad_g'] = grad_g_mat
 
