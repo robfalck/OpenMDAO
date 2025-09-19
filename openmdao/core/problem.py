@@ -895,7 +895,7 @@ class Problem(object, metaclass=ProblemMetaclass):
             lkind, rkind = 'residual', 'output'
 
         if linearize:
-            self.model._linearize(None)
+            self.model.run_linearize()
 
         resolver = self.model._resolver
         rvec = self.model._vectors[rkind]['linear']
