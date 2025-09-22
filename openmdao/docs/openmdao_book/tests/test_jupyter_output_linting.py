@@ -76,7 +76,7 @@ class LintJupyterOutputsTestCase(unittest.TestCase):
 
         mpi_header = ['%matplotlib inline\n',
                       'from ipyparallel import Client, error  # noqa: F401\n',
-                      'cluster=Client(profile="mpi")\n',
+                      "cluster=Client(cluster_id='docs-mpi-cluster')\n",
                       'view=cluster[:]\n',
                       'view.block=True\n',
                       '\n']
