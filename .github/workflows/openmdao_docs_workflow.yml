@@ -242,13 +242,14 @@ jobs:
 
           echo "Cluster is ready!"
 
-          echo "============================================================="
-          echo "Build the docs"
-          echo "============================================================="
-          python build_source_docs.py
-          jupyter-book build -W --keep-going openmdao_book
-          python copy_build_artifacts.py
-          ipcluster stop --cluster-id=docs-mpi-cluster
+          # echo "============================================================="
+          # echo "Build the docs"
+          # echo "============================================================="
+          # python build_source_docs.py
+          # jupyter-book build -W --keep-going openmdao_book
+          # python copy_build_artifacts.py
+          # ipcluster stop --cluster-id=docs-mpi-cluster
+          exit 1
         continue-on-error: true
 
       - name: Display doc build reports
