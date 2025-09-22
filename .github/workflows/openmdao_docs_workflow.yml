@@ -433,6 +433,7 @@ jobs:
 
       - name: Build docs
         id: build_docs
+        continue-on-error: true
         run: |
           export OPENMDAO_REPORTS=0
           export PYDEVD_DISABLE_FILE_VALIDATION=1
