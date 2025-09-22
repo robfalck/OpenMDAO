@@ -237,10 +237,11 @@ jobs:
             python openmdao_book/other/disable_snopt_cells.py
           fi
 
-          # start ipcluster to run MPI under notebooks
-          python ./start_mpi_cluster.py -n 4 &
+          # start ipcluster
+          python -u ./start_mpi_cluster.py -n 4 &
 
-          sleep 15
+          # wait for the cluster to be ready before executing notebooks
+          python -c "import ipyparallel as ipp; cluster=ipp.Client(cluster_id='docs-mpi-cluster'); cluster.wait_for_engines(n=4, timeout=60); print('Cluster Ready')"
 
           pip install papermill
           papermill openmdao_book/features/core_features/working_with_derivatives/parallel_derivs.ipynb executed_notebook.ipynb
