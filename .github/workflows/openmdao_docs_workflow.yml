@@ -240,7 +240,10 @@ jobs:
           # start ipcluster to run MPI under notebooks
           python ./start_mpi_cluster.py -n 4 &
 
-          echo "Cluster is ready!"
+          sleep 15
+
+          pip install papermill
+          papermill openmdao_book/features/core_features/working_with_derivatives/parallel_derivs.ipynb executed_notebook.ipynb
 
           # echo "============================================================="
           # echo "Build the docs"
