@@ -239,7 +239,6 @@ jobs:
 
           # start ipcluster
           python -u ./start_mpi_cluster.py -n 4 &
-          exit 1
 
           # # wait for the cluster to be ready before executing notebooks
           # python -c "import ipyparallel as ipp; cluster=ipp.Client(cluster_id='docs-mpi-cluster'); cluster.wait_for_engines(n=4, timeout=60); print('Cluster Ready')"
