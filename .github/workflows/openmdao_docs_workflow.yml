@@ -237,7 +237,7 @@ jobs:
             python openmdao_book/other/disable_snopt_cells.py
           fi
 
-          python -u ./start_mpi_cluster.py -n 4 &
+          python -u ./start_mpi_cluster.py -n 4
 
           # wait for the cluster to be ready before executing notebooks
           # python -u -c "import ipyparallel as ipp; cluster=ipp.Client(cluster_id='docs-mpi-cluster'); cluster.wait_for_engines(n=4, timeout=60); print('Cluster Ready')"
