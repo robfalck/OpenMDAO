@@ -1,33 +1,110 @@
 name: Install OpenMDAO
 description: 'Install OpenMDAO from the requested source'
 inputs:
-  numpy:
+  matrix_name:
+    description: 'Name of the run matrix entry being used.'
+    required: true
+  python_version:
+    description: 'Python version'
+    required: true
+  numpy_version:
     description: 'Numpy version'
     required: true
-  scipy:
+  scipy_version:
     description: 'scipy version'
     required: true
+  exclude:
+    description: 'if true, current run matrix entry should not be executed.'
+    required: true
   use_pypi:
-    type: boolean
     description: 'Install the published PyPi version of OpenMDAO'
     required: false
-    default: false
   PEP517:
-    type: boolean
     description: 'Strictly adhere to PEP517 when building a wheel.'
     required: false
-    default: false
   optional:
-    type: string
     description: 'pip options specification in [name1,name2] syntax. e.g. "pip install openmdao[all,numba]'
+    required: false
+  pyoptsparse_version:
+    description: 'Version of pyoptsparse to be used, or empty string for no pyoptsparse.'
+    required: false
+  pyoptsparse_from:
+    description: 'Location from which to acquire pyoptsparse: either "build_pyoptsparse" or "conda-forge" or "github" or ""'
+    required: false
+  petsc_version:
+    description: 'version of PETSc to be used, or "" for no petsc.'
+    required: false
+  mpi4py_version:
+    description: 'version of mpi4py to be used'
+    required: false
+  openmpi_version:
+    description: 'version of openmpi to be used'
+    required: false
+  mpich_version:
+    description: 'version of mpich to be used'
+    required: false
+  snopt_version:
+    description: 'The version of SNOPT to test against, if avaiable.''
+    required: false
+  ssh_private_key:
+    description: 'ssh private key when being run by OpenMDAO org'
+    required: false
+  ssh_known_hosts:
+    description: 'ssh known hosts when being run by OpenMDAO org'
+    required: false
+  snopt_location:
+    description: 'snopt location when being run by OpenMDAO org'
+    required: false
+  debug_enabled:
+    description: 'if True, enable debugging via tmate'
     required: false
 runs:
   using: 'composite'
   steps:
+
+    - name: Display run details
+      shell: bash
+      run: |
+        echo "============================================================="
+        echo "Run #${GITHUB_RUN_NUMBER}"
+        echo "Run ID: ${GITHUB_RUN_ID}"
+        echo "Building Docs: ${GITHUB_REPOSITORY}"
+        echo "Triggered by: ${GITHUB_EVENT_NAME}"
+        echo "Initiated by: ${GITHUB_ACTOR}"
+        echo "============================================================="
+
+    - name: Exit if this job was excluded
+      if: inputs.exclude == "true"
+      uses: actions/github-script@v7
+      with:
+        script: core.setFailed('The ${{ inputs.matrix_name }} job was excluded from the run, exiting...');
+
+    - name: Create SSH key
+      if: inputs.snopt_version != ""
+      env:
+        SSH_PRIVATE_KEY: ${{ inputs.ssh_private_key }}
+        SSH_KNOWN_HOSTS: ${{ inputs.ssh_known_hosts }}
+      shell: bash
+      run: |
+        mkdir -p ~/.ssh/
+        echo "$SSH_PRIVATE_KEY" > ~/.ssh/id_rsa
+        sudo chmod 600 ~/.ssh/id_rsa
+        echo "$SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts
+
+    - name: Checkout code
+      uses: actions/checkout@v5
+
+    - name: Setup conda
+      uses: conda-incubator/setup-miniconda@v3
+      with:
+        python-version: ${{ inputs.python_version }}
+        conda-remove-defaults: true
+        channels: conda-forge
+
     - name: 'Install OpenMDAO'
       shell: bash
       run: |
-        conda install numpy=${{ inputs.numpy }} scipy=${{ inputs.scipy }} -q -y
+        conda install numpy=${{ inputs.numpy_version }} scipy=${{ inputs.scipy_version }} -q -y
 
         python -m pip install --upgrade pip
 
@@ -49,3 +126,228 @@ runs:
         else
           python -m pip install .${{ inputs.optional }}
         fi
+
+    - name: Install compilers
+      if: inputs.pyoptsparse_version != ""
+      run: |
+        echo "============================================================="
+        echo "Install compilers"
+        echo "============================================================="
+        if [[  "${{ inputs.os_version }}" != "macos-15" ]]; then
+          conda install cython swig compilers cmake meson openmp -q -y
+        else
+          conda install cython swig compilers cmake meson -q -y
+        fi
+
+    - name: Install PETSc
+      if: inputs.petsc_version != ""
+      run: |
+        echo "============================================================="
+        echo "Install PETSc"
+        echo "============================================================="
+        if [[ "${{ inputs.mpich_version }}" ]]; then
+          conda install mpich-mpicc=${{ inputs.mpich_version }} -q -y
+        elif [[ "${{ inputs.openmpi_version }}" ]]; then
+          conda install openmpi-mpicc=${{ inputs.openmpi_version }} -q -y
+        else
+          conda install openmpi-mpicc -q -y
+        fi
+
+        if [[ "${{ inputs.mpi4py_version }}" ]]; then
+          conda install mpi4py=${{ inputs.mpi4py_version }} petsc4py=${{ inputs.petsc_version }} -q -y
+        else
+          conda install mpi4py petsc4py=${{ inputs.petsc_version }} -q -y
+        fi
+
+        echo "============================================================="
+        echo "Check MPI and PETSc installation"
+        echo "============================================================="
+        export PRTE_MCA_rmaps_default_mapping_policy=:oversubscribe
+        export OMPI_MCA_rmaps_base_oversubscribe=1
+        export OMPI_MCA_btl=^openib
+        echo "-----------------------"
+        echo "Quick test of mpi4py:"
+        mpirun -n 3 python -c "from mpi4py import MPI; print(f'Rank: {MPI.COMM_WORLD.rank}')"
+        echo "-----------------------"
+        echo "Quick test of petsc4py:"
+        mpirun -n 3 python -c "import numpy; from mpi4py import MPI; comm = MPI.COMM_WORLD; \
+                                import petsc4py; petsc4py.init(); \
+                                x = petsc4py.PETSc.Vec().createWithArray(numpy.ones(5)*comm.rank, comm=comm);  \
+                                print(x.getArray())"
+        echo "-----------------------"
+
+        echo "PRTE_MCA_rmaps_default_mapping_policy=:oversubscribe" >> $GITHUB_ENV
+        echo "OMPI_MCA_rmaps_base_oversubscribe=1" >> $GITHUB_ENV
+        echo "OMPI_MCA_btl=^openib" >> $GITHUB_ENV
+
+        echo "Workaround for intermittent failures with OMPI https://github.com/open-mpi/ompi/issues/7393"
+        echo "TMPDIR=/tmp" >> $GITHUB_ENV
+
+    - name: Build SNOPT
+      if: inputs.pyoptsparse_from != 'build_pyoptsparse' && inputs.snopt_version_version != ""
+      continue-on-error: false
+      run: |
+        echo "============================================================="
+        echo "Build SNOPT library"
+        echo "============================================================="
+        if [[ "${{ inputs.snopt_location }}" && "${{ inputs.snopt_version }}" == "7.7" ]]; then
+          echo "-------------------------------------------------------------"
+          echo "Getting SNOPT source"
+          echo "-------------------------------------------------------------"
+          scp -qr ${{ secrets.snopt_location }} .
+        elif [[ "${{ inputs.snopt_version }}" ]]; then
+          echo "SNOPT version ${{ inputs.snopt_version }} was requested but source is not available"
+        fi
+
+        if [ -d "SNOPT" ] ; then
+          echo "-------------------------------------------------------------"
+          echo "Building SNOPT"
+          echo "-------------------------------------------------------------"
+          cd SNOPT
+          ./configure
+          make
+          make check
+
+          echo "-------------------------------------------------------------"
+          echo "Building Python bindings"
+          echo "-------------------------------------------------------------"
+          echo "  > Copying required files from pySNOPT.."
+
+          git clone https://github.com/mdolab/pyoptsparse $HOME/pyoptsparse
+
+          PYSNOPT_SOURCE=$HOME/pyoptsparse/pyoptsparse/pySNOPT/source/
+          cp -v $PYSNOPT_SOURCE/*.f src/
+          cp -v $PYSNOPT_SOURCE/f2py/snopt.pyf .
+
+          echo "  > Removing problematic files..."
+          rm -f src/snopth.f
+          rm -f src/sn27lu77.f
+          rm -f src/sn27lu90.f
+
+          echo "  > Building Python bindings..."
+          python -m numpy.f2py -m snopt -c snopt.pyf src/*.f -L`pwd`/lib -L/lib -lsnopt7
+
+          echo "-------------------------------------------------------------"
+          echo "Try to import SNOPT"
+          echo "-------------------------------------------------------------"
+          python -c "import snopt; print(snopt)"
+
+          echo "-------------------------------------------------------------"
+          echo "Set PYOPTSPARSE_IMPORT_SNOPT_FROM for subsequent steps"
+          echo "-------------------------------------------------------------"
+          export PYOPTSPARSE_IMPORT_SNOPT_FROM=`pwd`
+          echo "PYOPTSPARSE_IMPORT_SNOPT_FROM=$PYOPTSPARSE_IMPORT_SNOPT_FROM" >> $GITHUB_ENV
+
+          cd ../..
+        fi
+
+    - name: Install pyOptSparse from GitHub
+      if: inputs.pyoptsparse_version != "" && inputs.pyoptsparse_from == 'github'
+      run: |
+        echo "Installing pyOptSparse from GitHub, IPOPT will not be available"
+        pip install git+https://github.com/mdolab/pyoptsparse@v${{ inputs.pyoptsparse_version }}
+
+    - name: Install pyOptSparse from conda-forge
+      if: inputs.pyoptsparse_version != "" && inputs.pyoptsparse_from == 'conda-forge'
+      run: |
+        echo "Installing pyOptSparse from conda-forge, IPOPT will be available"
+        conda install -c conda-forge pyoptsparse=${{ inputs.pyoptsparse_version }} -q -y
+
+    - name: Install pyOptSparse using build_pyoptsparse
+      if: inputs.pyoptsparse_version != "" && inputs.pyoptsparse_from == 'build_pyoptsparse'
+      continue-on-error: false
+      run: |
+        conda install -c conda-forge swig -q -y
+
+        python -m pip install git+https://github.com/OpenMDAO/build_pyoptsparse
+
+        if [[ "${{ inputs.pyoptsparse_version }}" == "latest" ]]; then
+          function latest_version() {
+            local REPO_URL=$1/releases/latest
+            local LATEST_URL=`curl -fsSLI -o /dev/null -w %{url_effective} $REPO_URL`
+            local LATEST_VER=`echo $LATEST_URL | awk '{split($0,a,"/tag/"); print a[2]}'`
+            echo $LATEST_VER
+          }
+          BRANCH="-b $(latest_version https://github.com/mdolab/pyoptsparse)"
+        else
+          BRANCH="-b v${{ inputs.pyoptsparse_version }}"
+        fi
+
+        if [[ "${{ inputs.snopt_version }}" == "7.7" && "${{ inputs.snopt_location_77 }}" ]]; then
+          echo "  > Secure copying SNOPT 7.7 over SSH"
+          mkdir SNOPT
+          scp -qr ${{ inputs.snopt_location_77 }} SNOPT
+          SNOPT="-s SNOPT/src"
+        elif [[ "${{ inputs.snopt_version }}" == "7.2" && "${{ inputs.snopt_location_72 }}" ]]; then
+          echo "  > Secure copying SNOPT 7.2 over SSH"
+          mkdir SNOPT
+          scp -qr ${{ inputs.snopt_location_72 }} SNOPT
+          ls -lR SNOPT
+          SNOPT="-s SNOPT/source"
+        elif [[ "${{ inputs.snopt_version }}" ]]; then
+          echo "SNOPT version ${{ inputs.snopt_version }} was requested but source is not available"
+        fi
+
+        build_pyoptsparse -v $BRANCH $SNOPT
+
+    - name: Install optional dependencies
+      if: inputs.optional == '[all]' || inputs.optional == '[all,numba]'
+      run: |
+        echo "============================================================="
+        echo "Install additional packages for testing/coverage"
+        echo "============================================================="
+        if [[  "${{ inputs.os_version }}" == "macos-15" ]]; then
+          brew install graphviz -q
+        else
+          conda install graphviz -q -y
+        fi
+        python -m pip install pyparsing psutil objgraph pyxdsm pydot
+
+        echo "Pre-install playwright dependencies to avoid 'Playwright Host validation warning'"
+        playwright install --with-deps
+
+    - name: Display environment info
+      id: env_info
+      continue-on-error: true
+      run: |
+        conda info
+        conda list
+
+        echo "============================================================="
+        echo "Check installed versions of Python, Numpy and Scipy"
+        echo "============================================================="
+        echo 'errors<<EOF' >> $GITHUB_OUTPUT
+
+        FINAL_VER=`python -c "import platform; print(platform.python_version())"`
+        if [[ ! "$FINAL_VER" == "${{ inputs.python_version }}"* ]]; then
+          echo "Python version was changed from ${{ matrix.PY }} to $FINAL_VER" >> $GITHUB_OUTPUT
+        fi
+
+        FINAL_VER=`python -c "import numpy; print(numpy.__version__)"`
+        if [[ ! "$FINAL_VER" == "${{ inputs.numpy_version }}"* ]]; then
+          echo "NumPy version was changed from ${{ inputs.numpy_version }} to $FINAL_VER" >> $GITHUB_OUTPUT
+        fi
+
+        FINAL_VER=`python -c "import scipy; print(scipy.__version__)"`
+        if [[ ! "$FINAL_VER" == "${{ inputs.scipy_version }}"* ]]; then
+          echo "SciPy version was changed from ${{ inputs.scipy_version }} to $FINAL_VER" >> $GITHUB_OUTPUT
+        fi
+
+        echo 'EOF' >> $GITHUB_OUTPUT
+
+        grep changed $GITHUB_OUTPUT || echo ""
+
+    # Enable tmate debugging of manually-triggered workflows if the input option was provided
+    #
+    # To access the terminal through the web-interface:
+    #    1. Click on the web-browser link printed out in this action from the github
+    #       workflow terminal
+    #    2. Press cntrl + c in the new tab that opens up to reveal the terminal
+    #    3. To activate the conda environment run:
+    #        $ source $CONDA/etc/profile.d/conda.sh
+    #        $ conda activate test
+    - name: Setup tmate session
+      if: ${{ inputs.debug_enabled }} == "true"
+      uses: mxschmitt/action-tmate@v3
+      with:
+        limit-access-to-actor: true
