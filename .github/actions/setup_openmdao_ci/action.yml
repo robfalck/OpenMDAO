@@ -126,6 +126,7 @@ runs:
 
     - name: Install compilers
       if: inputs.pyoptsparse_version != ''
+      shell: bash
       run: |
         echo "============================================================="
         echo "Install compilers"
@@ -138,6 +139,7 @@ runs:
 
     - name: Install PETSc
       if: inputs.petsc_version != ''
+      shell: bash
       run: |
         echo "============================================================="
         echo "Install PETSc"
@@ -182,6 +184,7 @@ runs:
 
     - name: Build SNOPT
       if: inputs.pyoptsparse_from != 'build_pyoptsparse' && inputs.snopt_version_version != ''
+      shell: bash
       continue-on-error: false
       run: |
         echo "============================================================="
@@ -191,7 +194,7 @@ runs:
           echo "-------------------------------------------------------------"
           echo "Getting SNOPT source"
           echo "-------------------------------------------------------------"
-          scp -qr ${{ secrets.snopt_location }} .
+          scp -qr ${{ inputs.snopt_location }} .
         elif [[ "${{ inputs.snopt_version }}" ]]; then
           echo "SNOPT version ${{ inputs.snopt_version }} was requested but source is not available"
         fi
@@ -240,12 +243,14 @@ runs:
 
     - name: Install pyOptSparse from GitHub
       if: inputs.pyoptsparse_version != '' && inputs.pyoptsparse_from == 'github'
+      shell: bash
       run: |
         echo "Installing pyOptSparse from GitHub, IPOPT will not be available"
         pip install git+https://github.com/mdolab/pyoptsparse@v${{ inputs.pyoptsparse_version }}
 
     - name: Install pyOptSparse from conda-forge
       if: inputs.pyoptsparse_version != '' && inputs.pyoptsparse_from == 'conda-forge'
+      shell: bash
       run: |
         echo "Installing pyOptSparse from conda-forge, IPOPT will be available"
         conda install -c conda-forge pyoptsparse=${{ inputs.pyoptsparse_version }} -q -y
@@ -253,6 +258,7 @@ runs:
     - name: Install pyOptSparse using build_pyoptsparse
       if: inputs.pyoptsparse_version != '' && inputs.pyoptsparse_from == 'build_pyoptsparse'
       continue-on-error: false
+      shell: bash
       run: |
         conda install -c conda-forge swig -q -y
 
@@ -289,6 +295,7 @@ runs:
 
     - name: Install optional dependencies
       if: inputs.optional == '[all]' || inputs.optional == '[all,numba]'
+      shell: bash
       run: |
         echo "============================================================="
         echo "Install additional packages for testing/coverage"
@@ -306,6 +313,7 @@ runs:
     - name: Display environment info
       id: env_info
       continue-on-error: true
+      shell: bash
       run: |
         conda info
         conda list
