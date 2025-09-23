@@ -1,0 +1,97 @@
+name: Install OpenMDAO
+description: 'Install OpenMDAO from the requested source'
+inputs:
+  pyoptsparse_version:
+    description: 'Version of pyoptsparse to be used, or empty string for no pyoptsparse.'
+    required: false
+  pyoptsparse_from:
+    description: 'Location from which to acquire pyoptsparse, either "build_pyoptsparse" or "conda-forge" or "github" or ""'
+    required: false
+  snopt_version:
+    description: 'The version of SNOPT to test against, if avaiable.''
+    required: false
+  ssh_private_key:
+    description: 'ssh private key when being run by OpenMDAO org'
+    required: false
+  ssh_known_hosts:
+    description: 'ssh known hosts when being run by OpenMDAO org'
+    required: false
+  snopt_location:
+    description: 'snopt location when being run by OpenMDAO org'
+    required: false
+runs:
+  using: 'composite'
+  steps:
+
+    - name: Display run details
+      shell: bash -l {0}
+      run: |
+        echo "============================================================="
+        echo "Run #${GITHUB_RUN_NUMBER}"
+        echo "Run ID: ${GITHUB_RUN_ID}"
+        echo "Building Docs: ${GITHUB_REPOSITORY}"
+        echo "Triggered by: ${GITHUB_EVENT_NAME}"
+        echo "Initiated by: ${GITHUB_ACTOR}"
+        echo "============================================================="
+
+    - name: Log inputs
+      shell: bash -l {0}
+      run: |
+        echo "===== Composite Action Inputs ====="
+        echo "pyoptsparse_version: ${{ inputs.pyoptsparse_version }}"
+        echo "pyoptsparse_from: ${{ inputs.pyoptsparse_from }}"
+        echo "snopt_version: ${{ inputs.snopt_version }}"
+        echo "=================================="
+
+    - name: Install PETSc
+      if: inputs.petsc_version != ''
+      shell: bash -l {0}
+      run: |
+        echo "============================================================="
+        echo "Install PETSc"
+        echo "============================================================="
+        if [[ "${{ inputs.mpich_version }}" ]]; then
+          conda install mpich-mpicc=${{ inputs.mpich_version }} -q -y -c conda-forge
+        elif [[ "${{ inputs.openmpi_version }}" ]]; then
+          conda install openmpi=${{ inputs.openmpi_version }} openmpi-mpicc=${{ inputs.openmpi_version }} -q -y -c conda-forge
+        else
+          conda install openmpi openmpi-mpicc -q -y -c conda-forge
+        fi
+
+        if [[ "${{ inputs.mpi4py_version }}" ]]; then
+          conda install mpi4py=${{ inputs.mpi4py_version }} petsc4py=${{ inputs.petsc_version }} -q -y
+        else
+          conda install mpi4py petsc4py=${{ inputs.petsc_version }} -q -y
+        fi
+
+        echo "============================================================="
+        echo "Check MPI and PETSc installation"
+        echo "============================================================="
+
+        # Manually add to PATH if needed
+        export PATH=$CONDA_PREFIX/bin:$PATH
+
+        # Verify
+        which mpirun || echo "mpirun not in PATH"
+        ls -la $CONDA_PREFIX/bin/mpirun
+
+        export PRTE_MCA_rmaps_default_mapping_policy=:oversubscribe
+        export OMPI_MCA_rmaps_base_oversubscribe=1
+        export OMPI_MCA_btl=^openib
+        echo "-----------------------"
+        echo "Quick test of mpi4py:"
+        mpirun -n 3 python -c "from mpi4py import MPI; print(f'Rank: {MPI.COMM_WORLD.rank}')"
+        echo "-----------------------"
+        echo "Quick test of petsc4py:"
+        mpirun -n 3 python -c "import numpy; from mpi4py import MPI; comm = MPI.COMM_WORLD; \
+                                import petsc4py; petsc4py.init(); \
+                                x = petsc4py.PETSc.Vec().createWithArray(numpy.ones(5)*comm.rank, comm=comm);  \
+                                print(x.getArray())"
+        echo "-----------------------"
+
+        echo "PRTE_MCA_rmaps_default_mapping_policy=:oversubscribe" >> $GITHUB_ENV
+        echo "OMPI_MCA_rmaps_base_oversubscribe=1" >> $GITHUB_ENV
+        echo "OMPI_MCA_btl=^openib" >> $GITHUB_ENV
+
+        echo "Workaround for intermittent failures with OMPI https://github.com/open-mpi/ompi/issues/7393"
+        echo "TMPDIR=/tmp" >> $GITHUB_ENV

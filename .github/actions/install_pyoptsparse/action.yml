@@ -55,6 +55,19 @@ runs:
         sudo chmod 600 ~/.ssh/id_rsa
         echo "$SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts
 
+    - name: Install compilers
+      if: inputs.pyoptsparse_version != ''
+      shell: bash -l {0}
+      run: |
+        echo "============================================================="
+        echo "Install compilers"
+        echo "============================================================="
+        if [[  "${{ inputs.os_version }}" != "macos-15" ]]; then
+          conda install cython swig compilers cmake meson openmp -q -y
+        else
+          conda install cython swig compilers cmake meson -q -y
+        fi
+
     - name: Build SNOPT
       if: inputs.pyoptsparse_from != 'build_pyoptsparse' && inputs.snopt_version_version != ''
       shell: bash -l {0}
