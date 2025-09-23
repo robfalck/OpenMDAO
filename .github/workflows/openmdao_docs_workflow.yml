@@ -137,11 +137,11 @@ jobs:
           exclude: ${{ matrix.EXCLUDE }}
           snopt_version: ${{ matrix.SNOPT }}
           # The following secrets are known to OpenMDAO org but wont be available to others.
-          ssh_private_key: ${{ secrets.SSH_PRIVATE_KEY}}
-          ssh_known_hosts: ${{ secrets.SSH_KNOWN_HOSTS}}
-          snopt_location: ${{ secrets.SNOPT_LOCATION }}
-          snopt_location_72: ${{ secrets.SNOPT_LOCATION_72 }}
-          snopt_location_77: ${{ secrets.SNOPT_LOCATION_77 }}
+          # ssh_private_key: ${{ secrets.SSH_PRIVATE_KEY}}
+          # ssh_known_hosts: ${{ secrets.SSH_KNOWN_HOSTS}}
+          # snopt_location: ${{ secrets.SNOPT_LOCATION }}
+          # snopt_location_72: ${{ secrets.SNOPT_LOCATION_72 }}
+          # snopt_location_77: ${{ secrets.SNOPT_LOCATION_77 }}
 
       # - name: Install OpenMDAO
       #   run: |

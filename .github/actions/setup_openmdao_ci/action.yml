@@ -4,6 +4,9 @@ inputs:
   matrix_name:
     description: 'Name of the run matrix entry being used.'
     required: true
+  os_version:
+    description: 'OS Version'
+    required: true
   python_version:
     description: 'Python version'
     required: true
@@ -78,6 +81,24 @@ runs:
       uses: actions/github-script@v7
       with:
         script: core.setFailed('The ${{ inputs.matrix_name }} job was excluded from the run, exiting...');
+
+    - name: Log inputs
+      shell: bash
+      run: |
+        echo "===== Composite Action Inputs ====="
+        echo "matrix_name: ${{ inputs.matrix_name }}"
+        echo "os_version: ${{ inputs.os_version }}"
+        echo "python_version: ${{ inputs.python_version }}"
+        echo "numpy_version: ${{ inputs.numpy_version }}"
+        echo "scipy_version: ${{ inputs.scipy_version }}"
+        echo "petsc_version: ${{ inputs.petsc_version }}"
+        echo "mpi4py_version: ${{ inputs.mpi4py_version }}"
+        echo "openmpi_version: ${{ inputs.openmpi_version }}"
+        echo "mpich_version: ${{ inputs.mpich_version }}"
+        echo "exclude: ${{ inputs.exclude }}"
+        echo "use_pypi: ${{ inputs.use_pypi }}"
+        echo "PEP517: ${{ inputs.PEP517 }}"
+        echo "=================================="
 
     - name: Create SSH key
       if: inputs.snopt_version != ''
