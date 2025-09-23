@@ -120,6 +120,7 @@ jobs:
         id: setup_openmdao_ci
         uses: ./.github/actions/setup_openmdao_ci
         with:
+          matrix_name: ${{ matrix.NAME }}
           os_version: ${{ matrix.OS }}
           python_version: ${{ matrix.PY }}
           numpy_version: ${{ matrix.NUMPY }}
