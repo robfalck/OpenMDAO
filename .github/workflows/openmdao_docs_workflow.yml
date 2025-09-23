@@ -63,12 +63,12 @@ jobs:
             NUMPY: '2.2'
             SCIPY: '1.16'
             PETSc: '3.21'
-            PYOPTSPARSE_FROM: 'conda-forge'
             PYOPTSPARSE: '2.13.1'
+            PYOPTSPARSE_FROM: 'build_pyoptsparse'
             SNOPT: '7.7'
             OPTIONAL: '[all,numba]'
             PEP517: true
-            # EXCLUDE: ${{ github.event_name == 'workflow_dispatch'  && ! inputs.Ubuntu_Baseline }}
+            PUBLISH: true
 
     runs-on: ${{ matrix.OS }}
 
@@ -98,7 +98,6 @@ jobs:
           openmpi_version: ${{ matrix.OPENMPI }}
           petsc_version: ${{ matrix.PETSc }}
           mpi4py_version: ${{ matrix.MPI4PY }}
-          exclude: ${{ matrix.EXCLUDE }}
           # snopt_version: ${{ matrix.SNOPT }}
           # The following secrets are known to OpenMDAO org but wont be available to others.
           # ssh_private_key: ${{ secrets.SSH_PRIVATE_KEY}}
@@ -201,7 +200,7 @@ jobs:
 
       - name: Fail the workflow if doc build failed
         if: steps.build_docs.outcome == 'failure'
-        uses: actions/github-script@v3
+        uses: actions/github-script@v8
         with:
           script: |
               let docs_fail = ${{ steps.build_docs.outcome == 'failure' }};

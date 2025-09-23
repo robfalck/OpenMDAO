@@ -78,7 +78,7 @@ runs:
 
     - name: Exit if this job was excluded
       if: inputs.exclude == 'true'
-      uses: actions/github-script@v7
+      uses: actions/github-script@v8
       with:
         script: core.setFailed('The ${{ inputs.matrix_name }} job was excluded from the run, exiting...');
 
