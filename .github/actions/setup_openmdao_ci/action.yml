@@ -29,7 +29,7 @@ inputs:
     description: 'Version of pyoptsparse to be used, or empty string for no pyoptsparse.'
     required: false
   pyoptsparse_from:
-    description: 'Location from which to acquire pyoptsparse: either "build_pyoptsparse" or "conda-forge" or "github" or ""'
+    description: 'Location from which to acquire pyoptsparse, either "build_pyoptsparse" or "conda-forge" or "github" or ""'
     required: false
   petsc_version:
     description: 'version of PETSc to be used, or "" for no petsc.'
@@ -43,18 +43,18 @@ inputs:
   mpich_version:
     description: 'version of mpich to be used'
     required: false
-  snopt_version:
-    description: 'The version of SNOPT to test against, if avaiable.''
-    required: false
-  ssh_private_key:
-    description: 'ssh private key when being run by OpenMDAO org'
-    required: false
-  ssh_known_hosts:
-    description: 'ssh known hosts when being run by OpenMDAO org'
-    required: false
-  snopt_location:
-    description: 'snopt location when being run by OpenMDAO org'
-    required: false
+  # snopt_version:
+  #   description: 'The version of SNOPT to test against, if avaiable.''
+  #   required: false
+  # ssh_private_key:
+  #   description: 'ssh private key when being run by OpenMDAO org'
+  #   required: false
+  # ssh_known_hosts:
+  #   description: 'ssh known hosts when being run by OpenMDAO org'
+  #   required: false
+  # snopt_location:
+  #   description: 'snopt location when being run by OpenMDAO org'
+  #   required: false
   debug_enabled:
     description: 'if True, enable debugging via tmate'
     required: false
