@@ -66,6 +66,7 @@ runs:
   steps:
 
     - name: Display run details
+      shell: bash -l {0}
       run: |
         echo "============================================================="
         echo "Run #${GITHUB_RUN_NUMBER}"
