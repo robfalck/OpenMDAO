@@ -124,7 +124,7 @@ jobs:
 
       - name: 'Install PETSc and mpi4py'
         id: install_petsc
-        uses: ./.github/actions/install_pyoptsparse
+        uses: ./.github/actions/install_petsc
         with:
           openmpi_version: ${{ matrix.OPENMPI }}
           petsc_version: ${{ matrix.PETSc }}
@@ -140,7 +140,7 @@ jobs:
         id: install_optional_dependendies
         uses: ./.github/actions/install_optional_dependencies
         with:
-          os_version: ${{ inputs.OS }}
+          os_version: ${{ matrix.OS }}
           optional: ${{ matrix.OPTIONAL }}
 
       - name: Display environment info
