@@ -111,6 +111,70 @@ jobs:
           # snopt_location_72: ${{ secrets.SNOPT_LOCATION_72 }}
           # snopt_location_77: ${{ secrets.SNOPT_LOCATION_77 }}
 
+      - name: 'Install pyOptSparse'
+        id: install_pyoptsparse
+        uses: ./.github/actions/install_pyoptsparse
+        with:
+          pyoptsparse_version: ${{ matrix.PYOPTSPARSE }}
+          pyoptsparse_from: ${{ matrix.PYOPTSPARSE_FROM }}
+          snopt_version: ${{ matrix.SNOPT }}
+          # The following secrets are known to OpenMDAO org but wont be available to others.
+          ssh_private_key: ${{ secrets.SSH_PRIVATE_KEY}}
+          ssh_known_hosts: ${{ secrets.SSH_KNOWN_HOSTS}}
+          snopt_location: ${{ secrets.SNOPT_LOCATION }}
+          snopt_location_72: ${{ secrets.SNOPT_LOCATION_72 }}
+          snopt_location_77: ${{ secrets.SNOPT_LOCATION_77 }}
+
+      - name: Install optional dependencies
+        if: inputs.optional == '[all]' || inputs.optional == '[all,numba]'
+        shell: bash -l {0}
+        run: |
+          echo "============================================================="
+          echo "Install additional packages for testing/coverage"
+          echo "============================================================="
+          if [[  "${{ inputs.os_version }}" == "macos-15" ]]; then
+            brew install graphviz -q
+          else
+            conda install graphviz -q -y
+          fi
+          python -m pip install pyparsing psutil objgraph pyxdsm pydot
+
+          echo "Pre-install playwright dependencies to avoid 'Playwright Host validation warning'"
+          playwright install --with-deps
+
+      - name: Display environment info
+        id: env_info
+        continue-on-error: true
+        shell: bash -l {0}
+        run: |
+          conda info
+          conda list
+
+          echo "============================================================="
+          echo "Check installed versions of Python, Numpy and Scipy"
+          echo "============================================================="
+          echo 'errors<<EOF' >> $GITHUB_OUTPUT
+
+          FINAL_VER=`python -c "import platform; print(platform.python_version())"`
+          if [[ ! "$FINAL_VER" == "${{ inputs.python_version }}"* ]]; then
+            echo "Python version was changed from ${{ matrix.PY }} to $FINAL_VER" >> $GITHUB_OUTPUT
+          fi
+
+          FINAL_VER=`python -c "import numpy; print(numpy.__version__)"`
+          if [[ ! "$FINAL_VER" == "${{ inputs.numpy_version }}"* ]]; then
+            echo "NumPy version was changed from ${{ inputs.numpy_version }} to $FINAL_VER" >> $GITHUB_OUTPUT
+          fi
+
+          FINAL_VER=`python -c "import scipy; print(scipy.__version__)"`
+          if [[ ! "$FINAL_VER" == "${{ inputs.scipy_version }}"* ]]; then
+            echo "SciPy version was changed from ${{ inputs.scipy_version }} to $FINAL_VER" >> $GITHUB_OUTPUT
+          fi
+
+          echo 'EOF' >> $GITHUB_OUTPUT
+
+          grep changed $GITHUB_OUTPUT || echo ""
+
+
       # - name: Build docs
       #   id: build_docs
       #   continue-on-error: true

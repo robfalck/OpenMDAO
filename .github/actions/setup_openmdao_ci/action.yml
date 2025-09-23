@@ -100,18 +100,6 @@ runs:
         echo "PEP517: ${{ inputs.PEP517 }}"
         echo "=================================="
 
-    - name: Create SSH key
-      if: inputs.snopt_version != ''
-      env:
-        SSH_PRIVATE_KEY: ${{ inputs.ssh_private_key }}
-        SSH_KNOWN_HOSTS: ${{ inputs.ssh_known_hosts }}
-      shell: bash -l {0}
-      run: |
-        mkdir -p ~/.ssh/
-        echo "$SSH_PRIVATE_KEY" > ~/.ssh/id_rsa
-        sudo chmod 600 ~/.ssh/id_rsa
-        echo "$SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts
-
     - name: Setup conda
       uses: conda-incubator/setup-miniconda@v3
       with:
