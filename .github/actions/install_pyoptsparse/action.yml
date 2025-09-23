@@ -1,5 +1,5 @@
-name: Install OpenMDAO
-description: 'Install OpenMDAO from the requested source'
+name: Install pyOptSparse
+description: 'Install pyOptSparse from the requested source'
 inputs:
   pyoptsparse_version:
     description: 'Version of pyoptsparse to be used, or empty string for no pyoptsparse.'

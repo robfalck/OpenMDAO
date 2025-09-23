@@ -136,22 +136,12 @@ jobs:
           # snopt_location_72: ${{ secrets.SNOPT_LOCATION_72 }}
           # snopt_location_77: ${{ secrets.SNOPT_LOCATION_77 }}
 
-      - name: Install optional dependencies
-        if: inputs.optional == '[all]' || inputs.optional == '[all,numba]'
-        shell: bash -l {0}
-        run: |
-          echo "============================================================="
-          echo "Install additional packages for testing/coverage"
-          echo "============================================================="
-          if [[  "${{ inputs.os_version }}" == "macos-15" ]]; then
-            brew install graphviz -q
-          else
-            conda install graphviz -q -y
-          fi
-          python -m pip install pyparsing psutil objgraph pyxdsm pydot
-
-          echo "Pre-install playwright dependencies to avoid 'Playwright Host validation warning'"
-          playwright install --with-deps
+      - name: 'Install optional dependencies'
+        id: install_optional_dependendies
+        uses: ./.github/actions/install_optional_dependencies
+        with:
+          os_version: ${{ inputs.OS }}
+          optional: ${{ matrix.OPTIONAL }}
 
       - name: Display environment info
         id: env_info

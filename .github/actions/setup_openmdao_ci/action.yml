@@ -1,4 +1,4 @@
-name: Install OpenMDAO
+name: Setup and install OpenMDAO
 description: 'Install OpenMDAO from the requested source'
 inputs:
   matrix_name:

@@ -1,5 +1,5 @@
-name: Install OpenMDAO
-description: 'Install OpenMDAO from the requested source'
+name: Install PETSc
+description: 'Optionally install PETSc and associated MPI tools.'
 inputs:
   petsc_version:
     description: 'version of PETSc to be used, or "" for no petsc.'
@@ -16,17 +16,6 @@ inputs:
 runs:
   using: 'composite'
   steps:
-
-    - name: Display run details
-      shell: bash -l {0}
-      run: |
-        echo "============================================================="
-        echo "Run #${GITHUB_RUN_NUMBER}"
-        echo "Run ID: ${GITHUB_RUN_ID}"
-        echo "Building Docs: ${GITHUB_REPOSITORY}"
-        echo "Triggered by: ${GITHUB_EVENT_NAME}"
-        echo "Initiated by: ${GITHUB_ACTOR}"
-        echo "============================================================="
 
     - name: Log inputs
       shell: bash -l {0}
