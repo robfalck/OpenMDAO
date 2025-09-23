@@ -129,12 +129,6 @@ jobs:
           openmpi_version: ${{ matrix.OPENMPI }}
           petsc_version: ${{ matrix.PETSc }}
           mpi4py_version: ${{ matrix.MPI4PY }}
-          # The following secrets are known to OpenMDAO org but wont be available to others.
-          # ssh_private_key: ${{ secrets.SSH_PRIVATE_KEY}}
-          # ssh_known_hosts: ${{ secrets.SSH_KNOWN_HOSTS}}
-          # snopt_location: ${{ secrets.SNOPT_LOCATION }}
-          # snopt_location_72: ${{ secrets.SNOPT_LOCATION_72 }}
-          # snopt_location_77: ${{ secrets.SNOPT_LOCATION_77 }}
 
       - name: 'Install optional dependencies'
         id: install_optional_dependendies
@@ -216,63 +210,63 @@ jobs:
             cat $f
           done
 
-      # - name: Archive built docs
-      #   if: steps.build_docs.outcome == 'success'
-      #   uses: actions/upload-artifact@v4
-      #   with:
-      #     name: built-docs-artifact
-      #     path: openmdao/docs/openmdao_book/_build/html
-      #     retention-days: 1
+      - name: Archive built docs
+        if: steps.build_docs.outcome == 'success'
+        uses: actions/upload-artifact@v4
+        with:
+          name: built-docs-artifact
+          path: openmdao/docs/openmdao_book/_build/html
+          retention-days: 1
 
-      # - name: Publish docs
-      #   if: github.event_name != 'pull_request' && matrix.PUBLISH
-      #   env:
-      #     DOCS_LOCATION: ${{ secrets.DOCS_LOCATION }}
-      #   run: |
-      #     if [[ "${#DOCS_LOCATION}" ]]; then
-      #       echo "============================================================="
-      #       echo "Create env with openssl compatible with hosting service"
-      #       echo "============================================================="
-      #       conda create -n upload python=3.11 packaging openssl=3
-      #       conda activate upload
+      - name: Publish docs
+        if: github.event_name != 'pull_request' && matrix.PUBLISH
+        env:
+          DOCS_LOCATION: ${{ secrets.DOCS_LOCATION }}
+        run: |
+          if [[ "${#DOCS_LOCATION}" ]]; then
+            echo "============================================================="
+            echo "Create env with openssl compatible with hosting service"
+            echo "============================================================="
+            conda create -n upload python=3.11 packaging openssl=3
+            conda activate upload
 
-      #       echo "============================================================="
-      #       echo "Publish docs"
-      #       echo "============================================================="
-      #       cd openmdao/docs
-      #       python upload_doc_version.py openmdao_book/_build/html/ ${{ secrets.DOCS_LOCATION }}
-      #     else
-      #       echo "Docs destination not available."
-      #     fi
+            echo "============================================================="
+            echo "Publish docs"
+            echo "============================================================="
+            cd openmdao/docs
+            python upload_doc_version.py openmdao_book/_build/html/ ${{ secrets.DOCS_LOCATION }}
+          else
+            echo "Docs destination not available."
+          fi
 
-      # - name: Slack env change
-      #   if: steps.env_info.outputs.errors != ''
-      #   uses: act10ns/slack@v2.0.0
-      #   with:
-      #     webhook-url: ${{ secrets.SLACK_WEBHOOK_URL }}
-      #     status: 'warning'
-      #     message: |
-      #       Environment change detected on `${{ matrix.NAME }}` build.
-      #       Python, NumPy or SciPy was not the requested version:
-      #       ```${{steps.env_info.outputs.errors}}```
-      #       ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+      - name: Slack env change
+        if: steps.env_info.outputs.errors != ''
+        uses: act10ns/slack@v2.0.0
+        with:
+          webhook-url: ${{ secrets.SLACK_WEBHOOK_URL }}
+          status: 'warning'
+          message: |
+            Environment change detected on `${{ matrix.NAME }}` build.
+            Python, NumPy or SciPy was not the requested version:
+            ```${{steps.env_info.outputs.errors}}```
+            ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
 
-      # - name: Slack doc build failure
-      #   if: steps.build_docs.outcome == 'failure'
-      #   uses: act10ns/slack@v2.0.0
-      #   with:
-      #     webhook-url: ${{ secrets.SLACK_WEBHOOK_URL }}
-      #     status: ${{ steps.build_docs.outcome }}
-      #     message: |
-      #       Doc build failed on `${{ matrix.NAME }}` build.
-      #       ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+      - name: Slack doc build failure
+        if: steps.build_docs.outcome == 'failure'
+        uses: act10ns/slack@v2.0.0
+        with:
+          webhook-url: ${{ secrets.SLACK_WEBHOOK_URL }}
+          status: ${{ steps.build_docs.outcome }}
+          message: |
+            Doc build failed on `${{ matrix.NAME }}` build.
+            ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
 
-      # - name: Fail the workflow if doc build failed
-      #   if: steps.build_docs.outcome == 'failure'
-      #   uses: actions/github-script@v8
-      #   with:
-      #     script: |
-      #         let docs_fail = ${{ steps.build_docs.outcome == 'failure' }};
-      #         if (docs_fail) {
-      #             core.setFailed('Doc build failed.');
-      #         }
+      - name: Fail the workflow if doc build failed
+        if: steps.build_docs.outcome == 'failure'
+        uses: actions/github-script@v8
+        with:
+          script: |
+              let docs_fail = ${{ steps.build_docs.outcome == 'failure' }};
+              if (docs_fail) {
+                  core.setFailed('Doc build failed.');
+              }
