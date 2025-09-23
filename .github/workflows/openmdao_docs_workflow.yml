@@ -116,6 +116,9 @@ jobs:
 
     steps:
 
+      - name: Checkout code
+        uses: actions/checkout@v5
+
       - name: 'Setup OpenMDAO CI'
         id: setup_openmdao_ci
         uses: ./.github/actions/setup_openmdao_ci

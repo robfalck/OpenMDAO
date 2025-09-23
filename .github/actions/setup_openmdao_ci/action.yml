@@ -91,9 +91,6 @@ runs:
         sudo chmod 600 ~/.ssh/id_rsa
         echo "$SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts
 
-    - name: Checkout code
-      uses: actions/checkout@v5
-
     - name: Setup conda
       uses: conda-incubator/setup-miniconda@v3
       with:
