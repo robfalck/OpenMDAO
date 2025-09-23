@@ -167,11 +167,11 @@ runs:
         echo "Install PETSc"
         echo "============================================================="
         if [[ "${{ inputs.mpich_version }}" ]]; then
-          conda install mpich-mpicc=${{ inputs.mpich_version }} -y -c conda-forge
+          conda install mpich-mpicc=${{ inputs.mpich_version }} -q -y -c conda-forge
         elif [[ "${{ inputs.openmpi_version }}" ]]; then
-          conda install openmpi=${{ inputs.openmpi_version }} openmpi-mpicc=${{ inputs.openmpi_version }} -y -c conda-forge
+          conda install openmpi=${{ inputs.openmpi_version }} openmpi-mpicc=${{ inputs.openmpi_version }} -q -y -c conda-forge
         else
-          conda install openmpi openmpi-mpicc -y -c conda-forge
+          conda install openmpi openmpi-mpicc -q -y -c conda-forge
         fi
 
         if [[ "${{ inputs.mpi4py_version }}" ]]; then
@@ -371,18 +371,3 @@ runs:
         echo 'EOF' >> $GITHUB_OUTPUT
 
         grep changed $GITHUB_OUTPUT || echo ""
-
-    # Enable tmate debugging of manually-triggered workflows if the input option was provided
-    #
-    # To access the terminal through the web-interface:
-    #    1. Click on the web-browser link printed out in this action from the github
-    #       workflow terminal
-    #    2. Press cntrl + c in the new tab that opens up to reveal the terminal
-    #    3. To activate the conda environment run:
-    #        $ source $CONDA/etc/profile.d/conda.sh
-    #        $ conda activate test
-    - name: Setup tmate session
-      if: ${{ inputs.debug_enabled }} == 'true'
-      uses: mxschmitt/action-tmate@v3
-      with:
-        limit-access-to-actor: true
