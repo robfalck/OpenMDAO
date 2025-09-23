@@ -159,6 +159,12 @@ runs:
           conda install cython swig compilers cmake meson -q -y
         fi
 
+      - name: Setup tmate session
+      # if: ${{ inputs.debug_enabled }} == 'true'
+      uses: mxschmitt/action-tmate@v3
+      with:
+        limit-access-to-actor: true
+
     - name: Install PETSc
       if: inputs.petsc_version != ''
       shell: bash
