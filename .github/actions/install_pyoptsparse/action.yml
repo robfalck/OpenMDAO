@@ -8,7 +8,7 @@ inputs:
     description: 'Location from which to acquire pyoptsparse, either "build_pyoptsparse" or "conda-forge" or "github" or ""'
     required: false
   snopt_version:
-    description: 'The version of SNOPT to test against, if avaiable.''
+    description: 'The version of SNOPT to test against, if avaiable.'
     required: false
   ssh_private_key:
     description: 'ssh private key when being run by OpenMDAO org'
