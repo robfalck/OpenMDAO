@@ -118,6 +118,7 @@ runs:
         python-version: ${{ inputs.python_version }}
         conda-remove-defaults: true
         channels: conda-forge
+        channel-priority: "strict"
 
     - name: 'Install OpenMDAO'
       shell: bash

@@ -135,7 +135,7 @@ jobs:
           petsc_version: ${{ matrix.PETSc }}
           mpi4py_version: ${{ matrix.MPI4PY }}
           exclude: ${{ matrix.EXCLUDE }}
-          snopt_version: ${{ matrix.SNOPT }}
+          # snopt_version: ${{ matrix.SNOPT }}
           # The following secrets are known to OpenMDAO org but wont be available to others.
           # ssh_private_key: ${{ secrets.SSH_PRIVATE_KEY}}
           # ssh_known_hosts: ${{ secrets.SSH_KNOWN_HOSTS}}
