@@ -123,7 +123,7 @@ jobs:
           # snopt_location_77: ${{ secrets.SNOPT_LOCATION_77 }}
 
       - name: 'Install PETSc and mpi4py'
-        id: install_pyoptsparse
+        id: install_petsc
         uses: ./.github/actions/install_pyoptsparse
         with:
           openmpi_version: ${{ matrix.OPENMPI }}
