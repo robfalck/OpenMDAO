@@ -1,6 +1,9 @@
 name: Install Optional Dependencies
 description: 'Install optional dependencies for testing/coverage'
 inputs:
+  os_version:
+    description: 'Operating system version'
+    required: false
   optional:
     description: 'pip options specification in [name1,name2] syntax. e.g. "pip install openmdao[all,numba]'
     required: false

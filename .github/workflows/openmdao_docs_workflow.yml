@@ -175,47 +175,46 @@ jobs:
 
           grep changed $GITHUB_OUTPUT || echo ""
 
+      - name: Build docs
+        id: build_docs
+        continue-on-error: true
+        run: |
+          export OPENMDAO_REPORTS=0
+          export PYDEVD_DISABLE_FILE_VALIDATION=1
 
-      # - name: Build docs
-      #   id: build_docs
-      #   continue-on-error: true
-      #   run: |
-      #     export OPENMDAO_REPORTS=0
-      #     export PYDEVD_DISABLE_FILE_VALIDATION=1
+          cd openmdao/docs
 
-      #     cd openmdao/docs
+          if [[ "${{ secrets.SNOPT_LOCATION_72 }}" || "${{ secrets.SNOPT_LOCATION_77 }}" ]]; then
+            echo "============================================================="
+            echo "Building docs with SNOPT examples."
+            echo "============================================================="
+          else
+            echo "============================================================="
+            echo "Disabling SNOPT cells in notebooks."
+            echo "============================================================="
+            python openmdao_book/other/disable_snopt_cells.py
+          fi
 
-      #     if [[ "${{ secrets.SNOPT_LOCATION_72 }}" || "${{ secrets.SNOPT_LOCATION_77 }}" ]]; then
-      #       echo "============================================================="
-      #       echo "Building docs with SNOPT examples."
-      #       echo "============================================================="
-      #     else
-      #       echo "============================================================="
-      #       echo "Disabling SNOPT cells in notebooks."
-      #       echo "============================================================="
-      #       python openmdao_book/other/disable_snopt_cells.py
-      #     fi
+          # start ipcluster to run MPI under notebooks
+          ./ipcluster_start.sh
+          sleep 12
 
-      #     # start ipcluster to run MPI under notebooks
-      #     ./ipcluster_start.sh
-      #     sleep 12
+          echo "============================================================="
+          echo "Build the docs"
+          echo "============================================================="
+          python build_source_docs.py
+          jupyter-book build -W --keep-going openmdao_book
+          python copy_build_artifacts.py
 
-      #     echo "============================================================="
-      #     echo "Build the docs"
-      #     echo "============================================================="
-      #     python build_source_docs.py
-      #     jupyter-book build -W --keep-going openmdao_book
-      #     python copy_build_artifacts.py
-
-      # - name: Display doc build reports
-      #   if: steps.build_docs.outcome == 'failure'
-      #   run: |
-      #     for f in $(find /home/runner/work/OpenMDAO/OpenMDAO/openmdao/docs/openmdao_book/_build/html/reports -name '*.log'); do
-      #       echo "============================================================="
-      #       echo $f
-      #       echo "============================================================="
-      #       cat $f
-      #     done
+      - name: Display doc build reports
+        if: steps.build_docs.outcome == 'failure'
+        run: |
+          for f in $(find /home/runner/work/OpenMDAO/OpenMDAO/openmdao/docs/openmdao_book/_build/html/reports -name '*.log'); do
+            echo "============================================================="
+            echo $f
+            echo "============================================================="
+            cat $f
+          done
 
       # - name: Archive built docs
       #   if: steps.build_docs.outcome == 'success'
