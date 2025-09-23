@@ -183,6 +183,14 @@ runs:
         echo "============================================================="
         echo "Check MPI and PETSc installation"
         echo "============================================================="
+
+        # Manually add to PATH if needed
+        export PATH=$CONDA_PREFIX/bin:$PATH
+
+        # Verify
+        which mpirun || echo "mpirun not in PATH"
+        ls -la $CONDA_PREFIX/bin/mpirun
+
         export PRTE_MCA_rmaps_default_mapping_policy=:oversubscribe
         export OMPI_MCA_rmaps_base_oversubscribe=1
         export OMPI_MCA_btl=^openib
