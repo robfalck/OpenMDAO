@@ -74,13 +74,13 @@ runs:
         echo "============================================================="
 
     - name: Exit if this job was excluded
-      if: inputs.exclude == "true"
+      if: inputs.exclude == 'true'
       uses: actions/github-script@v7
       with:
         script: core.setFailed('The ${{ inputs.matrix_name }} job was excluded from the run, exiting...');
 
     - name: Create SSH key
-      if: inputs.snopt_version != ""
+      if: inputs.snopt_version != ''
       env:
         SSH_PRIVATE_KEY: ${{ inputs.ssh_private_key }}
         SSH_KNOWN_HOSTS: ${{ inputs.ssh_known_hosts }}
@@ -125,7 +125,7 @@ runs:
         fi
 
     - name: Install compilers
-      if: inputs.pyoptsparse_version != ""
+      if: inputs.pyoptsparse_version != ''
       run: |
         echo "============================================================="
         echo "Install compilers"
@@ -137,7 +137,7 @@ runs:
         fi
 
     - name: Install PETSc
-      if: inputs.petsc_version != ""
+      if: inputs.petsc_version != ''
       run: |
         echo "============================================================="
         echo "Install PETSc"
@@ -181,7 +181,7 @@ runs:
         echo "TMPDIR=/tmp" >> $GITHUB_ENV
 
     - name: Build SNOPT
-      if: inputs.pyoptsparse_from != 'build_pyoptsparse' && inputs.snopt_version_version != ""
+      if: inputs.pyoptsparse_from != 'build_pyoptsparse' && inputs.snopt_version_version != ''
       continue-on-error: false
       run: |
         echo "============================================================="
@@ -239,19 +239,19 @@ runs:
         fi
 
     - name: Install pyOptSparse from GitHub
-      if: inputs.pyoptsparse_version != "" && inputs.pyoptsparse_from == 'github'
+      if: inputs.pyoptsparse_version != '' && inputs.pyoptsparse_from == 'github'
       run: |
         echo "Installing pyOptSparse from GitHub, IPOPT will not be available"
         pip install git+https://github.com/mdolab/pyoptsparse@v${{ inputs.pyoptsparse_version }}
 
     - name: Install pyOptSparse from conda-forge
-      if: inputs.pyoptsparse_version != "" && inputs.pyoptsparse_from == 'conda-forge'
+      if: inputs.pyoptsparse_version != '' && inputs.pyoptsparse_from == 'conda-forge'
       run: |
         echo "Installing pyOptSparse from conda-forge, IPOPT will be available"
         conda install -c conda-forge pyoptsparse=${{ inputs.pyoptsparse_version }} -q -y
 
     - name: Install pyOptSparse using build_pyoptsparse
-      if: inputs.pyoptsparse_version != "" && inputs.pyoptsparse_from == 'build_pyoptsparse'
+      if: inputs.pyoptsparse_version != '' && inputs.pyoptsparse_from == 'build_pyoptsparse'
       continue-on-error: false
       run: |
         conda install -c conda-forge swig -q -y
@@ -344,7 +344,7 @@ runs:
     #        $ source $CONDA/etc/profile.d/conda.sh
     #        $ conda activate test
     - name: Setup tmate session
-      if: ${{ inputs.debug_enabled }} == "true"
+      if: ${{ inputs.debug_enabled }} == 'true'
       uses: mxschmitt/action-tmate@v3
       with:
         limit-access-to-actor: true
