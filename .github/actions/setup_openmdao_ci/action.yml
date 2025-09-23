@@ -63,10 +63,13 @@ inputs:
     required: false
 runs:
   using: 'composite'
+  defaults:
+    run:
+      # Use a login shell
+      shell: bash -l {0}
   steps:
 
     - name: Display run details
-      shell: bash
       run: |
         echo "============================================================="
         echo "Run #${GITHUB_RUN_NUMBER}"
@@ -83,7 +86,6 @@ runs:
         script: core.setFailed('The ${{ inputs.matrix_name }} job was excluded from the run, exiting...');
 
     - name: Log inputs
-      shell: bash
       run: |
         echo "===== Composite Action Inputs ====="
         echo "matrix_name: ${{ inputs.matrix_name }}"
@@ -105,7 +107,6 @@ runs:
       env:
         SSH_PRIVATE_KEY: ${{ inputs.ssh_private_key }}
         SSH_KNOWN_HOSTS: ${{ inputs.ssh_known_hosts }}
-      shell: bash
       run: |
         mkdir -p ~/.ssh/
         echo "$SSH_PRIVATE_KEY" > ~/.ssh/id_rsa
@@ -121,7 +122,6 @@ runs:
         channel-priority: "strict"
 
     - name: 'Install OpenMDAO'
-      shell: bash
       run: |
         conda install numpy=${{ inputs.numpy_version }} scipy=${{ inputs.scipy_version }} -q -y
 
@@ -148,7 +148,6 @@ runs:
 
     - name: Install compilers
       if: inputs.pyoptsparse_version != ''
-      shell: bash
       run: |
         echo "============================================================="
         echo "Install compilers"
@@ -159,25 +158,18 @@ runs:
           conda install cython swig compilers cmake meson -q -y
         fi
 
-      - name: Setup tmate session
-      # if: ${{ inputs.debug_enabled }} == 'true'
-      uses: mxschmitt/action-tmate@v3
-      with:
-        limit-access-to-actor: true
-
     - name: Install PETSc
       if: inputs.petsc_version != ''
-      shell: bash
       run: |
         echo "============================================================="
         echo "Install PETSc"
         echo "============================================================="
         if [[ "${{ inputs.mpich_version }}" ]]; then
-          conda install mpich-mpicc=${{ inputs.mpich_version }} -q -y -c conda-forge
+          conda install mpich-mpicc=${{ inputs.mpich_version }} -y -c conda-forge
         elif [[ "${{ inputs.openmpi_version }}" ]]; then
-          conda install openmpi=${{ inputs.openmpi_version }} openmpi-mpicc=${{ inputs.openmpi_version }} -q -y -c conda-forge
+          conda install openmpi-mpicc=${{ inputs.openmpi_version }} -y -c conda-forge
         else
-          conda install openmpi openmpi-mpicc -q -y -c conda-forge
+          conda install openmpi-mpicc -y -c conda-forge
         fi
 
         if [[ "${{ inputs.mpi4py_version }}" ]]; then
@@ -220,7 +212,6 @@ runs:
 
     - name: Build SNOPT
       if: inputs.pyoptsparse_from != 'build_pyoptsparse' && inputs.snopt_version_version != ''
-      shell: bash
       continue-on-error: false
       run: |
         echo "============================================================="
@@ -279,14 +270,12 @@ runs:
 
     - name: Install pyOptSparse from GitHub
       if: inputs.pyoptsparse_version != '' && inputs.pyoptsparse_from == 'github'
-      shell: bash
       run: |
         echo "Installing pyOptSparse from GitHub, IPOPT will not be available"
         pip install git+https://github.com/mdolab/pyoptsparse@v${{ inputs.pyoptsparse_version }}
 
     - name: Install pyOptSparse from conda-forge
       if: inputs.pyoptsparse_version != '' && inputs.pyoptsparse_from == 'conda-forge'
-      shell: bash
       run: |
         echo "Installing pyOptSparse from conda-forge, IPOPT will be available"
         conda install -c conda-forge pyoptsparse=${{ inputs.pyoptsparse_version }} -q -y
@@ -294,7 +283,6 @@ runs:
     - name: Install pyOptSparse using build_pyoptsparse
       if: inputs.pyoptsparse_version != '' && inputs.pyoptsparse_from == 'build_pyoptsparse'
       continue-on-error: false
-      shell: bash
       run: |
         conda install -c conda-forge swig -q -y
 
@@ -331,7 +319,6 @@ runs:
 
     - name: Install optional dependencies
       if: inputs.optional == '[all]' || inputs.optional == '[all,numba]'
-      shell: bash
       run: |
         echo "============================================================="
         echo "Install additional packages for testing/coverage"
@@ -349,7 +336,6 @@ runs:
     - name: Display environment info
       id: env_info
       continue-on-error: true
-      shell: bash
       run: |
         conda info
         conda list
