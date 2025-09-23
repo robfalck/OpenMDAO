@@ -1,23 +1,17 @@
 name: Install OpenMDAO
 description: 'Install OpenMDAO from the requested source'
 inputs:
-  pyoptsparse_version:
-    description: 'Version of pyoptsparse to be used, or empty string for no pyoptsparse.'
+  petsc_version:
+    description: 'version of PETSc to be used, or "" for no petsc.'
     required: false
-  pyoptsparse_from:
-    description: 'Location from which to acquire pyoptsparse, either "build_pyoptsparse" or "conda-forge" or "github" or ""'
+  mpi4py_version:
+    description: 'version of mpi4py to be used'
     required: false
-  snopt_version:
-    description: 'The version of SNOPT to test against, if avaiable.''
+  openmpi_version:
+    description: 'version of openmpi to be used'
     required: false
-  ssh_private_key:
-    description: 'ssh private key when being run by OpenMDAO org'
-    required: false
-  ssh_known_hosts:
-    description: 'ssh known hosts when being run by OpenMDAO org'
-    required: false
-  snopt_location:
-    description: 'snopt location when being run by OpenMDAO org'
+  mpich_version:
+    description: 'version of mpich to be used'
     required: false
 runs:
   using: 'composite'
@@ -38,9 +32,10 @@ runs:
       shell: bash -l {0}
       run: |
         echo "===== Composite Action Inputs ====="
-        echo "pyoptsparse_version: ${{ inputs.pyoptsparse_version }}"
-        echo "pyoptsparse_from: ${{ inputs.pyoptsparse_from }}"
-        echo "snopt_version: ${{ inputs.snopt_version }}"
+        echo "petsc_version: ${{ inputs.petsc_version }}"
+        echo "mpi4py_version: ${{ inputs.mpi4py_version }}"
+        echo "openmpi_version: ${{ inputs.openmpi_version }}"
+        echo "mpich_version: ${{ inputs.mpich_version }}"
         echo "=================================="
 
     - name: Install PETSc

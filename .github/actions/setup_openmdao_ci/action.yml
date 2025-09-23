@@ -34,18 +34,6 @@ inputs:
   pyoptsparse_from:
     description: 'Location from which to acquire pyoptsparse, either "build_pyoptsparse" or "conda-forge" or "github" or ""'
     required: false
-  petsc_version:
-    description: 'version of PETSc to be used, or "" for no petsc.'
-    required: false
-  mpi4py_version:
-    description: 'version of mpi4py to be used'
-    required: false
-  openmpi_version:
-    description: 'version of openmpi to be used'
-    required: false
-  mpich_version:
-    description: 'version of mpich to be used'
-    required: false
   # snopt_version:
   #   description: 'The version of SNOPT to test against, if avaiable.''
   #   required: false

@@ -22,7 +22,6 @@ inputs:
 runs:
   using: 'composite'
   steps:
-
     - name: Display run details
       shell: bash -l {0}
       run: |

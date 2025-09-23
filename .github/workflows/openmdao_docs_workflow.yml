@@ -100,9 +100,6 @@ jobs:
           use_pypi: ${{ inputs.use_pypi }}
           pep517: ${{ matrix.PEP517 }}
           optional: ${{ matrix.OPTIONAL }}
-          openmpi_version: ${{ matrix.OPENMPI }}
-          petsc_version: ${{ matrix.PETSc }}
-          mpi4py_version: ${{ matrix.MPI4PY }}
           # snopt_version: ${{ matrix.SNOPT }}
           # The following secrets are known to OpenMDAO org but wont be available to others.
           # ssh_private_key: ${{ secrets.SSH_PRIVATE_KEY}}
@@ -119,11 +116,25 @@ jobs:
           pyoptsparse_from: ${{ matrix.PYOPTSPARSE_FROM }}
           snopt_version: ${{ matrix.SNOPT }}
           # The following secrets are known to OpenMDAO org but wont be available to others.
-          ssh_private_key: ${{ secrets.SSH_PRIVATE_KEY}}
-          ssh_known_hosts: ${{ secrets.SSH_KNOWN_HOSTS}}
-          snopt_location: ${{ secrets.SNOPT_LOCATION }}
-          snopt_location_72: ${{ secrets.SNOPT_LOCATION_72 }}
-          snopt_location_77: ${{ secrets.SNOPT_LOCATION_77 }}
+          # ssh_private_key: ${{ secrets.SSH_PRIVATE_KEY}}
+          # ssh_known_hosts: ${{ secrets.SSH_KNOWN_HOSTS}}
+          # snopt_location: ${{ secrets.SNOPT_LOCATION }}
+          # snopt_location_72: ${{ secrets.SNOPT_LOCATION_72 }}
+          # snopt_location_77: ${{ secrets.SNOPT_LOCATION_77 }}
+
+      - name: 'Install PETSc and mpi4py'
+        id: install_pyoptsparse
+        uses: ./.github/actions/install_pyoptsparse
+        with:
+          openmpi_version: ${{ matrix.OPENMPI }}
+          petsc_version: ${{ matrix.PETSc }}
+          mpi4py_version: ${{ matrix.MPI4PY }}
+          # The following secrets are known to OpenMDAO org but wont be available to others.
+          # ssh_private_key: ${{ secrets.SSH_PRIVATE_KEY}}
+          # ssh_known_hosts: ${{ secrets.SSH_KNOWN_HOSTS}}
+          # snopt_location: ${{ secrets.SNOPT_LOCATION }}
+          # snopt_location_72: ${{ secrets.SNOPT_LOCATION_72 }}
+          # snopt_location_77: ${{ secrets.SNOPT_LOCATION_77 }}
 
       - name: Install optional dependencies
         if: inputs.optional == '[all]' || inputs.optional == '[all,numba]'
