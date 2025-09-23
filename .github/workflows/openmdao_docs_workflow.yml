@@ -41,6 +41,10 @@ on:
         required: false
         default: false
 
+concurrency:
+  # Cancel any existing CI runs if we push to this branch
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 run-name:  ${{ inputs.run_name }}
 
@@ -59,7 +63,7 @@ jobs:
           # test baseline versions on Ubuntu
           - NAME: Ubuntu Baseline
             OS: ubuntu-24.04
-            PY: '3.13'
+            PY: '3.12'
             NUMPY: '2.2'
             SCIPY: '1.16'
             PETSc: '3.21'
@@ -76,6 +80,7 @@ jobs:
 
     defaults:
       run:
+        # Note this isn't passed to the composite action setup_openmdao_ci
         shell: bash -l {0}
 
     steps:
@@ -106,104 +111,104 @@ jobs:
           # snopt_location_72: ${{ secrets.SNOPT_LOCATION_72 }}
           # snopt_location_77: ${{ secrets.SNOPT_LOCATION_77 }}
 
-      - name: Build docs
-        id: build_docs
-        continue-on-error: true
-        run: |
-          export OPENMDAO_REPORTS=0
-          export PYDEVD_DISABLE_FILE_VALIDATION=1
+      # - name: Build docs
+      #   id: build_docs
+      #   continue-on-error: true
+      #   run: |
+      #     export OPENMDAO_REPORTS=0
+      #     export PYDEVD_DISABLE_FILE_VALIDATION=1
 
-          cd openmdao/docs
+      #     cd openmdao/docs
 
-          if [[ "${{ secrets.SNOPT_LOCATION_72 }}" || "${{ secrets.SNOPT_LOCATION_77 }}" ]]; then
-            echo "============================================================="
-            echo "Building docs with SNOPT examples."
-            echo "============================================================="
-          else
-            echo "============================================================="
-            echo "Disabling SNOPT cells in notebooks."
-            echo "============================================================="
-            python openmdao_book/other/disable_snopt_cells.py
-          fi
+      #     if [[ "${{ secrets.SNOPT_LOCATION_72 }}" || "${{ secrets.SNOPT_LOCATION_77 }}" ]]; then
+      #       echo "============================================================="
+      #       echo "Building docs with SNOPT examples."
+      #       echo "============================================================="
+      #     else
+      #       echo "============================================================="
+      #       echo "Disabling SNOPT cells in notebooks."
+      #       echo "============================================================="
+      #       python openmdao_book/other/disable_snopt_cells.py
+      #     fi
 
-          # start ipcluster to run MPI under notebooks
-          ./ipcluster_start.sh
-          sleep 12
+      #     # start ipcluster to run MPI under notebooks
+      #     ./ipcluster_start.sh
+      #     sleep 12
 
-          echo "============================================================="
-          echo "Build the docs"
-          echo "============================================================="
-          python build_source_docs.py
-          jupyter-book build -W --keep-going openmdao_book
-          python copy_build_artifacts.py
+      #     echo "============================================================="
+      #     echo "Build the docs"
+      #     echo "============================================================="
+      #     python build_source_docs.py
+      #     jupyter-book build -W --keep-going openmdao_book
+      #     python copy_build_artifacts.py
 
-      - name: Display doc build reports
-        if: steps.build_docs.outcome == 'failure'
-        run: |
-          for f in $(find /home/runner/work/OpenMDAO/OpenMDAO/openmdao/docs/openmdao_book/_build/html/reports -name '*.log'); do
-            echo "============================================================="
-            echo $f
-            echo "============================================================="
-            cat $f
-          done
+      # - name: Display doc build reports
+      #   if: steps.build_docs.outcome == 'failure'
+      #   run: |
+      #     for f in $(find /home/runner/work/OpenMDAO/OpenMDAO/openmdao/docs/openmdao_book/_build/html/reports -name '*.log'); do
+      #       echo "============================================================="
+      #       echo $f
+      #       echo "============================================================="
+      #       cat $f
+      #     done
 
-      - name: Archive built docs
-        if: steps.build_docs.outcome == 'success'
-        uses: actions/upload-artifact@v4
-        with:
-          name: built-docs-artifact
-          path: openmdao/docs/openmdao_book/_build/html
-          retention-days: 1
+      # - name: Archive built docs
+      #   if: steps.build_docs.outcome == 'success'
+      #   uses: actions/upload-artifact@v4
+      #   with:
+      #     name: built-docs-artifact
+      #     path: openmdao/docs/openmdao_book/_build/html
+      #     retention-days: 1
 
-      - name: Publish docs
-        if: github.event_name != 'pull_request' && matrix.PUBLISH
-        env:
-          DOCS_LOCATION: ${{ secrets.DOCS_LOCATION }}
-        run: |
-          if [[ "${#DOCS_LOCATION}" ]]; then
-            echo "============================================================="
-            echo "Create env with openssl compatible with hosting service"
-            echo "============================================================="
-            conda create -n upload python=3.11 packaging openssl=3
-            conda activate upload
+      # - name: Publish docs
+      #   if: github.event_name != 'pull_request' && matrix.PUBLISH
+      #   env:
+      #     DOCS_LOCATION: ${{ secrets.DOCS_LOCATION }}
+      #   run: |
+      #     if [[ "${#DOCS_LOCATION}" ]]; then
+      #       echo "============================================================="
+      #       echo "Create env with openssl compatible with hosting service"
+      #       echo "============================================================="
+      #       conda create -n upload python=3.11 packaging openssl=3
+      #       conda activate upload
 
-            echo "============================================================="
-            echo "Publish docs"
-            echo "============================================================="
-            cd openmdao/docs
-            python upload_doc_version.py openmdao_book/_build/html/ ${{ secrets.DOCS_LOCATION }}
-          else
-            echo "Docs destination not available."
-          fi
+      #       echo "============================================================="
+      #       echo "Publish docs"
+      #       echo "============================================================="
+      #       cd openmdao/docs
+      #       python upload_doc_version.py openmdao_book/_build/html/ ${{ secrets.DOCS_LOCATION }}
+      #     else
+      #       echo "Docs destination not available."
+      #     fi
 
-      - name: Slack env change
-        if: steps.env_info.outputs.errors != ''
-        uses: act10ns/slack@v2.0.0
-        with:
-          webhook-url: ${{ secrets.SLACK_WEBHOOK_URL }}
-          status: 'warning'
-          message: |
-            Environment change detected on `${{ matrix.NAME }}` build.
-            Python, NumPy or SciPy was not the requested version:
-            ```${{steps.env_info.outputs.errors}}```
-            ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+      # - name: Slack env change
+      #   if: steps.env_info.outputs.errors != ''
+      #   uses: act10ns/slack@v2.0.0
+      #   with:
+      #     webhook-url: ${{ secrets.SLACK_WEBHOOK_URL }}
+      #     status: 'warning'
+      #     message: |
+      #       Environment change detected on `${{ matrix.NAME }}` build.
+      #       Python, NumPy or SciPy was not the requested version:
+      #       ```${{steps.env_info.outputs.errors}}```
+      #       ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
 
-      - name: Slack doc build failure
-        if: steps.build_docs.outcome == 'failure'
-        uses: act10ns/slack@v2.0.0
-        with:
-          webhook-url: ${{ secrets.SLACK_WEBHOOK_URL }}
-          status: ${{ steps.build_docs.outcome }}
-          message: |
-            Doc build failed on `${{ matrix.NAME }}` build.
-            ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+      # - name: Slack doc build failure
+      #   if: steps.build_docs.outcome == 'failure'
+      #   uses: act10ns/slack@v2.0.0
+      #   with:
+      #     webhook-url: ${{ secrets.SLACK_WEBHOOK_URL }}
+      #     status: ${{ steps.build_docs.outcome }}
+      #     message: |
+      #       Doc build failed on `${{ matrix.NAME }}` build.
+      #       ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
 
-      - name: Fail the workflow if doc build failed
-        if: steps.build_docs.outcome == 'failure'
-        uses: actions/github-script@v8
-        with:
-          script: |
-              let docs_fail = ${{ steps.build_docs.outcome == 'failure' }};
-              if (docs_fail) {
-                  core.setFailed('Doc build failed.');
-              }
+      # - name: Fail the workflow if doc build failed
+      #   if: steps.build_docs.outcome == 'failure'
+      #   uses: actions/github-script@v8
+      #   with:
+      #     script: |
+      #         let docs_fail = ${{ steps.build_docs.outcome == 'failure' }};
+      #         if (docs_fail) {
+      #             core.setFailed('Doc build failed.');
+      #         }

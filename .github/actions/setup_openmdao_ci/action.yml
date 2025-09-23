@@ -290,6 +290,7 @@ runs:
       continue-on-error: false
       shell: bash -l {0}
       run: |
+        echo "Installing pyOptSparse from build_pyoptsparse"
         conda install -c conda-forge swig -q -y
 
         python -m pip install git+https://github.com/OpenMDAO/build_pyoptsparse
@@ -322,6 +323,12 @@ runs:
         fi
 
         build_pyoptsparse -v $BRANCH $SNOPT
+
+    - name: Test pyoptsparse installation
+      if: inputs.pyoptsparse_version != ''
+      shell: bash -l {0}
+      run: |
+        python -c "import pyoptsparse; from pyoptsparse import SLSQP; SLSQP()" && echo "pyOptSparse OK" || echo "pyOptSparse FAILED"
 
     - name: Install optional dependencies
       if: inputs.optional == '[all]' || inputs.optional == '[all,numba]'
