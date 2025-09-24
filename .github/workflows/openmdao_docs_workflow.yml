@@ -140,7 +140,7 @@ jobs:
           scipy_version: ${{ matrix.SCIPY }}
 
       - name: 'Build and Optionally Publish Docs'
-        id: display_env_info
+        id: build_docs
         uses: ./.github/actions/display_environment_info
         with:
           matrix_name: ${{ matrix.NAME }}
