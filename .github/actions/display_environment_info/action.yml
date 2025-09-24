@@ -19,6 +19,15 @@ inputs:
 runs:
   using: 'composite'
   steps:
+    - name: Log inputs
+    shell: bash -l {0}
+    run: |
+      echo "===== Composite Action Inputs ====="
+      echo "matrix_name: ${{ inputs.matrix_name }}"
+      echo "python_version: ${{ inputs.python_version }}"
+      echo "numpy_version: ${{ inputs.numpy_version }}"
+      echo "scipy_version: ${{ inputs.scipy_version }}"
+      echo "=================================="
 
     - name: Display environment info
       id: env_info

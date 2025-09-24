@@ -19,6 +19,16 @@ inputs:
 runs:
   using: 'composite'
   steps:
+
+    - name: Log inputs
+      shell: bash -l {0}
+      run: |
+        echo "===== Composite Action Inputs ====="
+        echo "matrix_name: ${{ inputs.matrix_name }}"
+        echo "use_snopt: ${{ inputs.use_snopt }}"
+        echo "publish: ${{ inputs.publish }}"
+        echo "=================================="
+
     - name: Build docs
       id: build_docs
       continue-on-error: true

@@ -10,6 +10,13 @@ inputs:
 runs:
   using: 'composite'
   steps:
+    - name: Log inputs
+      shell: bash -l {0}
+      run: |
+        echo "===== Composite Action Inputs ====="
+        echo "os_version: ${{ inputs.os_version }}"
+        echo "optional: ${{ inputs.optional }}"
+        echo "=================================="
 
     - name: Install optional dependencies
       if: inputs.optional == '[all]' || inputs.optional == '[all,numba]'

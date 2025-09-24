@@ -28,6 +28,15 @@ inputs:
 runs:
   using: 'composite'
   steps:
+    - name: Log inputs
+      shell: bash -l {0}
+      run: |
+        echo "===== Composite Action Inputs ====="
+        echo "pyoptsparse_version: ${{ inputs.pyoptsparse_version }}"
+        echo "pyoptsparse_from: ${{ inputs.pyoptsparse_from }}"
+        echo "snopt_version: ${{ inputs.snopt_version }}"
+        echo "=================================="
+
     - name: Display run details
       shell: bash -l {0}
       run: |
