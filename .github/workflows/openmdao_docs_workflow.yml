@@ -141,7 +141,7 @@ jobs:
 
       - name: 'Build and Optionally Publish Docs'
         id: build_docs
-        uses: ./.github/actions/display_environment_info
+        uses: ./.github/actions/build_docs
         with:
           matrix_name: ${{ matrix.NAME }}
           use_snopt: ${{ format('{0}', matrix.SNOPT_LOCATION_72 != '' || matrix.SNOPT_LOCATION_77 != '') }}
