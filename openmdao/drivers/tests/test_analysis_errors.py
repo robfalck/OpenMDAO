@@ -24,7 +24,7 @@ do_not_test = {
     'PSQP',         # fails nominal with: (4) Maximum constraint value is less than or equal to tolerance
 }
 
-# @use_tempdirs
+@use_tempdirs
 @require_pyoptsparse()
 class TestPyoptSparseAnalysisErrors(unittest.TestCase):
 
@@ -34,8 +34,7 @@ class TestPyoptSparseAnalysisErrors(unittest.TestCase):
             'seed': 1.0 if pyoptsparse_version == Version('1.2') else 1
         },
         'IPOPT': {
-            'file_print_level': 12,
-            'print_level': 5
+            'file_print_level': 5
         },
         'SLSQP': {
             'ACC': 1e-9
@@ -118,9 +117,6 @@ class TestPyoptSparseAnalysisErrors(unittest.TestCase):
 
         prob.set_val('x', 50)
         prob.set_val('y', 50)
-
-        prob.run_model()
-        prob.list_driver_vars()
 
         return prob, comp
 
@@ -209,8 +205,8 @@ class TestPyoptSparseAnalysisErrors(unittest.TestCase):
                 self.assertEqual(errs, err_count,
                                  f"Found {errs} evaluation errors in SNOPT_print.out, expected {err_count}")
 
-    # @parameterized.expand(optlist - do_not_test, name_func=parameterized_name)
-    def test_analysis_errors_eval(self, optimizer='SLSQP'):
+    @parameterized.expand(optlist - do_not_test, name_func=parameterized_name)
+    def test_analysis_errors_eval(self, optimizer):
         #
         # first optimize without Analysis Errors
         #

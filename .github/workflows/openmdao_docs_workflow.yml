@@ -100,13 +100,6 @@ jobs:
           use_pypi: ${{ inputs.use_pypi }}
           pep517: ${{ matrix.PEP517 }}
           optional: ${{ matrix.OPTIONAL }}
-          # snopt_version: ${{ matrix.SNOPT }}
-          # The following secrets are known to OpenMDAO org but wont be available to others.
-          # ssh_private_key: ${{ secrets.SSH_PRIVATE_KEY}}
-          # ssh_known_hosts: ${{ secrets.SSH_KNOWN_HOSTS}}
-          # snopt_location: ${{ secrets.SNOPT_LOCATION }}
-          # snopt_location_72: ${{ secrets.SNOPT_LOCATION_72 }}
-          # snopt_location_77: ${{ secrets.SNOPT_LOCATION_77 }}
 
       - name: 'Install pyOptSparse'
         id: install_pyoptsparse
@@ -116,11 +109,11 @@ jobs:
           pyoptsparse_from: ${{ matrix.PYOPTSPARSE_FROM }}
           snopt_version: ${{ matrix.SNOPT }}
           # The following secrets are known to OpenMDAO org but wont be available to others.
-          # ssh_private_key: ${{ secrets.SSH_PRIVATE_KEY}}
-          # ssh_known_hosts: ${{ secrets.SSH_KNOWN_HOSTS}}
-          # snopt_location: ${{ secrets.SNOPT_LOCATION }}
-          # snopt_location_72: ${{ secrets.SNOPT_LOCATION_72 }}
-          # snopt_location_77: ${{ secrets.SNOPT_LOCATION_77 }}
+          SECRET_ssh_private_key: ${{ secrets.SSH_PRIVATE_KEY}}
+          SECRET_ssh_known_hosts: ${{ secrets.SSH_KNOWN_HOSTS}}
+          SECRET_snopt_location: ${{ secrets.SNOPT_LOCATION }}
+          SECRET_snopt_location_72: ${{ secrets.SNOPT_LOCATION_72 }}
+          SECRET_snopt_location_77: ${{ secrets.SNOPT_LOCATION_77 }}
 
       - name: 'Install PETSc and mpi4py'
         id: install_petsc
