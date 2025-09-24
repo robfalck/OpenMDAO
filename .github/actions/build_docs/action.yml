@@ -53,6 +53,7 @@ runs:
 
     - name: Display doc build reports
       if: steps.build_docs.outcome == 'failure'
+      shell: bash -l {0}
       run: |
         for f in $(find /home/runner/work/OpenMDAO/OpenMDAO/openmdao/docs/openmdao_book/_build/html/reports -name '*.log'); do
           echo "============================================================="
@@ -74,6 +75,7 @@ runs:
       if: github.event_name != 'pull_request' && inputs.publish == 'true' && inputs.SECRET_docs_location != ''
       env:
         DOCS_LOCATION: ${{ inputs.SECRET_docs_location }}
+      shell: bash -l {0}
       run: |
         if [[ "${#DOCS_LOCATION}" ]]; then
           echo "============================================================="
