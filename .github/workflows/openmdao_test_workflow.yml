@@ -547,7 +547,7 @@ jobs:
         include:
           # baseline versions
           - NAME: Windows Baseline
-            PY: '3.13'
+            PY: '3.12'
             NUMPY: '2.2'
             SCIPY: '1.16'
             PYOPTSPARSE: '2.13.1'

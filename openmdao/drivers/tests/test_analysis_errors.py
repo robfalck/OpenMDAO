@@ -119,7 +119,6 @@ class TestPyoptSparseAnalysisErrors(unittest.TestCase):
         prob.set_val('x', 50)
         prob.set_val('y', 50)
 
-        prob.final_setup()
         prob.run_model()
         prob.list_driver_vars()
 
@@ -211,7 +210,7 @@ class TestPyoptSparseAnalysisErrors(unittest.TestCase):
                                  f"Found {errs} evaluation errors in SNOPT_print.out, expected {err_count}")
 
     # @parameterized.expand(optlist - do_not_test, name_func=parameterized_name)
-    def test_analysis_errors_eval(self, optimizer='IPOPT'):
+    def test_analysis_errors_eval(self, optimizer='SLSQP'):
         #
         # first optimize without Analysis Errors
         #
