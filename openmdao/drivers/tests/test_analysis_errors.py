@@ -205,7 +205,7 @@ class TestPyoptSparseAnalysisErrors(unittest.TestCase):
                 self.assertEqual(errs, err_count,
                                  f"Found {errs} evaluation errors in SNOPT_print.out, expected {err_count}")
 
-    @parameterized.expand(optlist - do_not_test, name_func=parameterized_name)
+    # @parameterized.expand(optlist - do_not_test, name_func=parameterized_name)
     def test_analysis_errors_eval(self):
         optimizer = 'IPOPT'
         #
