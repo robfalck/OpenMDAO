@@ -108,7 +108,6 @@ jobs:
           pyoptsparse_version: ${{ matrix.PYOPTSPARSE }}
           pyoptsparse_from: ${{ matrix.PYOPTSPARSE_FROM }}
           snopt_version: ${{ matrix.SNOPT }}
-          # The following secrets are known to OpenMDAO org but wont be available to others.
           SECRET_ssh_private_key: ${{ secrets.SSH_PRIVATE_KEY}}
           SECRET_ssh_known_hosts: ${{ secrets.SSH_KNOWN_HOSTS}}
           SECRET_snopt_location: ${{ secrets.SNOPT_LOCATION }}
@@ -130,136 +129,22 @@ jobs:
           os_version: ${{ matrix.OS }}
           optional: ${{ matrix.OPTIONAL }}
 
-      - name: Display environment info
-        id: env_info
-        continue-on-error: true
-        shell: bash -l {0}
-        run: |
-          conda info
-          conda list
-
-          echo "============================================================="
-          echo "Check installed versions of Python, Numpy and Scipy"
-          echo "============================================================="
-          echo 'errors<<EOF' >> $GITHUB_OUTPUT
-
-          FINAL_VER=`python -c "import platform; print(platform.python_version())"`
-          if [[ ! "$FINAL_VER" == "${{ inputs.python_version }}"* ]]; then
-            echo "Python version was changed from ${{ matrix.PY }} to $FINAL_VER" >> $GITHUB_OUTPUT
-          fi
-
-          FINAL_VER=`python -c "import numpy; print(numpy.__version__)"`
-          if [[ ! "$FINAL_VER" == "${{ inputs.numpy_version }}"* ]]; then
-            echo "NumPy version was changed from ${{ inputs.numpy_version }} to $FINAL_VER" >> $GITHUB_OUTPUT
-          fi
-
-          FINAL_VER=`python -c "import scipy; print(scipy.__version__)"`
-          if [[ ! "$FINAL_VER" == "${{ inputs.scipy_version }}"* ]]; then
-            echo "SciPy version was changed from ${{ inputs.scipy_version }} to $FINAL_VER" >> $GITHUB_OUTPUT
-          fi
-
-          echo 'EOF' >> $GITHUB_OUTPUT
-
-          grep changed $GITHUB_OUTPUT || echo ""
-
-      - name: Build docs
-        id: build_docs
-        continue-on-error: true
-        run: |
-          export OPENMDAO_REPORTS=0
-          export PYDEVD_DISABLE_FILE_VALIDATION=1
-
-          cd openmdao/docs
-
-          if [[ "${{ secrets.SNOPT_LOCATION_72 }}" || "${{ secrets.SNOPT_LOCATION_77 }}" ]]; then
-            echo "============================================================="
-            echo "Building docs with SNOPT examples."
-            echo "============================================================="
-          else
-            echo "============================================================="
-            echo "Disabling SNOPT cells in notebooks."
-            echo "============================================================="
-            python openmdao_book/other/disable_snopt_cells.py
-          fi
-
-          # start ipcluster to run MPI under notebooks
-          ./ipcluster_start.sh
-          sleep 12
-
-          echo "============================================================="
-          echo "Build the docs"
-          echo "============================================================="
-          python build_source_docs.py
-          jupyter-book build -W --keep-going openmdao_book
-          python copy_build_artifacts.py
-
-      - name: Display doc build reports
-        if: steps.build_docs.outcome == 'failure'
-        run: |
-          for f in $(find /home/runner/work/OpenMDAO/OpenMDAO/openmdao/docs/openmdao_book/_build/html/reports -name '*.log'); do
-            echo "============================================================="
-            echo $f
-            echo "============================================================="
-            cat $f
-          done
-
-      - name: Archive built docs
-        if: steps.build_docs.outcome == 'success'
-        uses: actions/upload-artifact@v4
+      - name: 'Display environment info'
+        id: display_env_info
+        uses: ./.github/actions/display_environment_info
         with:
-          name: built-docs-artifact
-          path: openmdao/docs/openmdao_book/_build/html
-          retention-days: 1
+          matrix_name: ${{ matrix.NAME }}
+          SECRET_slack_webhook_url: ${{ secrets.SLACK_WEBHOOK_URL }}
+          python_version: ${{ matrix.PY }}
+          numpy_version: ${{ matrix.NUMPY }}
+          scipy_version: ${{ matrix.SCIPY }}
 
-      - name: Publish docs
-        if: github.event_name != 'pull_request' && matrix.PUBLISH
-        env:
-          DOCS_LOCATION: ${{ secrets.DOCS_LOCATION }}
-        run: |
-          if [[ "${#DOCS_LOCATION}" ]]; then
-            echo "============================================================="
-            echo "Create env with openssl compatible with hosting service"
-            echo "============================================================="
-            conda create -n upload python=3.11 packaging openssl=3
-            conda activate upload
-
-            echo "============================================================="
-            echo "Publish docs"
-            echo "============================================================="
-            cd openmdao/docs
-            python upload_doc_version.py openmdao_book/_build/html/ ${{ secrets.DOCS_LOCATION }}
-          else
-            echo "Docs destination not available."
-          fi
-
-      - name: Slack env change
-        if: steps.env_info.outputs.errors != ''
-        uses: act10ns/slack@v2.0.0
+      - name: 'Build and Optionally Publish Docs'
+        id: display_env_info
+        uses: ./.github/actions/display_environment_info
         with:
-          webhook-url: ${{ secrets.SLACK_WEBHOOK_URL }}
-          status: 'warning'
-          message: |
-            Environment change detected on `${{ matrix.NAME }}` build.
-            Python, NumPy or SciPy was not the requested version:
-            ```${{steps.env_info.outputs.errors}}```
-            ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-
-      - name: Slack doc build failure
-        if: steps.build_docs.outcome == 'failure'
-        uses: act10ns/slack@v2.0.0
-        with:
-          webhook-url: ${{ secrets.SLACK_WEBHOOK_URL }}
-          status: ${{ steps.build_docs.outcome }}
-          message: |
-            Doc build failed on `${{ matrix.NAME }}` build.
-            ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-
-      - name: Fail the workflow if doc build failed
-        if: steps.build_docs.outcome == 'failure'
-        uses: actions/github-script@v8
-        with:
-          script: |
-              let docs_fail = ${{ steps.build_docs.outcome == 'failure' }};
-              if (docs_fail) {
-                  core.setFailed('Doc build failed.');
-              }
+          matrix_name: ${{ matrix.NAME }}
+          use_snopt: ${{ format('{0}', matrix.SNOPT_LOCATION_72 != '' || matrix.SNOPT_LOCATION_77 != '') }}
+          SECRET_docs_location: ${{ secrets.DOCS_LOCATION }}
+          SECRET_slack_webhook_url: ${{ secrets.SLACK_WEBHOOK_URL }}
+          publish: ${{ matrix.PUBLISH }}
