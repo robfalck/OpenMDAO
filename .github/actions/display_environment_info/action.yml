@@ -53,7 +53,7 @@ runs:
         grep changed $GITHUB_OUTPUT || echo ""
 
     - name: Slack env change
-      if: steps.env_info.outputs.errors != '' && ${{ inputs.SECRET_slack_webhook_url } != ''}
+      if: steps.env_info.outputs.errors != ''
       uses: act10ns/slack@v2.0.0
       with:
         webhook-url: ${{ inputs.SECRET_slack_webhook_url }}
