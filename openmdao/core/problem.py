@@ -1047,6 +1047,9 @@ class Problem(object, metaclass=ProblemMetaclass):
         model = self.model
         comm = self.comm
 
+        if not isinstance(model, Component) and not model._subsystems_allprocs and not model._static_subsystems_allprocs:
+            raise RuntimeError("Problem system is empty!")
+
         if not isinstance(self.model, Group):
             raise TypeError("The model for this Problem is of type "
                             f"'{self.model.__class__.__name__}'. "
