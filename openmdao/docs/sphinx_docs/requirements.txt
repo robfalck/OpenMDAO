@@ -1,0 +1,36 @@
+# Sphinx documentation build requirements
+# Install with: pip install -r requirements.txt
+
+# Core Sphinx
+sphinx>=7.0.0
+
+# MyST-NB for Jupyter Notebook support
+myst-nb>=1.0.0
+
+# MyST Parser for Markdown support
+myst-parser>=2.0.0
+linkify-it-py>=2.0.0  # Required for linkify extension
+
+# Sphinx Book Theme (base theme for om-theme)
+sphinx-book-theme>=1.0.0
+
+# Extensions
+sphinx-sitemap>=2.5.0
+sphinxcontrib-bibtex>=2.6.0
+numpydoc>=1.6.0
+
+# Jupyter and notebook execution
+jupyter>=1.0.0
+nbclient>=0.8.0
+nbformat>=5.9.0
+ipykernel>=6.25.0
+
+# For notebook widgets and interactive features
+ipywidgets>=8.0.0
+
+# OpenMDAO itself (needed for code execution in notebooks)
+# Uncomment if not already installed
+# openmdao
+
+# Optional: For better performance
+# jupyter-cache>=0.6.0
