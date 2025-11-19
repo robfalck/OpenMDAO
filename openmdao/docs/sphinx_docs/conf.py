@@ -7,7 +7,6 @@
 # -- Path setup --------------------------------------------------------------
 
 import os
-import sys
 
 # If extensions (or modules to document with autodoc) are in another directory,
 # add these directories to sys.path here.
@@ -66,7 +65,10 @@ master_doc = 'index'
 # 'auto': Only execute notebooks that don't have outputs
 # 'cache': Cache execution results
 # 'off': Don't execute notebooks
-nb_execution_mode = 'force'
+nb_execution_mode = os.environ.get("SPHINX_NB_EXECUTION_MODE", "auto")
+
+nb_execution_engine = 'ipyparallel'
+nb_ipyparallel_url_file = None
 
 # Show stderr output during notebook execution
 nb_execution_show_tb = True
@@ -85,6 +87,14 @@ myst_enable_extensions = [
     'linkify',          # Automatically detect URLs
     'substitution',     # Variable substitution
 ]
+
+# Enable parallel execution
+nb_execution_in_parallel = True
+
+# Explicitly set the number of processes to the available CPU count
+nb_execution_session_config = {
+    "n_processes": os.cpu_count()
+}
 
 # -- BibTeX Configuration ----------------------------------------------------
 
