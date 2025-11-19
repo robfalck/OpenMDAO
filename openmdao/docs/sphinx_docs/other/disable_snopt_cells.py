@@ -9,7 +9,7 @@ def disable_snopt_cells(fname):
     fname : str
         Name of the notebook file, from openmdao_book.
     """
-    fname = f'openmdao_book/{fname}'
+    fname = f'sphinx_docs/{fname}'
 
     with open(fname) as f:
         dct = json.load(f)
