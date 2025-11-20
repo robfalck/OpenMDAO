@@ -71,6 +71,13 @@ nb_execution_mode = os.environ.get("SPHINX_NB_EXECUTION_MODE", "auto")
 nb_execution_engine = 'ipyparallel'
 nb_ipyparallel_url_file = None
 
+# Configure ipyparallel to use the profile that run_mpi_cluster.py creates
+# This allows MyST-NB to find and use the cluster started by build_sphinx_docs.py
+# and also allows notebooks that use Client(profile="mpi") to connect
+nb_ipyparallel_client_args = {
+    'profile': 'mpi'
+}
+
 # Show stderr output during notebook execution
 nb_execution_show_tb = True
 

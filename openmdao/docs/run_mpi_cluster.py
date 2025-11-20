@@ -9,7 +9,7 @@ import argparse
 import sys
 
 
-def start_ipyparallel_cluster(n=4, cluster_id='docs-mpi-cluster'):
+def start_ipyparallel_cluster(n=4, cluster_id='docs-mpi-cluster', profile='mpi'):
     """
     Start an ipyparallel MPI cluster with the given number of engines.
 
@@ -21,6 +21,8 @@ def start_ipyparallel_cluster(n=4, cluster_id='docs-mpi-cluster'):
         The number of engines to use.
     cluster_id : str
         The cluster ID to use for this cluster.
+    profile : str
+        The profile name to use for this cluster (for compatibility with notebooks).
     """
     import ipyparallel as ipp
     import os
@@ -29,9 +31,9 @@ def start_ipyparallel_cluster(n=4, cluster_id='docs-mpi-cluster'):
     os.environ["OMPI_MCA_rmaps_base_oversubscribe"] = "1"
     os.environ["OMPI_MCA_btl"] = "^openib"
 
-    # Create and start MPI cluster using modern API
-    print(f"Starting MPI cluster with {n} engines (cluster_id: {cluster_id})...")
-    cluster = ipp.Cluster(engines="mpi", n=n, cluster_id=cluster_id)
+    # Create and start MPI cluster using modern API with profile
+    print(f"Starting MPI cluster with {n} engines (cluster_id: {cluster_id}, profile: {profile})...")
+    cluster = ipp.Cluster(engines="mpi", n=n, cluster_id=cluster_id, profile=profile)
 
     try:
         # Start the cluster (synchronous version)
