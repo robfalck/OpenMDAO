@@ -26,10 +26,21 @@ def start_ipyparallel_cluster(n=4, cluster_id='docs-mpi-cluster', profile='mpi')
     """
     import ipyparallel as ipp
     import os
+    from pathlib import Path
 
     # Set MPI environment variables in Python as well
     os.environ["OMPI_MCA_rmaps_base_oversubscribe"] = "1"
     os.environ["OMPI_MCA_btl"] = "^openib"
+
+    # Ensure the profile directory exists
+    # This is needed for notebooks to find the connection file
+    print(f"Ensuring profile '{profile}' exists...")
+    profile_dir = Path.home() / ".ipython" / f"profile_{profile}"
+    if not profile_dir.exists():
+        print(f"Creating profile directory: {profile_dir}")
+        profile_dir.mkdir(parents=True, exist_ok=True)
+        security_dir = profile_dir / "security"
+        security_dir.mkdir(parents=True, exist_ok=True)
 
     # Create and start MPI cluster using modern API with profile
     print(f"Starting MPI cluster with {n} engines (cluster_id: {cluster_id}, profile: {profile})...")
@@ -65,7 +76,8 @@ def start_ipyparallel_cluster(n=4, cluster_id='docs-mpi-cluster', profile='mpi')
 
         print("\nCluster is ready for use!")
         print(f"Cluster will continue running in the background with ID: {cluster_id}")
-        print("To connect from other scripts: rc = ipp.Client(cluster_id='docs-mpi-cluster')")
+        print(f"To connect from notebooks: cluster = Client(profile='{profile}')")
+        print(f"To connect from scripts: rc = ipp.Client(cluster_id='{cluster_id}')")
         print(f"To stop the cluster later: python {sys.argv[0]} stop")
 
     except Exception as e:
@@ -142,10 +154,15 @@ Examples:
         default='docs-mpi-cluster',
         help='Cluster ID to use (default: docs-mpi-cluster)'
     )
+    parser.add_argument(
+        '--profile',
+        default='mpi',
+        help='Profile name to use (default: mpi)'
+    )
 
     args = parser.parse_args()
 
     if args.action == 'start':
-        start_ipyparallel_cluster(n=args.num_engines, cluster_id=args.cluster_id)
+        start_ipyparallel_cluster(n=args.num_engines, cluster_id=args.cluster_id, profile=args.profile)
     elif args.action == 'stop':
         stop_ipyparallel_cluster(cluster_id=args.cluster_id)
