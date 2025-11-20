@@ -55,7 +55,7 @@ runs:
         echo "============================================================="
         # Use build_sphinx_docs.py which manages cluster, builds source docs,
         # and handles parallel notebook execution with -W --keep-going flags
-        python build_sphinx_docs.py -j 4 -W --keep-going
+        python build_sphinx_docs.py -W --keep-going
         python -m openmdao clean -f
 
     - name: Display doc build reports
