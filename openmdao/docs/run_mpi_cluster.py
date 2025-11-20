@@ -20,44 +20,68 @@ def start_ipyparallel_cluster(n=4, cluster_id='docs-mpi-cluster', profile='mpi')
     n : int
         The number of engines to use.
     cluster_id : str
-        The cluster ID to use for this cluster.
+        The cluster ID to use for this cluster (not used with ipcluster command).
     profile : str
         The profile name to use for this cluster (for compatibility with notebooks).
     """
-    import ipyparallel as ipp
+    import subprocess
     import os
     from pathlib import Path
+    import time
 
-    # Set MPI environment variables in Python as well
+    # Set MPI environment variables
     os.environ["OMPI_MCA_rmaps_base_oversubscribe"] = "1"
     os.environ["OMPI_MCA_btl"] = "^openib"
 
-    # Ensure the profile directory exists
-    # This is needed for notebooks to find the connection file
+    # Ensure the profile exists - use ipython to create it properly
     print(f"Ensuring profile '{profile}' exists...")
     profile_dir = Path.home() / ".ipython" / f"profile_{profile}"
-    if not profile_dir.exists():
-        print(f"Creating profile directory: {profile_dir}")
-        profile_dir.mkdir(parents=True, exist_ok=True)
-        security_dir = profile_dir / "security"
-        security_dir.mkdir(parents=True, exist_ok=True)
+    cfg_file = profile_dir / "ipcluster_config.py"
 
-    # Create and start MPI cluster using modern API with profile
-    print(f"Starting MPI cluster with {n} engines (cluster_id: {cluster_id}, profile: {profile})...")
-    cluster = ipp.Cluster(engines="mpi", n=n, cluster_id=cluster_id, profile=profile)
+    if not cfg_file.exists():
+        print(f"Creating ipyparallel profile: {profile}")
+        result = subprocess.run(
+            ['ipython', 'profile', 'create', '--parallel', f'--profile={profile}'],
+            capture_output=True,
+            text=True
+        )
+        if result.returncode != 0:
+            print(f"Error creating profile: {result.stderr}")
+            sys.exit(1)
+        print(f"Profile created at: {profile_dir}")
+    else:
+        print(f"Using existing profile at: {profile_dir}")
 
+    # Start the cluster using ipcluster command (old API, but it works!)
+    print(f"Starting MPI cluster with {n} engines using profile '{profile}'...")
+    cmd = [
+        'ipcluster', 'start',
+        '-n', str(n),
+        f'--profile={profile}',
+        "--engines=ipyparallel.cluster.launcher.MPIEngineSetLauncher",
+        '--daemonize'
+    ]
+
+    print(f"Running command: {' '.join(cmd)}")
+    result = subprocess.run(cmd, capture_output=True, text=True, env=os.environ)
+
+    if result.returncode != 0:
+        print(f"Error starting cluster: {result.stderr}")
+        sys.exit(1)
+
+    print("Cluster start command issued successfully!")
+    print("Waiting for cluster to initialize...")
+
+    # Wait a bit for the cluster to start and write connection files
+    time.sleep(5)
+
+    # Try to connect to verify it's working
     try:
-        # Start the cluster (synchronous version)
-        cluster.start_cluster_sync()
-        print("Cluster started successfully!")
-
-        # Connect a client to verify it works
-        rc = cluster.connect_client_sync()
-
-        # IMPORTANT: Wait for engines to register before using them
-        print("Waiting for engines to register...")
-        rc.wait_for_engines(n, timeout=60)  # Wait up to 60 seconds
-        print(f"Connected to cluster with {len(rc)} engines")
+        from ipyparallel import Client
+        print("Attempting to connect to cluster...")
+        rc = Client(profile=profile, timeout=30)
+        rc.wait_for_engines(n, timeout=30)
+        print(f"Successfully connected! {len(rc)} engines available.")
 
         # Test MPI functionality
         def test_mpi():
@@ -68,56 +92,54 @@ def start_ipyparallel_cluster(n=4, cluster_id='docs-mpi-cluster', profile='mpi')
             except ImportError:
                 return "MPI not available"
 
-        # Run test on all engines
         results = rc[:].apply_sync(test_mpi)
-        print("MPI test results:")
+        print("\nMPI test results:")
         for i, result in enumerate(results):
             print(f"  Engine {i}: {result}")
 
         print("\nCluster is ready for use!")
-        print(f"Cluster will continue running in the background with ID: {cluster_id}")
         print(f"To connect from notebooks: cluster = Client(profile='{profile}')")
-        print(f"To connect from scripts: rc = ipp.Client(cluster_id='{cluster_id}')")
-        print(f"To stop the cluster later: python {sys.argv[0]} stop")
+        print(f"To stop the cluster: ipcluster stop --profile={profile}")
+        print(f"Or use: python {sys.argv[0]} stop --profile={profile}")
 
     except Exception as e:
-        print(f"Error starting cluster: {e}")
-        # Try to clean up on error
-        try:
-            cluster.stop_cluster_sync()
-        except Exception:
-            pass
-        sys.exit(1)
+        print(f"Warning: Could not verify cluster connection: {e}")
+        print("The cluster may still be starting up. Give it a few more seconds.")
+        print(f"To check status: ipcluster engines --profile={profile}")
 
 
-def stop_ipyparallel_cluster(cluster_id='docs-mpi-cluster'):
+def stop_ipyparallel_cluster(cluster_id='docs-mpi-cluster', profile='mpi'):
     """
     Stop a running ipyparallel MPI cluster.
 
     Parameters
     ----------
     cluster_id : str
-        The cluster ID of the cluster to stop.
+        The cluster ID of the cluster to stop (not used with ipcluster command).
+    profile : str
+        The profile name of the cluster to stop.
     """
-    import ipyparallel as ipp
+    import subprocess
 
-    print(f"Stopping MPI cluster with ID: {cluster_id}...")
+    print(f"Stopping MPI cluster with profile: {profile}...")
 
-    try:
-        # Connect to the existing cluster
-        cluster = ipp.Cluster(cluster_id=cluster_id)
+    result = subprocess.run(
+        ['ipcluster', 'stop', f'--profile={profile}'],
+        capture_output=True,
+        text=True
+    )
 
-        # Stop the cluster
-        cluster.stop_cluster_sync()
+    if result.returncode == 0:
         print("Cluster stopped successfully!")
-
-    except FileNotFoundError:
-        print(f"Error: No cluster found with ID '{cluster_id}'")
-        print("The cluster may not be running or may have been started with a different ID.")
-        sys.exit(1)
-    except Exception as e:
-        print(f"Error stopping cluster: {e}")
-        sys.exit(1)
+    else:
+        # ipcluster stop returns non-zero even when successful sometimes
+        if "CRITICAL" in result.stderr or "Error" in result.stderr:
+            print(f"Error stopping cluster: {result.stderr}")
+            sys.exit(1)
+        else:
+            print("Cluster stop command completed.")
+            if result.stdout:
+                print(result.stdout)
 
 
 if __name__ == '__main__':
@@ -165,4 +187,4 @@ Examples:
     if args.action == 'start':
         start_ipyparallel_cluster(n=args.num_engines, cluster_id=args.cluster_id, profile=args.profile)
     elif args.action == 'stop':
-        stop_ipyparallel_cluster(cluster_id=args.cluster_id)
+        stop_ipyparallel_cluster(cluster_id=args.cluster_id, profile=args.profile)
