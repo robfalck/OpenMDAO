@@ -14,7 +14,7 @@ framework also has a number of parallel computing features that can
 work with gradient-free optimization, mixed-integer nonlinear
 programming, and traditional design space exploration.
 
-If you are using OpenMDAO, please `cite <other/citing.ipynb>`_ us!
+If you are using OpenMDAO, please :doc:`cite <other/citing>` us!
 
 User Guide
 ----------
