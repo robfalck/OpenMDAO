@@ -33,6 +33,7 @@ extensions = [
     'sphinx_sitemap',               # Generate XML sitemap
     'numpydoc',                     # NumPy-style docstring support
     'sphinxcontrib.bibtex',         # Bibliography support
+    'sphinx_search.extension',      # ReadTheDocs-style search
 ]
 
 # Add any paths that contain templates here, relative to this directory.
@@ -67,8 +68,8 @@ master_doc = 'index'
 # 'off': Don't execute notebooks
 nb_execution_mode = os.environ.get("SPHINX_NB_EXECUTION_MODE", "auto")
 
-nb_execution_engine = 'basic'
-# nb_ipyparallel_url_file = None
+nb_execution_engine = 'ipyparallel'
+nb_ipyparallel_url_file = None
 
 # Show stderr output during notebook execution
 nb_execution_show_tb = True
@@ -159,3 +160,9 @@ autodoc_typehints = 'description'
 
 # Whether to show all members of a class in the Methods and Attributes sections
 numpydoc_show_class_members = False
+
+# -- ReadTheDocs Search Configuration ----------------------------------------
+
+# Enable the ReadTheDocs-style search extension for better search UX
+# This provides client-side search that works both online and offline
+sphinx_search_enabled = True

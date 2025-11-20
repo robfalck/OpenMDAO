@@ -44,11 +44,35 @@ all = [
     "openmdao[docs,doe,jax,notebooks,visualization,test]",
 ]
 docs = [
+    # Core Sphinx
+    "sphinx>=7.0.0",
+
+    # MyST-NB for Jupyter Notebook support
+    "myst-nb>=1.0.0",
+    "myst-parser>=2.0.0",
+    "linkify-it-py>=2.0.0",
+
+    # Sphinx Book Theme
+    "sphinx-book-theme>=1.0.0",
+
+    # Extensions
+    "sphinx-sitemap>=2.5.0",
+    "sphinxcontrib-bibtex>=2.6.0",
+    "numpydoc>=1.6.0",
+    "readthedocs-sphinx-search>=0.3.2",
+
+    # Jupyter and notebook execution
+    "jupyter>=1.0.0",
+    "nbclient>=0.8.0",
+    "nbformat>=5.9.0",
+    "ipykernel>=6.25.0",
     "ipyparallel",
-    "jupyter-book>=1.0.3,<2",
+
+    # For notebook widgets and interactive features
+    "ipywidgets>=8.0.0",
+
+    # Dependencies needed for notebook examples
     "matplotlib",
-    "numpydoc>=1.1",
-    "sphinx-sitemap",
     "idna>=3.7",
     "jinja2>=3.1.4",
     "tqdm>=4.66.3"
