@@ -19,6 +19,7 @@ sphinx-sitemap>=2.5.0
 sphinxcontrib-bibtex>=2.6.0
 numpydoc>=1.6.0
 readthedocs-sphinx-search>=0.3.2  # Enhanced search functionality
+sphinx-design>=0.5.0  # Design elements (tabs, cards, grids)
 
 # Jupyter and notebook execution
 jupyter>=1.0.0

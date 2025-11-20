@@ -34,6 +34,7 @@ extensions = [
     'numpydoc',                     # NumPy-style docstring support
     'sphinxcontrib.bibtex',         # Bibliography support
     'sphinx_search.extension',      # ReadTheDocs-style search
+    'sphinx_design',                # Design elements (tabs, cards, grids, etc.)
 ]
 
 # Add any paths that contain templates here, relative to this directory.
