@@ -12,3 +12,11 @@
 .topbar, .topbar-contents, .topbar-main {
     height: 3em ;
 }
+
+/* Increase logo size by factor of 2 */
+.navbar-brand img {
+    max-height: none;
+    height: auto;
+    width: 200%;
+    max-width: 400px;
+}
