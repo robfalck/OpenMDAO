@@ -209,6 +209,8 @@ def build_sphinx_docs(sphinx_dir='sphinx_docs', jobs=4, clean=False, builder='ht
 
     # Start ipyparallel cluster if requested
     cluster_started = False
+    cluster_stopped = False  # Track if we've already stopped the cluster
+
     if manage_cluster:
         cluster_started = start_ipyparallel_cluster(
             n_engines=cluster_engines,
@@ -218,7 +220,10 @@ def build_sphinx_docs(sphinx_dir='sphinx_docs', jobs=4, clean=False, builder='ht
         # Register cleanup function to stop cluster on exit
         if cluster_started:
             def cleanup():
-                stop_ipyparallel_cluster(verbose=verbose)
+                nonlocal cluster_stopped
+                if not cluster_stopped:
+                    stop_ipyparallel_cluster(verbose=verbose)
+                    cluster_stopped = True
 
             atexit.register(cleanup)
 
@@ -301,9 +306,10 @@ def build_sphinx_docs(sphinx_dir='sphinx_docs', jobs=4, clean=False, builder='ht
         # Restore original directory
         os.chdir(save_cwd)
 
-        # Stop the cluster if we started it
-        if cluster_started and manage_cluster:
+        # Stop the cluster if we started it and haven't stopped it yet
+        if cluster_started and manage_cluster and not cluster_stopped:
             stop_ipyparallel_cluster(verbose=verbose)
+            cluster_stopped = True
 
 
 def main():

@@ -48,6 +48,8 @@ exclude_patterns = [
     '.DS_Store',
     '**.ipynb_checkpoints',
     'template.ipynb',
+    'README.md',              # Developer documentation, not for users
+    'MIGRATION_NOTES.md',     # Internal migration notes, not for users
 ]
 
 # The suffix(es) of source filenames.
