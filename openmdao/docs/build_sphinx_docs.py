@@ -121,8 +121,8 @@ def stop_ipyparallel_cluster(verbose=False):
 
 
 def build_sphinx_docs(sphinx_dir='sphinx_docs', jobs=4, clean=False, builder='html',
-                      verbose=False, warnings_as_errors=False, manage_cluster=True,
-                      cluster_engines=4, nb_execution_mode='auto'):
+                      verbose=False, warnings_as_errors=False, keep_going=False,
+                      manage_cluster=True, cluster_engines=4, nb_execution_mode='auto'):
     """
     Build the Sphinx documentation.
 
@@ -140,6 +140,8 @@ def build_sphinx_docs(sphinx_dir='sphinx_docs', jobs=4, clean=False, builder='ht
         Whether to show verbose output.
     warnings_as_errors : bool
         Whether to treat warnings as errors.
+    keep_going : bool
+        Whether to continue building after errors.
     manage_cluster : bool
         Whether to automatically start/stop the ipyparallel cluster.
     cluster_engines : int
@@ -264,6 +266,9 @@ def build_sphinx_docs(sphinx_dir='sphinx_docs', jobs=4, clean=False, builder='ht
         if warnings_as_errors:
             sphinx_opts.append('-W')
 
+        if keep_going:
+            sphinx_opts.append('--keep-going')
+
         if verbose:
             sphinx_opts.append('-v')
 
@@ -373,6 +378,12 @@ Examples:
     )
 
     parser.add_argument(
+        '--keep-going',
+        action='store_true',
+        help='Continue building after errors (useful with -W)'
+    )
+
+    parser.add_argument(
         '--no-cluster',
         action='store_true',
         help='Do not automatically start/stop the ipyparallel cluster'
@@ -405,6 +416,7 @@ Examples:
         builder=args.builder,
         verbose=args.verbose,
         warnings_as_errors=args.warnings_as_errors,
+        keep_going=args.keep_going,
         manage_cluster=not args.no_cluster,
         cluster_engines=args.cluster_engines,
         nb_execution_mode=args.nb_mode

@@ -67,8 +67,8 @@ master_doc = 'index'
 # 'off': Don't execute notebooks
 nb_execution_mode = os.environ.get("SPHINX_NB_EXECUTION_MODE", "auto")
 
-nb_execution_engine = 'ipyparallel'
-nb_ipyparallel_url_file = None
+nb_execution_engine = 'basic'
+# nb_ipyparallel_url_file = None
 
 # Show stderr output during notebook execution
 nb_execution_show_tb = True

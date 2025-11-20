@@ -13,10 +13,10 @@
     height: 3em ;
 }
 
-/* Increase logo size by factor of 2 */
+/* Increase logo size */
 .navbar-brand img {
     max-height: none;
     height: auto;
-    width: 200%;
-    max-width: 400px;
+    width: 150%;
+    max-width: 300px;
 }
