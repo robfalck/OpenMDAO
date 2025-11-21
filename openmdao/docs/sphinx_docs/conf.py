@@ -114,14 +114,32 @@ bibtex_bibfiles = ['references.bib']
 # -- HTML output options -----------------------------------------------------
 
 # The theme to use for HTML and HTML Help pages.
-html_theme = 'om-theme'
+html_theme = 'pydata_sphinx_theme'
 
-# Add any paths that contain custom themes here, relative to this directory.
-html_theme_path = ['.']
-
-# Theme options
+# Theme options for pydata-sphinx-theme
 html_theme_options = {
-    'navigation_with_keys': False,  # Accessibility: disable keyboard navigation
+    "logo": {
+        "text": "OpenMDAO",
+        "image_light": "OpenMDAO_Logo.png",
+        "image_dark": "OpenMDAO_Logo.png",
+    },
+    "github_url": "https://github.com/OpenMDAO/OpenMDAO",
+    "use_edit_page_button": True,
+    "show_toc_level": 2,
+    "navbar_align": "left",
+    "navbar_end": ["theme-switcher", "navbar-icon-links"],
+    "navigation_with_keys": False,
+    "show_nav_level": 2,
+    "footer_start": ["copyright"],
+    "footer_center": ["sphinx-version"],
+}
+
+# Context for "Edit on GitHub" button
+html_context = {
+    "github_user": "OpenMDAO",
+    "github_repo": "OpenMDAO",
+    "github_version": "master",
+    "doc_path": "openmdao/docs/sphinx_docs",
 }
 
 # The name of an image file (relative to this directory) to place at the top
@@ -140,15 +158,6 @@ html_static_path = ['_static']
 
 # Base URL for the documentation (used for sitemap generation)
 html_baseurl = 'https://openmdao.org/newdocs/versions/latest/'
-
-# Enable "Edit on GitHub" button
-html_context = {
-    'display_github': True,
-    'github_user': 'OpenMDAO',
-    'github_repo': 'OpenMDAO',
-    'github_version': 'master',
-    'conf_py_path': '/openmdao/docs/sphinx_docs/',
-}
 
 # -- LaTeX output options ----------------------------------------------------
 

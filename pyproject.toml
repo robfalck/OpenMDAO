@@ -52,8 +52,8 @@ docs = [
     "myst-parser>=2.0.0",
     "linkify-it-py>=2.0.0",
 
-    # Sphinx Book Theme
-    "sphinx-book-theme>=1.0.0",
+    # PyData Sphinx Theme
+    "pydata-sphinx-theme>=0.15.0",
 
     # Extensions
     "sphinx-sitemap>=2.5.0",
