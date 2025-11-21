@@ -33,7 +33,6 @@ extensions = [
     'sphinx_sitemap',               # Generate XML sitemap
     'numpydoc',                     # NumPy-style docstring support
     'sphinxcontrib.bibtex',         # Bibliography support
-    'sphinx_search.extension',      # ReadTheDocs-style search
     'sphinx_design',                # Design elements (tabs, cards, grids, etc.)
 ]
 
@@ -179,9 +178,3 @@ autodoc_typehints = 'description'
 
 # Whether to show all members of a class in the Methods and Attributes sections
 numpydoc_show_class_members = False
-
-# -- ReadTheDocs Search Configuration ----------------------------------------
-
-# Enable the ReadTheDocs-style search extension for better search UX
-# This provides client-side search that works both online and offline
-sphinx_search_enabled = True
