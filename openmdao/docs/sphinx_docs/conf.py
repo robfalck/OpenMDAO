@@ -126,11 +126,20 @@ html_theme_options = {
     "use_edit_page_button": True,
     "show_toc_level": 2,
     "navbar_align": "left",
+    "navbar_center": ["navbar-nav"],  # Show main navigation in navbar
     "navbar_end": ["theme-switcher", "navbar-icon-links"],
     "navigation_with_keys": False,
-    "show_nav_level": 2,
+    "collapse_navigation": False,  # Keep sidebar expanded
+    "navigation_depth": 4,  # Show 4 levels in sidebar
     "footer_start": ["copyright"],
     "footer_center": ["sphinx-version"],
+    # Configure top navbar links to main sections
+    "navbar_start": ["navbar-logo"],
+    "header_links_before_dropdown": 6,  # Show all main sections before dropdown
+    # External links in navbar
+    "external_links": [],
+    # Navigation structure
+    "show_nav_level": 1,
 }
 
 # Context for "Edit on GitHub" button

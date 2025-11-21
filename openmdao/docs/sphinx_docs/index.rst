@@ -16,6 +16,16 @@ programming, and traditional design space exploration.
 
 If you are using OpenMDAO, please :doc:`cite <other/citing>` us!
 
+.. toctree::
+   :maxdepth: 1
+   :hidden:
+
+   getting_started/getting_started
+   basic_user_guide/basic_user_guide
+   advanced_user_guide/advanced_user_guide
+   Reference Guide <theory_manual/theory_manual>
+   other_useful_docs/other_useful_docs
+
 User Guide
 ----------
 
@@ -41,12 +51,14 @@ Documentation for command-line tools, API translation guides, developer document
 .. toctree::
    :maxdepth: 2
    :caption: Getting Started
+   :hidden:
 
    getting_started/getting_started
 
 .. toctree::
    :maxdepth: 2
    :caption: Basic User Guide
+   :hidden:
 
    basic_user_guide/basic_user_guide
    basic_user_guide/single_disciplinary_optimization/component_types
@@ -62,6 +74,7 @@ Documentation for command-line tools, API translation guides, developer document
 .. toctree::
    :maxdepth: 2
    :caption: Advanced User Guide
+   :hidden:
 
    advanced_user_guide/advanced_user_guide
    advanced_user_guide/models_implicit_components/models_with_solvers_implicit
@@ -77,6 +90,7 @@ Documentation for command-line tools, API translation guides, developer document
 .. toctree::
    :maxdepth: 2
    :caption: Reference Guide
+   :hidden:
 
    theory_manual/theory_manual
    theory_manual/class_structure
@@ -120,7 +134,9 @@ Documentation for command-line tools, API translation guides, developer document
 .. toctree::
    :maxdepth: 2
    :caption: Other Useful Docs
+   :hidden:
 
+   other_useful_docs/other_useful_docs
    other_useful_docs/om_command
    other/citing
    other_useful_docs/building_a_tool/building_a_tool.md
