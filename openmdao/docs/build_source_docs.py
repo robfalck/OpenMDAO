@@ -188,4 +188,7 @@ def build_src_docs(top, src_dir, project_name='openmdao'):
 
 
 if __name__ == '__main__':
-    build_src_docs("openmdao_book/", "..")
+    import sys
+    # Default to sphinx_docs for new build system
+    target_dir = "sphinx_docs/" if len(sys.argv) < 2 else sys.argv[1]
+    build_src_docs(target_dir, "..")
