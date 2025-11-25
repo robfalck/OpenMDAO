@@ -47,25 +47,22 @@ runs:
           echo "============================================================="
           echo "Disabling SNOPT cells in notebooks."
           echo "============================================================="
-          python openmdao_book/other/disable_snopt_cells.py
+          python sphinx_docs/other/disable_snopt_cells.py
         fi
-
-        # start ipcluster to run MPI under notebooks
-        ./ipcluster_start.sh
-        sleep 12
 
         echo "============================================================="
         echo "Build the docs"
         echo "============================================================="
-        python build_source_docs.py
-        jupyter-book build -W --keep-going openmdao_book
-        python copy_build_artifacts.py
+        # Use build_sphinx_docs.py which manages cluster, builds source docs,
+        # and handles parallel notebook execution with -W --keep-going flags
+        python build_sphinx_docs.py -W --keep-going
+        python -m openmdao clean -f
 
     - name: Display doc build reports
       if: steps.build_docs.outcome == 'failure'
       shell: bash -l {0}
       run: |
-        for f in $(find /home/runner/work/OpenMDAO/OpenMDAO/openmdao/docs/openmdao_book/_build/html/reports -name '*.log'); do
+        for f in $(find /home/runner/work/OpenMDAO/OpenMDAO/openmdao/docs/sphinx_docs/_build/html/reports -name '*.log'); do
           echo "============================================================="
           echo $f
           echo "============================================================="
@@ -78,7 +75,7 @@ runs:
       uses: actions/upload-artifact@v4
       with:
         name: built-docs-artifact
-        path: openmdao/docs/openmdao_book/_build/html
+        path: openmdao/docs/sphinx_docs/_build/html
         retention-days: 1
 
     - name: Publish docs
@@ -96,7 +93,7 @@ runs:
           echo "Publish docs"
           echo "============================================================="
           cd openmdao/docs
-          python upload_doc_version.py openmdao_book/_build/html/ ${{ inputs.SECRET_docs_location }}
+          python upload_doc_version.py sphinx_docs/_build/html/ ${{ inputs.SECRET_docs_location }}
         else
           echo "Docs destination not available."
         fi
