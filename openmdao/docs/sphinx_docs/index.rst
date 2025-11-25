@@ -139,7 +139,7 @@ Documentation for command-line tools, API translation guides, developer document
    other_useful_docs/other_useful_docs
    other_useful_docs/om_command
    other/citing
-   other_useful_docs/building_a_tool/building_a_tool.md
+   other_useful_docs/building_a_tool/building_a_tool
    other_useful_docs/building_a_tool/repository_structure
    other_useful_docs/building_a_tool/release_process
    other_useful_docs/auto_ivc_api_translation
