@@ -3,12 +3,9 @@ import hashlib
 
 import numpy as np
 
-from openmdao.utils.indexer import Indexer, indexer, combine_ranges
+from openmdao.utils.indexer import Indexer, indexer, _full_slice, _flat_full_indexer, \
+    _full_indexer, combine_ranges
 
-
-_full_slice = slice(None)
-_flat_full_indexer = indexer(_full_slice, flat_src=True)
-_full_indexer = indexer(_full_slice, flat_src=False)
 
 _type_map = {  # map vector type to iotype
     'input': 'input',
@@ -242,13 +239,13 @@ class Vector(object):
         if self._under_complex_step:
             for n, vinfo in self._views.items():
                 if n in self._names:
-                    yield n[plen:], vinfo.item() if vinfo.is_scalar else vinfo.view
+                    yield n[plen:], vinfo.view.item() if vinfo.is_scalar else vinfo.view
                 else:
                     yield n[plen:], 0.0j if vinfo.is_scalar else np.zeros_like(vinfo.view)
         else:
             for n, vinfo in self._views.items():
                 if n in self._names:
-                    yield n[plen:], vinfo.item().real if vinfo.is_scalar else vinfo.view.real
+                    yield n[plen:], vinfo.view.item().real if vinfo.is_scalar else vinfo.view.real
                 else:
                     yield n[plen:], 0.0 if vinfo.is_scalar else np.zeros_like(vinfo.view.real)
 

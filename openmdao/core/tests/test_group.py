@@ -1502,9 +1502,8 @@ class TestGroup(unittest.TestCase):
         self.assertEqual(cm.exception.args[0],
                          "\nCollected errors for problem 'promote_units_and_none':\n   "
                          "<model> <class Group>: The following inputs, ['c1.x', 'c2.x'], promoted to 'x', "
-                         "are connected but their metadata entries ['units', 'val'] differ. "
-                         "Call model.set_input_defaults('x', units=?, val=?) "
-                         "to remove the ambiguity.")
+                         "are connected but their metadata entries ['units'] differ. "
+                         "Call model.set_input_defaults('x', units=?) to remove the ambiguity.")
 
     def test_double_set_input_defaults(self):
         problem = om.Problem()
@@ -1685,6 +1684,34 @@ class TestGroup(unittest.TestCase):
         p.run_model()
         comp.set_val('x', 3.5, units='m')
         assert_near_equal(comp.get_val('x'), 3.5)
+
+    def test_scalar_vars(self):
+
+        class CircleAreaComp(om.ExplicitComponent):
+
+            def setup(self):
+                self.add_input("r", shape=tuple())
+                self.add_output("area", shape=tuple())
+
+                self.declare_partials("*", "*")
+
+            def compute(self, inputs, outputs):
+                outputs["area"] = np.pi*inputs["r"]**2
+
+            def compute_partials(self, inputs, partials):
+                partials["area", "r"] = 2*np.pi*inputs["r"]
+
+        p = om.Problem()
+
+        p.model.add_subsystem('circle', CircleAreaComp(), promotes_inputs=['r'])
+        p.model.add_subsystem('circle2', CircleAreaComp(), promotes_inputs=['r'])
+
+        p.setup()
+
+        p.set_val("r", 1.0)
+        p.run_model()
+        assert_near_equal(p.get_val('circle.area'), np.pi)
+        assert_near_equal(p.get_val('circle2.area'), np.pi)
 
 
 @unittest.skipUnless(MPI, "MPI is required.")
@@ -1885,7 +1912,7 @@ class TestGroupPromotes(unittest.TestCase):
         with assert_no_warning(PromotionWarning):
             top.setup()
 
-    def test_promotes_alias_from_parent(self):
+    def test_promotes_alias_from_parent_err(self):
         class SubGroup(om.Group):
             def setup(self):
                 self.add_subsystem('comp1', om.ExecComp('x=2.0*a+3.0*b+c', a=3.0, b=4.0))
@@ -1978,7 +2005,7 @@ class TestGroupPromotes(unittest.TestCase):
         # Runs without exception.
         p.setup()
 
-    def test_multiple_promotes(self):
+    def test_multiple_promotes_missing_var(self):
 
         class BranchGroup(om.Group):
             def setup(self):

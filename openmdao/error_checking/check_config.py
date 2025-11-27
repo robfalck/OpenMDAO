@@ -17,7 +17,6 @@ from openmdao.utils.logger_utils import get_logger, TestLogger
 from openmdao.utils.mpi import MPI
 from openmdao.utils.hooks import _register_hook
 from openmdao.utils.general_utils import printoptions
-from openmdao.utils.units import _has_val_mismatch
 from openmdao.utils.file_utils import _load_and_exec, text2html
 from openmdao.utils.om_warnings import issue_warning, SetupWarning
 from openmdao.utils.reports_system import register_report
@@ -232,47 +231,6 @@ def _trim_str(obj, size):
     return s
 
 
-def _list_has_val_mismatch(discretes, names, units, vals):
-    """
-    Return True if any of the given values don't match, subject to unit conversion.
-
-    Parameters
-    ----------
-    discretes : set-like
-        Set of discrete variable names.
-    names : list
-        List of variable names.
-    units : list
-        List of units corresponding to names.
-    vals : list
-        List of values corresponding to names.
-
-    Returns
-    -------
-    bool
-        True if a mismatch was found, otherwise False.
-    """
-    if len(names) < 2:
-        return False
-
-    uset = set(units)
-    if '' in uset and len(uset) > 1:
-        # at least one case has no units and at least one does, so there must be a mismatch
-        return True
-
-    u0 = v0 = _UNSET
-    for n, u, v in zip(names, units, vals):
-        if n in discretes:
-            continue
-        if u0 is _UNSET:
-            u0 = u
-            v0 = v
-        elif _has_val_mismatch(u0, v0, u, v):
-            return True
-
-    return False
-
-
 def _check_hanging_inputs(problem, logger):
     """
     Issue a logger warning if any model inputs are not connected.
@@ -478,6 +436,13 @@ def _check_solvers(problem, logger):
         final.append('')
         final.extend(lines)
         logger.warning('\n'.join(final))
+
+    # Report any additional solver warnings.
+    for system in problem.model.system_iter(include_self=True, recurse=True):
+        if system._nonlinear_solver is not None:
+            system._nonlinear_solver.check_config(logger)
+        if system._linear_solver is not None:
+            system._linear_solver.check_config(logger)
 
 
 def _check_missing_recorders(problem, logger):

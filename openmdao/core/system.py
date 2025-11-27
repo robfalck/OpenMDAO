@@ -73,10 +73,12 @@ _recordable_funcs = frozenset(['_apply_linear', '_apply_nonlinear', '_solve_line
 # the following are local metadata that will also be accessible for vars on all procs
 global_meta_names = {
     'input': ('units', 'shape', 'size', 'distributed', 'tags', 'desc',
-              'shape_by_conn', 'compute_shape', 'copy_shape', 'require_connection'),
+              'shape_by_conn', 'compute_shape', 'copy_shape',
+              'units_by_conn', 'copy_units', 'compute_units', 'require_connection'),
     'output': ('units', 'shape', 'size', 'desc',
                'ref', 'ref0', 'res_ref', 'distributed', 'lower', 'upper', 'tags',
-               'shape_by_conn', 'compute_shape', 'copy_shape'),
+               'shape_by_conn', 'compute_shape', 'copy_shape',
+               'units_by_conn', 'copy_units', 'compute_units'),
 }
 
 allowed_meta_names = {
@@ -2375,7 +2377,7 @@ class System(object, metaclass=SystemMetaclass):
 
                     # assume that all but the first dimension of the shape of a
                     # distributed variable is the same on all procs
-                    mymeta['global_shape'] = self._get_full_dist_shape(abs_name, local_shape)
+                    mymeta['global_shape'] = self._get_full_dist_shape(abs_name, local_shape, io)
                 else:
                     # not distributed, just use local shape and size
                     mymeta['global_size'] = mymeta['size']
@@ -3121,7 +3123,7 @@ class System(object, metaclass=SystemMetaclass):
         """
         return self._problem_meta['orig_mode']
 
-    def _set_solver_print(self, level=2, depth=1e99, type_='all'):
+    def _set_solver_print(self, level=2, depth=1e99, type_='all', debug_print=None):
         """
         Apply the given print settings to the internal solvers, recursively.
 
@@ -3137,22 +3139,29 @@ class System(object, metaclass=SystemMetaclass):
             prints everything.
         type_ : str
             Type of solver to set: 'LN' for linear, 'NL' for nonlinear, or 'all' for all.
+        debug_print : bool or None
+            If None, leave solver debug printing unchanged, otherwise turn if on or off
+            depending on whether debug_print is True or False. Note debug_print is only
+            applied to nonlinear solvers.
         """
         if self._linear_solver is not None and type_ != 'NL':
             self._linear_solver._set_solver_print(level=level, type_=type_)
         if self.nonlinear_solver is not None and type_ != 'LN':
-            self.nonlinear_solver._set_solver_print(level=level, type_=type_)
+            self.nonlinear_solver._set_solver_print(level=level, type_=type_,
+                                                    debug_print=debug_print)
 
         if self.pathname.count('.') + 1 >= depth:
             return
 
         for subsys, _ in self._subsystems_allprocs.values():
-            subsys._set_solver_print(level=level, depth=depth, type_=type_)
+            subsys._set_solver_print(level=level, depth=depth, type_=type_,
+                                     debug_print=debug_print)
 
             if subsys._linear_solver is not None and type_ != 'NL':
                 subsys._linear_solver._set_solver_print(level=level, type_=type_)
             if subsys.nonlinear_solver is not None and type_ != 'LN':
-                subsys.nonlinear_solver._set_solver_print(level=level, type_=type_)
+                subsys.nonlinear_solver._set_solver_print(level=level, type_=type_,
+                                                          debug_print=debug_print)
 
     def _setup_solver_print(self, recurse=True):
         """
@@ -3163,32 +3172,38 @@ class System(object, metaclass=SystemMetaclass):
         recurse : bool
             Whether to call this method in subsystems.
         """
-        for level, depth, type_ in self._solver_print_cache:
-            self._set_solver_print(level, depth, type_)
+        for level, depth, type_, debug_print in self._solver_print_cache:
+            self._set_solver_print(level, depth, type_, debug_print)
 
         if recurse:
             for subsys in self._subsystems_myproc:
                 subsys._setup_solver_print(recurse=recurse)
 
-    def set_solver_print(self, level=2, depth=1e99, type_='all'):
+    def set_solver_print(self, level=2, depth=1e99, type_='all', debug_print=None):
         """
         Control printing for solvers and subsolvers in the model.
 
         Parameters
         ----------
-        level : int
+        level : int or None
             Iprint level. Set to 2 to print residuals each iteration; set to 1
             to print just the iteration totals; set to 0 to disable all printing
             except for failures, and set to -1 to disable all printing including failures.
+            A value of None will leave solving printing unchanged, which is useful
+            when using this method to enable or disable debug printing only.
         depth : int
             How deep to recurse. For example, you can set this to 0 if you only want
             to print the top level linear and nonlinear solver messages. Default
             prints everything.
         type_ : str
             Type of solver to set: 'LN' for linear, 'NL' for nonlinear, or 'all' for all.
+        debug_print : bool or None
+            If None, leave solver debug printing unchanged, otherwise turn it on or off
+            depending on whether debug_print is True or False. Note debug_print is only
+            applied to nonlinear solvers.
         """
-        if (level, depth, type_) not in self._solver_print_cache:
-            self._solver_print_cache.append((level, depth, type_))
+        if (level, depth, type_, debug_print) not in self._solver_print_cache:
+            self._solver_print_cache.append((level, depth, type_, debug_print))
 
     def _get_static_wrt_matches(self):
         """
@@ -6223,7 +6238,7 @@ class System(object, metaclass=SystemMetaclass):
                 val = np.reshape(val, abs2meta_all_ins[abs_name]['global_shape'])
             elif not flat and val.size > 0 and vshape is not None:
                 val = np.reshape(val, vshape)
-        elif vshape is not None:
+        elif vshape is not None and vshape != ():
             val = val.reshape(vshape)
 
         if indices is not None:
@@ -6565,7 +6580,7 @@ class System(object, metaclass=SystemMetaclass):
 
         return hash
 
-    def _get_full_dist_shape(self, abs_name, local_shape):
+    def _get_full_dist_shape(self, abs_name, local_shape, io):
         """
         Get the full 'distributed' shape for a variable.
 
@@ -6575,26 +6590,24 @@ class System(object, metaclass=SystemMetaclass):
         ----------
         abs_name : str
             Absolute name of the variable.
-
         local_shape : tuple
             Local shape of the variable, used in error reporting.
+        io : str
+            'input' or 'output'.
 
         Returns
         -------
         tuple
             The distributed shape for the given variable.
         """
-        if abs_name in self._var_allprocs_abs2meta['output']:
-            io = 'output'
+        abs2meta = self._var_allprocs_abs2meta[io]
+        if abs_name in abs2meta:
             scope = self
-        elif abs_name in self._problem_meta['model_ref']()._var_allprocs_abs2meta['output']:
-            io = 'output'
-            scope = self._problem_meta['model_ref']()
         else:
-            io = 'input'
-            scope = self
+            scope = self._problem_meta['model_ref']()
+            abs2meta = scope._var_allprocs_abs2meta[io]
 
-        meta = scope._var_allprocs_abs2meta[io][abs_name]
+        meta = abs2meta[abs_name]
         var_idx = scope._var_allprocs_abs2idx[abs_name]
         global_size = np.sum(scope._var_sizes[io][:, var_idx])
 

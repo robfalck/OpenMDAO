@@ -273,7 +273,7 @@ class Problem(object, metaclass=ProblemMetaclass):
                              default=os.path.join(default_workdir, 'coloring_files'),
                              desc='Directory containing coloring files (if any) for this Problem.')
         self.options.declare('group_by_pre_opt_post', types=bool,
-                             default=False,
+                             default=True,
                              desc="If True, group subsystems of the top level model into "
                              "pre-optimization, optimization, and post-optimization, and only "
                              "iterate over the optimization subsystems during optimization.  This "
@@ -679,7 +679,6 @@ class Problem(object, metaclass=ProblemMetaclass):
         case_prefix : str or None
             Prefix to prepend to coordinates when recording.  None means keep the preexisting
             prefix.
-
         reset_iter_counts : bool
             If True and model has been run previously, reset all iteration counters.
 
@@ -730,7 +729,133 @@ class Problem(object, metaclass=ProblemMetaclass):
         finally:
             self._recording_iter.prefix = old_prefix
 
-    def compute_jacvec_product(self, of, wrt, mode, seed):
+    def find_feasible(self, case_prefix=None, reset_iter_counts=True,
+                      driver_scaling=True, exclude_desvars=None,
+                      method='trf', ftol=1e-08, xtol=1e-08, gtol=1e-08,
+                      x_scale=1., loss='linear', loss_tol=1.0E-8, f_scale=1.0,
+                      max_nfev=None, tr_solver=None, tr_options=None, iprint=1):
+        """
+        Attempt to find design variable values which minimize the constraint violation.
+
+        If the problem is feasible, this method should find the solution for which the
+        violation of each constraint is zero.
+
+        This approach uses a least-squares minimization of the constraint violation.  If
+        the problem has a feasible solution, this should find the feasible solution
+        closest to the current design variable values.
+
+        Arguments method, ftol, xtol, gtol, x_scale, loss, f_scale, diff_step,
+        tr_solver, tr_options, and verbose are passed to `scipy.optimize.least_squares`, see
+        the documentation of that function for more information:
+        https://docs.scipy.org/doc/scipy/reference/generated/scipy.optimize.least_squares.html
+
+        Parameters
+        ----------
+        case_prefix : str or None
+            Prefix to prepend to coordinates when recording.  None means keep the preexisting
+            prefix.
+        reset_iter_counts : bool
+            If True and model has been run previously, reset all iteration counters.
+        driver_scaling : bool
+            If True, consider the constraint violation in driver-scaled units. Otherwise, it
+            will be computed in the model's units.
+        exclude_desvars : str or Sequence[str] or None
+            If given, a pattern of one or more design variables to be excluded from
+            the least-squares search.  The allows for finding a feasible (or least infeasible)
+            solution when holding one or more design variables to their current values.
+        method : {'trf', 'dogbox', or 'lm'}
+            The method used by scipy.optimize.least_squares. One or 'trf', 'dogbox', or 'lm'.
+        ftol : float or None
+            The change in the cost function from one iteration to the next which triggers
+            a termination of the minimization.
+        xtol : float or None
+            The change in the design variable vector norm from one iteration to the next
+            which triggers a termination of the minimization.
+        gtol : float or None
+            The change in the gradient norm from one iteration to the next which triggers
+            a termination of the minimization.
+        x_scale : {float, array-like, or 'jac'}
+            Additional scaling applied by the least-squares algorithm. Behavior is method-dependent.
+            For additional details, see the scipy documentation.
+        loss : {'linear', 'soft_l1', 'huber', 'cauchy', or 'arctan'}
+            The loss aggregation method. Options of interest are:
+            - 'linear' gives the standard "sum-of-squares".
+            - 'soft_l1' gives a smooth approximation for the L1-norm of constraint violation.
+            For other options, see the scipy documentation.
+        loss_tol : float
+            The tolerance on the loss value above which the algorithm is considered to have
+            failed to find a feasible solution. This will result in the `DriverResult.success`
+            attribute being False, and this method will return as _failed_.
+        f_scale : float or None
+            Value of margin between inlier and outlier residuals when loss is not 'linear'.
+            For more information, see the scipy documentation.
+        max_nfev : int or None
+            The maximum allowable number of model evaluations.  If not provided scipy will
+            determine it automatically based on the size of the design variable vector.
+        tr_solver : {None, 'exact', or 'lsmr'}
+            The solver used by trust region (trf) method.
+            For more details, see the scipy documentation.
+        tr_options : dict or None
+            Additional options for the trust region (trf) method.
+            For more details, see the scipy documentation.
+        iprint : int
+            Verbosity of the output. Use 2 for the full verbose least_squares output.
+            Use 1 for a convergence summary, and 0 to suppress output.
+
+        Returns
+        -------
+        bool
+            Failure flag; True if failed to converge, False is successful.
+        """
+        model = self.model
+        driver = self.driver
+
+        if self._metadata['setup_status'] < _SetupStatus.POST_SETUP:
+            raise RuntimeError(self.msginfo +
+                               ": The `setup` method must be called before `run_driver`.")
+
+        if not model._have_output_solver_options_been_applied():
+            raise RuntimeError(self.msginfo +
+                               ": Before calling `run_driver`, the `setup` method must be called "
+                               "if set_output_solver_options has been called.")
+
+        if 'singular_jac_behavior' in driver.options:
+            self._metadata['singular_jac_behavior'] = driver.options['singular_jac_behavior']
+
+        old_prefix = self._recording_iter.prefix
+
+        if case_prefix is not None:
+            if not isinstance(case_prefix, str):
+                raise TypeError(self.msginfo + ": The 'case_prefix' argument should be a string.")
+            self._recording_iter.prefix = case_prefix
+
+        try:
+            if model.iter_count > 0 and reset_iter_counts:
+                driver.iter_count = 0
+                model._reset_iter_counts()
+
+            self.final_setup()
+
+            # for optimizing drivers, check that constraints are affected by design vars
+            if driver.supports['optimization'] and self._metadata['use_derivatives']:
+                driver.check_relevance()
+
+            self._run_counter += 1
+            record_model_options(self, self._run_counter)
+
+            model._clear_iprint()
+
+            return driver._find_feasible(driver_scaling=driver_scaling,
+                                         exclude_desvars=exclude_desvars,
+                                         method=method, ftol=ftol, xtol=xtol,
+                                         gtol=gtol, x_scale=x_scale,
+                                         loss=loss, loss_tol=loss_tol, f_scale=f_scale,
+                                         max_nfev=max_nfev, tr_solver=tr_solver,
+                                         tr_options=tr_options, iprint=iprint)
+        finally:
+            self._recording_iter.prefix = old_prefix
+
+    def compute_jacvec_product(self, of, wrt, mode, seed, linearize=False):
         """
         Given a seed and 'of' and 'wrt' variables, compute the total jacobian vector product.
 
@@ -746,6 +871,10 @@ class Problem(object, metaclass=ProblemMetaclass):
             Either a dict keyed by 'wrt' varnames (fwd) or 'of' varnames (rev), containing
             dresidual (fwd) or doutput (rev) values, OR a list of dresidual or doutput
             values that matches the corresponding 'wrt' (fwd) or 'of' (rev) varname list.
+        linearize : bool
+            If False, assume the model is already in a linearized state, which it must be
+            in order to produce correct results for the jvp/vjp. If True, this method
+            will linearize the model before computing the jvp/vjp.
 
         Returns
         -------
@@ -765,29 +894,28 @@ class Problem(object, metaclass=ProblemMetaclass):
             lnames, rnames = wrt, of
             lkind, rkind = 'residual', 'output'
 
+        if linearize:
+            self.model.run_linearize()
+
+        resolver = self.model._resolver
         rvec = self.model._vectors[rkind]['linear']
         lvec = self.model._vectors[lkind]['linear']
 
         rvec.set_val(0.)
-
-        conns = self.model._conn_global_abs_in2out
 
         # set seed values into dresids (fwd) or doutputs (rev)
         # seed may have keys that are inputs and must be converted into auto_ivcs
         try:
             seed[rnames[0]]
         except (IndexError, TypeError):
+            # Seeds are given as a Sequence
             for i, name in enumerate(rnames):
-                if name in conns:
-                    rvec[conns[name]] = seed[i]
-                else:
-                    rvec[name] = seed[i]
+                rvec[resolver.source(name)] = seed[i]
         else:
+            # Seeds are given as a map
             for name in rnames:
-                if name in conns:
-                    rvec[conns[name]] = seed[name]
-                else:
-                    rvec[name] = seed[name]
+                # rnames are abs_path
+                rvec[resolver.source(name)] = seed[name]
 
         # We apply a -1 here because the derivative of the output is minus the derivative of
         # the residual in openmdao.
@@ -796,11 +924,7 @@ class Problem(object, metaclass=ProblemMetaclass):
 
         self.model.run_solve_linear(mode)
 
-        if mode == 'fwd':
-            return {n: lvec[n].copy() for n in lnames}
-        else:
-            # may need to convert some lnames to auto_ivc names
-            return {n: lvec[conns[n] if n in conns else n].copy() for n in lnames}
+        return {n: lvec[resolver.source(n)].copy() for n in lnames}
 
     def _setup_recording(self):
         """
@@ -1691,24 +1815,30 @@ class Problem(object, metaclass=ProblemMetaclass):
                                    debug_print=debug_print, coloring_info=coloring_info)
         return total_info.compute_totals()
 
-    def set_solver_print(self, level=2, depth=1e99, type_='all'):
+    def set_solver_print(self, level=2, depth=1e99, type_='all', debug_print=None):
         """
         Control printing for solvers and subsolvers in the model.
 
         Parameters
         ----------
-        level : int
+        level : int or None
             Iprint level. Set to 2 to print residuals each iteration; set to 1
             to print just the iteration totals; set to 0 to disable all printing
             except for failures, and set to -1 to disable all printing including failures.
+            A value of None will leave solving printing unchanged, which is useful
+            when using this method to enable or disable debug printing only.
         depth : int
             How deep to recurse. For example, you can set this to 0 if you only want
             to print the top level linear and nonlinear solver messages. Default
             prints everything.
         type_ : str
             Type of solver to set: 'LN' for linear, 'NL' for nonlinear, or 'all' for all.
+        debug_print : bool or None
+            If None, leave solver debug printing unchanged, otherwise turn it on or off
+            depending on whether debug_print is True or False. Note debug_print only
+            affects nonlinear solvers.
         """
-        self.model.set_solver_print(level=level, depth=depth, type_=type_)
+        self.model.set_solver_print(level=level, depth=depth, type_=type_, debug_print=debug_print)
 
     def list_problem_vars(self,
                           show_promoted_name=True,
@@ -1911,6 +2041,7 @@ class Problem(object, metaclass=ProblemMetaclass):
                          'parallel_deriv_color', 'cache_linear_solution']
         def_obj_opts = [opt for opt in ('indices',) if opt not in objs_opts and
                         _find_dict_meta(objs, opt)]
+        objs_opts = [opt for opt in objs_opts if _find_dict_meta(objs, opt)]
         col_names = default_col_names + def_obj_opts + objs_opts
         if out_stream:
             self._write_var_info_table(header, col_names, objs, vals,

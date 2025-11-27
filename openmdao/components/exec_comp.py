@@ -23,6 +23,7 @@ VAR_RGX = re.compile(r'([.]*[_a-zA-Z]\w*[ ]*\(?)')
 _allowed_meta = {'value', 'val', 'shape', 'units', 'res_units', 'desc',
                  'ref', 'ref0', 'res_ref', 'lower', 'upper', 'src_indices',
                  'flat_src_indices', 'tags', 'shape_by_conn', 'copy_shape', 'compute_shape',
+                 'units_by_conn', 'copy_units', 'compute_units',
                  'constant'}
 
 # Names that are not allowed for input or output variables (keywords for options)
@@ -1107,7 +1108,7 @@ class ExecComp(ExplicitComponent):
                         if subval_is_scalar:
                             partials[u, inp] = imag(subval * inv_stepsize)
                         else:
-                            partials[u, inp] = imag(subval * inv_stepsize).flat
+                            partials[u, inp] = imag(subval * inv_stepsize).ravel()
 
                 # restore old input value
                 ival -= step
