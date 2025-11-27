@@ -165,11 +165,14 @@ def notebook_mode():
     bool
         True if the environment is an interactive notebook.
     """
-    try:
-        from IPython import get_ipython
-        ipy = get_ipython() is not None
-        return ipy
-    except ImportError:
+    if 'IPython' in sys.modules:
+        try:
+            from IPython import get_ipython
+            ipy = get_ipython() is not None
+            return ipy
+        except ImportError:
+            return False
+    else:
         return False
 
 
