@@ -19,7 +19,8 @@ import copy
 import numpy as np
 
 try:
-    from pyDOE3 import lhs
+    from openmdao.utils.lazy_imports import pyDOE3
+    lhs = pyDOE3.lhs
 except ModuleNotFoundError:
     lhs = None
 

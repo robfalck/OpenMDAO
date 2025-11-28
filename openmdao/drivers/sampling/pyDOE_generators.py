@@ -7,7 +7,7 @@ from openmdao.drivers.analysis_generator import AnalysisGenerator
 from openmdao.drivers.sampling.sampling_util import _get_size
 
 try:
-    import pyDOE3
+    from openmdao.utils.lazy_imports import pyDOE3
 except ImportError:
     pyDOE3 = None
 

@@ -9,7 +9,7 @@ from collections import OrderedDict
 import numpy as np
 
 try:
-    import pyDOE3
+    from openmdao.utils.lazy_imports import pyDOE3
 except ImportError:
     pyDOE3 = None
 

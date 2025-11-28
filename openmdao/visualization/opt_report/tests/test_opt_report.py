@@ -21,7 +21,7 @@ from openmdao.visualization.opt_report.opt_report import opt_report, \
     _default_optimizer_report_filename
 
 try:
-    import pyDOE3
+    from openmdao.utils.lazy_imports import pyDOE3
 except ImportError:
     pyDOE3 = None
 
