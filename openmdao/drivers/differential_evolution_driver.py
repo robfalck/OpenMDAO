@@ -503,6 +503,8 @@ class DifferentialEvolution(object):
         Population size.
     objfun : function
         Objective function callback.
+    _lhs : function
+        A lazily loaded instance of the pyDOE3 latin hypercube sampling function.
     """
 
     def __init__(self, objfun, comm=None, model_mpi=None):

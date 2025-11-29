@@ -39,6 +39,9 @@ class MetaModelStructuredComp(ExplicitComponent):
         Cached list of input names.
     training_outputs : dict
         Dictionary of training data each output.
+    _OutOfBoundsError : OutOfBoundsError
+        A lazily-imported _OutOfBoundsError class.
+
     """
 
     def __init__(self, **kwargs):

@@ -601,6 +601,8 @@ class GeneticAlgorithm(object):
         Population size.
     objfun : function
         Objective function callback.
+    _lhs : function
+        The latin hypercube sampling function, lazily loaded from pyDOE3.
     """
 
     def __init__(self, objfun, comm=None, model_mpi=None):

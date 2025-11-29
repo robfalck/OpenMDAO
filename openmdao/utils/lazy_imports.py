@@ -30,28 +30,35 @@ import importlib.util
 
 
 class LazyImport:
-    """Lazy loader for a module that only imports on attribute access."""
+    """
+    Lazy loader for a module that only imports on attribute access.
+
+    Checks if the module is available without actually importing it.
+    Raises ImportError immediately if the module is not installed,
+    allowing try/except ImportError patterns to work as expected.
+
+    Parameters
+    ----------
+    module_name : str
+        Name of the module to import (e.g., 'jax', 'mpi4py.MPI')
+    install_name : str, optional
+        Not used, kept for API compatibility.
+
+    Attributes
+    ----------
+    _module_name : str
+        The name of the module to be lazily loaded.
+    _module : Python module or None
+        The lazily imported module if it has been loaded, otherwise None.
+
+    Raises
+    ------
+    ModuleNotFoundError
+        If the module is not available for import.
+    """
 
     def __init__(self, module_name):
-        """
-        Initialize the lazy import wrapper.
-
-        Checks if the module is available without actually importing it.
-        Raises ImportError immediately if the module is not installed,
-        allowing try/except ImportError patterns to work as expected.
-
-        Parameters
-        ----------
-        module_name : str
-            Name of the module to import (e.g., 'jax', 'mpi4py.MPI')
-        install_name : str, optional
-            Not used, kept for API compatibility.
-
-        Raises
-        ------
-        ModuleNotFoundError
-            If the module is not available for import.
-        """
+        """Initialize the LazyImport wrapper."""
         self._module_name = module_name
         base_package = module_name.split('.')[0]
         self._module = None
