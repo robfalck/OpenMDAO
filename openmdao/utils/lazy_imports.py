@@ -40,9 +40,7 @@ class LazyImport:
     Parameters
     ----------
     module_name : str
-        Name of the module to import (e.g., 'jax', 'mpi4py.MPI')
-    install_name : str, optional
-        Not used, kept for API compatibility.
+        Name of the module to import (e.g., 'jax', 'mpi4py.MPI').f
 
     Attributes
     ----------
