@@ -1,22 +1,21 @@
 """LinearSolver that uses PetSC KSP to solve for a system's derivatives."""
+import importlib.metadata as ilmd
 
 import numpy as np
 
 from openmdao.solvers.solver import LinearSolver
 from openmdao.solvers.linear.linear_rhs_checker import LinearRHSChecker
-from openmdao.utils.mpi import check_mpi_env
+from openmdao.utils.mpi import MPI
 
-use_mpi = check_mpi_env()
-if use_mpi is not False:
-    try:
-        import petsc4py
-        from petsc4py import PETSc
-    except ImportError:
-        PETSc = None
-        if use_mpi is True:
-            raise ImportError("Importing petsc4py failed and OPENMDAO_USE_MPI is true.")
-else:
+
+if MPI is None:
     PETSc = None
+else:
+    try:
+        from openmdao.utils.lazy_imports import PETSc
+    except ImportError:
+        raise ImportError("Importing petsc4py failed and OPENMDAO_USE_MPI is true.")
+
 
 KSP_TYPES = [
     "richardson",
@@ -102,7 +101,7 @@ def _get_petsc_vec_array_old(vec):
 
 if PETSc:
     try:
-        petsc_version = petsc4py.__version__
+        petsc_version = ilmd.version('petsc4py')
     except AttributeError:  # hack to fix doc-tests
         petsc_version = "3.5"
 

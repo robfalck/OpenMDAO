@@ -8,20 +8,17 @@ from openmdao.vectors.vector import _full_slice
 from openmdao.utils.array_utils import get_input_idx_split, ValueRepeater
 import openmdao.utils.coloring as coloring_mod
 from openmdao.utils.general_utils import LocalRangeIterable
-from openmdao.utils.mpi import check_mpi_env
+from openmdao.utils.mpi import MPI
 from openmdao.utils.rangemapper import RangeMapper
 
 
-use_mpi = check_mpi_env()
-if use_mpi is False:
+if MPI is None:
     PETSc = None
 else:
     try:
-        from petsc4py import PETSc
+        from openmdao.utils.lazy_imports import PETSc
     except ImportError:
-        if use_mpi:
-            raise ImportError("Importing petsc4py failed and OPENMDAO_USE_MPI is true.")
-        PETSc = None
+        raise ImportError("Importing petsc4py failed and OPENMDAO_USE_MPI is true.")
 
 
 class ApproximationScheme(object):

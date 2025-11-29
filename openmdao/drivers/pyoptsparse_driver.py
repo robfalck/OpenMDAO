@@ -7,7 +7,7 @@ additional MPI capability.
 """
 import sys
 import json
-import importlib.metadata
+import importlib.metadata as ilmd
 import signal
 from packaging.version import Version
 
@@ -31,8 +31,8 @@ from openmdao.utils.om_warnings import issue_warning, warn_deprecation
 
 
 try:
-    pyoptsparse_version = Version(importlib.metadata.version('pyoptsparse'))
-except importlib.metadata.PackageNotFoundError:
+    pyoptsparse_version = Version(ilmd.version('pyoptsparse'))
+except ilmd.PackageNotFoundError:
     try:
         pyoptsparse_version = Version(pyoptsparse.__version__)
     except (ImportError, AttributeError):

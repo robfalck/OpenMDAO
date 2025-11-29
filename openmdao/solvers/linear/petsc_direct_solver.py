@@ -13,12 +13,13 @@ from openmdao.utils.om_warnings import issue_warning, SolverWarning
 from openmdao.utils.mpi import FakeComm
 
 try:
-    from petsc4py import PETSc
+    from openmdao.utils.lazy_imports import PETSc
 except ImportError:
     PETSc = None
+
 try:
-    from mpi4py import MPI
-    DEFAULT_COMM = MPI.COMM_WORLD
+    from openmdao.utils.lazy_imports import MPI
+    DEFAULT_COMM = None
 except ImportError:
     DEFAULT_COMM = FakeComm()
 
@@ -92,7 +93,7 @@ class PETScLU:
         """
         Initialize and setup the PETSc LU Direct Solver object.
         """
-        self.comm = comm
+        self.comm = comm if comm is not None else MPI.COMM_WORLD
         self.running_mpi = not comm.size == 1
         self.orig_A = A
         # Create PETSc matrix

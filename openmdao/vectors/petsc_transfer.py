@@ -11,14 +11,12 @@ if use_mpi is False:
     PETScTransfer = None
 else:
     try:
-        import petsc4py  # noqa: F401
-        from petsc4py import PETSc
+        from openmdao.utils.lazy_imports import PETSc
     except ImportError:
         PETSc = None
         if use_mpi is True:
             raise ImportError("Importing petsc4py failed and OPENMDAO_USE_MPI is true.")
 
-    from petsc4py import PETSc
     from collections import defaultdict
 
     from openmdao.vectors.default_transfer import DefaultTransfer, _setup_index_views

@@ -12,23 +12,21 @@ from copy import deepcopy
 import numpy as np
 
 from openmdao.core.constants import INT_DTYPE
-from openmdao.utils.mpi import MPI, check_mpi_env
+from openmdao.utils.mpi import MPI
 from openmdao.utils.om_warnings import issue_warning, DerivativesWarning
 import openmdao.utils.coloring as coloring_mod
 from openmdao.utils.relevance import get_relevance
 from openmdao.utils.array_utils import get_random_arr
 
 
-use_mpi = check_mpi_env()
-if use_mpi is not False:
-    try:
-        from petsc4py import PETSc
-    except ImportError:
-        PETSc = None
-        if use_mpi is True:
-            raise ImportError("Importing petsc4py failed and OPENMDAO_USE_MPI is true.")
-elif use_mpi is False:
+if MPI is None:
     PETSc = None
+else:
+    try:
+        from openmdao.utils.lazy_imports import PETSc
+    except ImportError:
+        raise ImportError("Importing petsc4py failed and OPENMDAO_USE_MPI is true.")
+
 
 _directional_rng = np.random.default_rng(99)
 
