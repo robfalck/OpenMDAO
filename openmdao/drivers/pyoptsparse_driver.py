@@ -7,6 +7,7 @@ additional MPI capability.
 """
 import sys
 import json
+import importlib.metadata
 import signal
 from packaging.version import Version
 
@@ -14,8 +15,7 @@ import numpy as np
 from scipy.sparse import coo_matrix
 
 try:
-    import pyoptsparse
-    Optimization = pyoptsparse.Optimization
+    from openmdao.utils.lazy_imports import pyoptsparse
 except ImportError:
     pyoptsparse = None
 except Exception as err:
@@ -29,11 +29,14 @@ from openmdao.utils.class_util import WeakMethodWrapper
 from openmdao.utils.mpi import FakeComm, MPI
 from openmdao.utils.om_warnings import issue_warning, warn_deprecation
 
-# what version of pyoptspare are we working with
-if pyoptsparse and hasattr(pyoptsparse, '__version__'):
-    pyoptsparse_version = Version(pyoptsparse.__version__)
-else:
-    pyoptsparse_version = None
+
+try:
+    pyoptsparse_version = Version(importlib.metadata.version('pyoptsparse'))
+except importlib.metadata.PackageNotFoundError:
+    try:
+        pyoptsparse_version = Version(pyoptsparse.__version__)
+    except (ImportError, AttributeError):
+        pyoptsparse_version = None
 
 # All optimizers in pyoptsparse
 optlist = {'ALPSO', 'CONMIN', 'IPOPT', 'NLPQLP', 'NSGA2', 'ParOpt', 'PSQP', 'SLSQP', 'SNOPT'}
@@ -382,8 +385,9 @@ class pyOptSparseDriver(Driver):
         self._coloring_info.run_model = not model_ran
 
         comm = None if isinstance(problem.comm, FakeComm) else problem.comm
-        opt_prob = Optimization(self.options['title'], WeakMethodWrapper(self, '_objfunc'),
-                                comm=comm)
+        opt_prob = pyoptsparse.Optimization(self.options['title'],
+                                            WeakMethodWrapper(self, '_objfunc'),
+                                            comm=comm)
 
         input_vals = self.get_design_var_values()
 
