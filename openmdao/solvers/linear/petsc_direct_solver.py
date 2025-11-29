@@ -1,8 +1,6 @@
 """LinearSolver that uses PETSc for LU factor/solve."""
 
 import numpy as np
-import scipy.linalg
-import scipy.sparse.linalg
 import scipy.sparse
 
 from openmdao.solvers.linear.direct import DirectSolver
@@ -94,7 +92,7 @@ class PETScLU:
         Initialize and setup the PETSc LU Direct Solver object.
         """
         self.comm = comm if comm is not None else MPI.COMM_WORLD
-        self.running_mpi = not comm.size == 1
+        self.running_mpi = not self.comm.size == 1
         self.orig_A = A
         # Create PETSc matrix
         # Dense
