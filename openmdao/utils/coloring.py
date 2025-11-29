@@ -42,7 +42,7 @@ except ImportError:
     jnp = np
 
 
-bokeh_resources = importlib.util.find_spec("bokeh.resources")
+bokeh_available = importlib.util.find_spec('bokeh') is not None
 
 
 CITATIONS = """
@@ -3275,7 +3275,7 @@ def _run_total_coloring_report(driver):
     htmlpath = reports_dir / 'total_coloring.html'
 
     display_coloring(source=driver, output_file=htmlpath,
-                     as_text=bokeh_resources is None, show=False)
+                     as_text=not bokeh_available, show=False)
 
 
 # entry point for coloring report
@@ -3578,7 +3578,7 @@ def _view_coloring_exec(options, user_args):
         coloring.display_txt()
 
     if options.show_sparsity:
-        if bokeh_resources is not None:
+        if bokeh_available:
             Coloring.display_bokeh(source=options.file[0], show=True)
         else:
             Coloring.display_txt(source=options.file[0], html=False)
@@ -3788,8 +3788,8 @@ def display_coloring(source, output_file='total_coloring.html', as_text=False, s
     if coloring is None:
         return
 
-    if as_text or bokeh_resources is None:
-        if bokeh_resources is None and not as_text:
+    if as_text or not bokeh_available:
+        if not bokeh_available and not as_text:
             issue_warning("bokeh is not installed.\n"
                           "display_coloring will render output in plain text.")
 
