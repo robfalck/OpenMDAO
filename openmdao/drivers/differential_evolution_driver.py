@@ -15,14 +15,9 @@ John Wiley & Sons, Ltd.
 """
 import os
 import copy
+import importlib.util
 
 import numpy as np
-
-try:
-    from openmdao.utils.lazy_imports import pyDOE3
-    lhs = pyDOE3.lhs
-except ModuleNotFoundError:
-    lhs = None
 
 from openmdao.core.constants import INF_BOUND
 from openmdao.core.driver import Driver, RecordingDebugging
@@ -65,7 +60,7 @@ class DifferentialEvolutionDriver(Driver):
         """
         Initialize the DifferentialEvolutionDriver driver.
         """
-        if lhs is None:
+        if importlib.util.find_spec('pyDOE3') is None:
             raise RuntimeError(f"{self.__class__.__name__} requires the 'pyDOE3' package, "
                                "which can be installed with one of the following commands:\n"
                                "    pip install openmdao[doe]\n"
@@ -514,11 +509,14 @@ class DifferentialEvolution(object):
         """
         Initialize genetic algorithm object.
         """
-        if lhs is None:
+        try:
+            from pyDOE3 import lhs
+        except ImportError:
             raise RuntimeError(f"{self.__class__.__name__} requires the 'pyDOE3' package, "
                                "which can be installed with one of the following commands:\n"
                                "    pip install openmdao[doe]\n"
                                "    pip install pyDOE3")
+        self._lhs = lhs
 
         self.objfun = objfun
         self.comm = comm
@@ -588,7 +586,7 @@ class DifferentialEvolution(object):
         rng = np.random.default_rng(seed)
 
         # create LHS initial population (scaled to bounds) + user initial condition
-        population = lhs(self.lchrom, self.npop - 1, criterion='center', random_state=seed)
+        population = self._lhs(self.lchrom, self.npop - 1, criterion='center', random_state=seed)
         population = population * (vub - vlb) + vlb  # scale to bounds
         population = np.vstack((population, x0))
         fitness = np.ones(self.npop) * np.inf  # initialize fitness to infinitely bad

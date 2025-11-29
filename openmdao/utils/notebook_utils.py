@@ -3,16 +3,30 @@ import sys
 import importlib
 import inspect
 
-try:
-    from IPython.display import display, HTML, IFrame, Code
-    from IPython import get_ipython
-    ipy = get_ipython() is not None
-except ImportError:
-    ipy = display = HTML = IFrame = None
-
+from openmdao.utils.lazy_imports import IPython
 from openmdao.utils.om_warnings import issue_warning, warn_deprecation
 
+
+# try:
+#     from IPython.display import display, HTML, Code
+#     # from IPython import get_ipython
+# except ImportError:
+#     ipy = display = HTML = None
+
+
+# Fast path: if IPython already loaded, check it
+if 'IPython' in sys.modules:
+    try:
+        ipy = IPython.get_ipython() is not None
+    except (ImportError, AttributeError):
+        ipy = False
+else:
+    # IPython not loaded = definitely not in IPython session
+    ipy = False
+
+
 colab = 'google.colab' in sys.modules
+notebook = None
 
 
 def _get_object_from_reference(reference):
@@ -68,7 +82,7 @@ def get_code(reference, hide_doc_string=False):
         obj = ''.join(obj)
 
     if ipy:
-        return Code(obj, language='python')
+        return IPython.display.Code(obj, language='python')
     else:
         issue_warning("IPython is not installed. Run `pip install openmdao[notebooks]` or "
                       "`pip install openmdao[docs]` to upgrade.")
@@ -86,7 +100,7 @@ def display_source(reference, hide_doc_string=False):
         Option to hide the docstring.
     """
     if ipy:
-        display(get_code(reference, hide_doc_string))
+        IPython.display.display(get_code(reference, hide_doc_string))
 
 
 def show_options_table(reference, recording_options=False, options_dict='options'):
@@ -109,6 +123,8 @@ def show_options_table(reference, recording_options=False, options_dict='options
         Options table of the given class or function.
     """
     from openmdao.utils.options_dictionary import OptionsDictionary
+    display = IPython.display.display
+    HTML = IPython.display.HTML
 
     if isinstance(reference, str):
         obj = _get_object_from_reference(reference)()
@@ -159,7 +175,22 @@ def notebook_mode():
     bool
         True if the environment is an interactive notebook.
     """
-    return ipy
+    global notebook
+
+    if notebook is not None:
+        return notebook
+
+    import sys
+    if 'IPython' in sys.modules:
+        try:
+            from IPython import get_ipython
+            notebook = get_ipython() is not None
+        except (ImportError, AttributeError):
+            notebook = False
+    else:
+        notebook = False
+
+    return notebook
 
 
 notebook = notebook_mode()

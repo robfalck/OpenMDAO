@@ -18,7 +18,7 @@ from openmdao.utils.om_warnings import issue_warning, CaseRecorderWarning
 
 from openmdao.recorders.sqlite_recorder import format_version, META_KEY_SEP
 
-from openmdao.utils.notebook_utils import notebook, display, HTML
+from openmdao.utils.notebook_utils import notebook
 from openmdao.visualization.tables.table_builder import generate_table
 
 import pickle
@@ -456,7 +456,9 @@ class SqliteCaseReader(BaseCaseReader):
 
         if out_stream:
             if notebook and out_stream is _DEFAULT_OUT_STREAM:
-                display(HTML(str(generate_table([[s] for s in sources], headers=['Sources'],
+                from IPython.display import display, HTML
+                display(HTML(str(generate_table([[s] for s in sources],
+                                                headers=['Sources'],
                                                 tablefmt='html'))))
             else:
                 if out_stream is _DEFAULT_OUT_STREAM:
