@@ -6,7 +6,8 @@ import unittest
 import numpy as np
 
 import openmdao.api as om
-from openmdao.components.spline_comp import SPLINE_METHODS
+
+from openmdao.components.interp_util.interp import SPLINE_METHODS
 from openmdao.utils.assert_utils import assert_check_partials, assert_near_equal
 from openmdao.utils.general_utils import printoptions
 from openmdao.utils.spline_distributions import cell_centered, sine_distribution
