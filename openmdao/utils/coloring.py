@@ -11,6 +11,7 @@ import sys
 import tempfile
 import traceback
 import webbrowser
+import importlib.util
 import inspect
 from itertools import combinations, groupby
 from contextlib import contextmanager
@@ -30,27 +31,6 @@ from openmdao.utils.reports_system import register_report
 from openmdao.utils.array_utils import submat_sparsity_iter
 from openmdao.devtools.memory import mem_usage
 
-try:
-    import matplotlib as mpl
-    from matplotlib import pyplot
-
-    if Version(mpl.__version__) < Version("3.6"):
-        from matplotlib import cm
-except ImportError:
-    mpl = None
-
-try:
-    from bokeh.models import CategoricalColorMapper, ColumnDataSource, CustomJSHover, \
-        Div, HoverTool, PreText
-    from bokeh.layouts import column
-    from bokeh.palettes import Blues256, Reds256, gray, interp_palette
-    from bokeh.plotting import figure
-    import bokeh.resources as bokeh_resources
-    from bokeh.transform import transform
-    import bokeh.io
-except ImportError:
-    bokeh_resources = None
-
 
 try:
     import jax
@@ -61,6 +41,10 @@ except ImportError:
 
     jax = None
     jnp = np
+
+
+bokeh_resources = importlib.util.find_spec("bokeh.resources")
+
 
 
 CITATIONS = """
@@ -1448,7 +1432,13 @@ class Coloring(object):
         issue_warning('display is deprecated. Use display_bokeh for rich html displays of coloring'
                       'or display_txt for a text-based display.', category=OMDeprecationWarning)
 
-        if mpl is None:
+        try:
+            import matplotlib as mpl
+            from matplotlib import pyplot
+
+            if Version(mpl.__version__) < Version("3.6"):
+                from matplotlib import cm
+        except ImportError:
             print("matplotlib is not installed so the coloring viewer is not available. The ascii "
                   "based coloring viewer can be accessed by calling display_txt() on the Coloring "
                   "object or by using 'openmdao view_coloring --textview <your_coloring_file>' "
@@ -1639,7 +1629,16 @@ class Coloring(object):
         use_prom_names : bool
             If True, display promoted names rather than absolute path names for variables.
         """
-        if bokeh_resources is None:
+        try:
+            from bokeh.models import CategoricalColorMapper, ColumnDataSource, CustomJSHover, \
+                Div, HoverTool, PreText
+            from bokeh.layouts import column
+            from bokeh.palettes import Blues256, Reds256, gray, interp_palette
+            from bokeh.plotting import figure
+            import bokeh.resources as bokeh_resources
+            from bokeh.transform import transform
+            import bokeh.io
+        except ImportError:
             print("bokeh is not installed so this coloring viewer is not available. The ascii "
                   "based coloring viewer can be accessed by calling display_txt() on the Coloring "
                   "object or by using 'openmdao view_coloring --textview <your_coloring_file>' "
