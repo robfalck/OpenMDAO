@@ -14,7 +14,7 @@ from collections import defaultdict, OrderedDict
 from tokenize import NAME, tokenize, untokenize
 from openmdao.utils.om_warnings import issue_warning
 
-import networkx as nx
+from openmdao.utils.lazy_imports import networkx as nx
 
 
 def _get_long_name(node):

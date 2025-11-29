@@ -8,7 +8,7 @@ try:
 except ImportError:
     pydot = None
 
-import networkx as nx
+from openmdao.utils.lazy_imports import networkx as nx
 
 from openmdao.solvers.nonlinear.nonlinear_runonce import NonlinearRunOnce
 from openmdao.solvers.linear.linear_runonce import LinearRunOnce

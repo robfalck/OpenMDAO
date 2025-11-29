@@ -1,6 +1,6 @@
 """Functions for plotting the dynamic shapes dependency graph."""
 
-import networkx as nx
+from openmdao.utils.lazy_imports import networkx as nx
 
 from openmdao.core.problem import Problem
 from openmdao.utils.mpi import MPI

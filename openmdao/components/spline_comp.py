@@ -1,9 +1,7 @@
 """Define the SplineComp class."""
 import numpy as np
 
-from openmdao.components.interp_util.interp import InterpND
 from openmdao.core.explicitcomponent import ExplicitComponent
-from openmdao.components.interp_util.interp import SPLINE_METHODS
 
 
 class SplineComp(ExplicitComponent):
@@ -44,6 +42,7 @@ class SplineComp(ExplicitComponent):
         """
         Declare options.
         """
+        from openmdao.components.interp_util.interp import SPLINE_METHODS
         super()._declare_options()
 
         self.options.declare('vec_size', types=int, default=1,
@@ -85,6 +84,8 @@ class SplineComp(ExplicitComponent):
         """
         Perform some final setup and checks.
         """
+        from openmdao.components.interp_util.interp import InterpND
+
         interp_method = self.options['method']
 
         x_cp_val = self.options['x_cp_val']

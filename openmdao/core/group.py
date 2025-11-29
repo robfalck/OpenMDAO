@@ -9,7 +9,7 @@ import inspect
 from difflib import get_close_matches
 
 import numpy as np
-import networkx as nx
+from openmdao.utils.lazy_imports import networkx as nx
 
 from openmdao.core.configinfo import _ConfigInfo
 from openmdao.core.system import System, collect_errors

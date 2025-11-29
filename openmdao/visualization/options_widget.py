@@ -3,10 +3,8 @@ A widget-based representation of OptionsDictionary for use in Jupyter notebooks.
 """
 
 try:
-    import ipywidgets as widgets
-    from ipywidgets import Layout
-    from IPython.display import display
-except Exception:
+    from openmdao.utils.lazy_imports import ipywidgets as widgets
+except ModuleNotFoundError:
     widgets = None
 
 from openmdao.utils.om_warnings import issue_warning
@@ -28,6 +26,13 @@ class OptionsWidget(object):
         """
         if widgets is None:
             issue_warning(f"ipywidgets is required to use {self.__class__.__name__}."
+                          "To install it run `pip install openmdao[notebooks]`.")
+            return
+
+        try:
+            from IPython.display import display
+        except ImportError:
+            issue_warning(f"IPython is required to use {self.__class__.__name__}."
                           "To install it run `pip install openmdao[notebooks]`.")
             return
 
@@ -181,6 +186,6 @@ class OptionsWidget(object):
         _wdgt_rows.sort(key=lambda x: x[0])
         _widgets = [wdgt for _, wdgt in _wdgt_rows]
 
-        box_layout = Layout(display='flex', flex_flow='row wrap')
+        box_layout = widgets.Layout(display='flex', flex_flow='row wrap')
         display(widgets.GridBox(children=_widgets, layout=box_layout))
         display(messages)

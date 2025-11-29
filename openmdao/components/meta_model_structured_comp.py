@@ -3,8 +3,6 @@
 import numpy as np
 import inspect
 
-from openmdao.components.interp_util.outofbounds_error import OutOfBoundsError
-from openmdao.components.interp_util.interp import InterpND, TABLE_METHODS
 from openmdao.core.analysis_error import AnalysisError
 from openmdao.core.explicitcomponent import ExplicitComponent
 
@@ -49,6 +47,8 @@ class MetaModelStructuredComp(ExplicitComponent):
         """
         super().__init__(**kwargs)
 
+        from openmdao.components.interp_util.outofbounds_error import OutOfBoundsError
+
         self.pnames = []
         self.inputs = []
         self.training_outputs = {}
@@ -56,11 +56,14 @@ class MetaModelStructuredComp(ExplicitComponent):
         self.grad_shape = ()
 
         self._no_check_partials = True
+        self._OutOfBoundsError = OutOfBoundsError
 
     def initialize(self):
         """
         Initialize the component.
         """
+        from openmdao.components.interp_util.interp import TABLE_METHODS
+
         self.options.declare('extrapolate', types=bool, default=False,
                              desc='Sets whether extrapolation should be performed '
                                   'when an input is out of bounds.')
@@ -143,6 +146,8 @@ class MetaModelStructuredComp(ExplicitComponent):
         """
         Instantiate surrogates for the output variables that use the default surrogate.
         """
+        from openmdao.components.interp_util.interp import InterpND
+
         interp_method = self.options['method']
 
         for name, train_data in self.training_outputs.items():
@@ -204,7 +209,7 @@ class MetaModelStructuredComp(ExplicitComponent):
             try:
                 val = interp._interpolate(pt)
 
-            except OutOfBoundsError as err:
+            except self._OutOfBoundsError as err:
                 varname_causing_error = '.'.join((self.pathname, self.pnames[err.idx]))
                 errmsg = (f"{self.msginfo}: Error interpolating output '{out_name}' "
                           f"because input '{varname_causing_error}' was out of bounds "

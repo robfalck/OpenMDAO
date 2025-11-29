@@ -7,10 +7,6 @@ from collections import defaultdict
 
 import numpy as np
 
-try:
-    from IPython.display import IFrame, display, HTML
-except ImportError:
-    IFrame = display = None
 
 from openmdao.core.problem import Problem
 from openmdao.core.constants import _SetupStatus
@@ -227,6 +223,8 @@ def view_connections(root, outfile='connections.html', show_browser=True,
             f.write(s)
 
         if notebook:
+            from IPython.display import display, IFrame, HTML
+
             # display in Jupyter Notebook
             if not colab:
                 display(IFrame(src=outfile, width=1000, height=1000))

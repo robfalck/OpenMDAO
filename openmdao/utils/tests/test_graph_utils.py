@@ -1,5 +1,5 @@
 import unittest
-import networkx as nx
+from openmdao.utils.lazy_imports import networkx as nx
 
 from openmdao.utils.graph_utils import get_out_of_order_nodes
 

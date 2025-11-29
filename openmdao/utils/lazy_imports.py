@@ -1,3 +1,31 @@
+"""
+Provide a lazy importing capability to improve import speeds of the OpenMDAO package.
+
+In general, one should delay the import of specialized packages and modules until
+they are needed, like IPython or pyDOE3.
+
+This typical approach to lazy loading breaks down when a module is needed within
+a function in a performance sensitive area, or due to legacy usages such as testing
+for the availbility of MPI with `if MPI is not None`.
+
+In these cases, this module lets those packages be lazily loaded at a module-level.
+
+For instance:
+
+    from openmdao.utils.lazy_imports import IPython
+
+This will return an instance of LazyImport and will not actually perform the
+import of IPython until an attribute of IPython is accessed:
+
+    display = IPython.display
+
+The LazyImport object will efficiently test for the availability of the given
+package/module using importlib.util.find_spec(module_name) rather than
+actually importing it. Therefore, if the package is not available,
+the import will quickly raise ModuleNotFoundError, preserving the existing
+behavior.
+"""
+
 import importlib.util
 
 

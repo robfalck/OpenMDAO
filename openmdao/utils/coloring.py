@@ -18,7 +18,7 @@ from contextlib import contextmanager
 from pprint import pprint
 from packaging.version import Version
 
-import networkx as nx
+from openmdao.utils.lazy_imports import networkx as nx
 import numpy as np
 from scipy.sparse import coo_matrix, csc_matrix, csr_matrix
 
@@ -38,13 +38,11 @@ try:
     import jax.numpy as jnp
     from jax.experimental.sparse import BCOO
 except ImportError:
-
     jax = None
     jnp = np
 
 
 bokeh_resources = importlib.util.find_spec("bokeh.resources")
-
 
 
 CITATIONS = """

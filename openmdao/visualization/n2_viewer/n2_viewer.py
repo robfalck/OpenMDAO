@@ -5,7 +5,7 @@ import pathlib
 import sys
 from operator import itemgetter
 
-import networkx as nx
+from openmdao.utils.lazy_imports import networkx as nx
 import numpy as np
 
 from openmdao.drivers.analysis_driver import AnalysisDriver

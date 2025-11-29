@@ -10,23 +10,11 @@ from openmdao.recorders.case_reader import CaseReader
 # Enable _DEBUG to prevent the debug_output display from clearing itself.
 _DEBUG = False
 
-try:
-    import matplotlib.pyplot as plt
-    import matplotlib as mpl
-    from matplotlib import cm
-except ImportError:
-    mpl = None
 
 try:
-    import ipywidgets as ipw
+    from openmdao.utils.lazy_imports import ipywidgets as ipw
 except ImportError:
     ipw = None
-
-try:
-    from IPython.display import display
-    from IPython import get_ipython
-except ImportError:
-    get_ipython = None
 
 
 _func_map = {'None': lambda x: x,
@@ -298,6 +286,18 @@ class CaseViewer(object):
         """
         Initialize the case viewer interface.
         """
+        try:
+            from IPython import get_ipython
+        except ImportError:
+            get_ipython = None
+
+        try:
+            import matplotlib.pyplot as plt
+            import matplotlib as mpl
+            from matplotlib import cm
+        except ImportError:
+            mpl = None
+
         if mpl is None:
             raise RuntimeError('CaseViewer requires matplotlib and ipympl')
         if get_ipython is None:
@@ -343,6 +343,8 @@ class CaseViewer(object):
         """
         Define the widgets for the CaseViewer and display them.
         """
+        from IPython.display import display
+
         self._widgets = {}
 
         self._widgets['source_select'] = ipw.Dropdown(description='Source',

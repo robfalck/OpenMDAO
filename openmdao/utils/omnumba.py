@@ -6,8 +6,7 @@ original function.
 """
 
 try:
-    import numba         # noqa: F401
-    from numba import *  # noqa: F403
+    from openmdao.utils.lazy_imports import numba  # noqa: F401
 except ImportError:
     numba = None
     prange = range

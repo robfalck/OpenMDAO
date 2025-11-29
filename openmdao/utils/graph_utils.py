@@ -1,7 +1,7 @@
 """
 Various graph related utilities.
 """
-import networkx as nx
+from openmdao.utils.lazy_imports import networkx as nx
 from openmdao.utils.general_utils import all_ancestors, common_subpath
 from openmdao.utils.units import _find_unit
 
