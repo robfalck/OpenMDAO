@@ -3,30 +3,26 @@ import sys
 import importlib
 import inspect
 
-from openmdao.utils.lazy_imports import IPython
+try:
+    from openmdao.utils.lazy_imports import IPython
+    # Fast path: if IPython already loaded, check it
+    if 'IPython' in sys.modules:
+        try:
+            ipy = IPython.get_ipython() is not None
+        except (ImportError, AttributeError):
+            ipy = False
+    else:
+        # IPython not loaded = definitely not in IPython session
+        ipy = False
+except ImportError:
+    ipy = False
+    IPython = None
+
 from openmdao.utils.om_warnings import issue_warning, warn_deprecation
 
 
-# try:
-#     from IPython.display import display, HTML, Code
-#     # from IPython import get_ipython
-# except ImportError:
-#     ipy = display = HTML = None
-
-
-# Fast path: if IPython already loaded, check it
-if 'IPython' in sys.modules:
-    try:
-        ipy = IPython.get_ipython() is not None
-    except (ImportError, AttributeError):
-        ipy = False
-else:
-    # IPython not loaded = definitely not in IPython session
-    ipy = False
-
-
 colab = 'google.colab' in sys.modules
-notebook = None
+notebook = ipy
 
 
 def _get_object_from_reference(reference):
@@ -175,22 +171,4 @@ def notebook_mode():
     bool
         True if the environment is an interactive notebook.
     """
-    global notebook
-
-    if notebook is not None:
-        return notebook
-
-    import sys
-    if 'IPython' in sys.modules:
-        try:
-            from IPython import get_ipython
-            notebook = get_ipython() is not None
-        except (ImportError, AttributeError):
-            notebook = False
-    else:
-        notebook = False
-
-    return notebook
-
-
-notebook = notebook_mode()
+    return ipy
