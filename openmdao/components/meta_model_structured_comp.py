@@ -41,7 +41,6 @@ class MetaModelStructuredComp(ExplicitComponent):
         Dictionary of training data each output.
     _OutOfBoundsError : OutOfBoundsError
         A lazily-imported _OutOfBoundsError class.
-
     """
 
     def __init__(self, **kwargs):
