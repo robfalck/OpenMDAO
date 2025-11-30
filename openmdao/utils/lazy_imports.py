@@ -81,7 +81,7 @@ class LazyImport:
             The imported module.
         """
         if self._module is None:
-            with self._lock():
+            with self._lock:
                 self._module = importlib.import_module(self._module_name)
         return self._module
 
