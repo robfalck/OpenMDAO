@@ -25,8 +25,8 @@ actually importing it. Therefore, if the package is not available,
 the import will quickly raise ModuleNotFoundError, preserving the existing
 behavior.
 """
-
 import importlib.util
+import threading
 
 
 class LazyImport:
@@ -48,6 +48,8 @@ class LazyImport:
         The name of the module to be lazily loaded.
     _module : Python module or None
         The lazily imported module if it has been loaded, otherwise None.
+    _lock : threading.Lock
+        A lock to make the imports thread-safe.
 
     Raises
     ------
@@ -60,6 +62,7 @@ class LazyImport:
         self._module_name = module_name
         base_package = module_name.split('.')[0]
         self._module = None
+        self._lock = threading.Lock()
 
         if importlib.util.find_spec(base_package) is None:
             raise ModuleNotFoundError(f"No module named '{base_package}'")
@@ -78,7 +81,8 @@ class LazyImport:
             The imported module.
         """
         if self._module is None:
-            self._module = importlib.import_module(self._module_name)
+            with self._lock():
+                self._module = importlib.import_module(self._module_name)
         return self._module
 
     def __getattr__(self, name):
