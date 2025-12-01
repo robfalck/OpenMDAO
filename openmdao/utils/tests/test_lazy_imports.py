@@ -12,10 +12,10 @@ class TestLazyImport(unittest.TestCase):
 
     def test_lazy_import_available_module(self):
         """Test that LazyImport works for an available module."""
-        from openmdao.utils.lazy_imports import LazyImport
+        from openmdao.utils.lazy_imports import LazyModule
 
         # Create lazy import for a module
-        lazy_decimal = LazyImport('decimal')
+        lazy_decimal = LazyModule('decimal')
 
         # The _module attribute should be None before any access
         self.assertIsNone(lazy_decimal._module)
@@ -31,10 +31,10 @@ class TestLazyImport(unittest.TestCase):
 
     def test_lazy_import_unavailable_module(self):
         """Test that LazyImport raises ModuleNotFoundError for unavailable modules."""
-        from openmdao.utils.lazy_imports import LazyImport
+        from openmdao.utils.lazy_imports import LazyModule
 
         with self.assertRaises(ModuleNotFoundError) as cm:
-            LazyImport('nonexistent_package_xyz_12345')
+            LazyModule('nonexistent_package_xyz_12345')
 
         self.assertIn('nonexistent_package_xyz_12345', str(cm.exception))
 
@@ -44,8 +44,8 @@ class TestLazyImport(unittest.TestCase):
         from openmdao.utils.lazy_imports import json
 
         # Should be a LazyImport instance
-        from openmdao.utils.lazy_imports import LazyImport
-        self.assertIsInstance(json, LazyImport)
+        from openmdao.utils.lazy_imports import LazyModule
+        self.assertIsInstance(json, LazyModule)
 
         # Should not be loaded yet
         self.assertIsNone(json._module)
@@ -64,10 +64,10 @@ class TestLazyImport(unittest.TestCase):
 
     def test_lazy_import_submodule(self):
         """Test lazy import of submodules."""
-        from openmdao.utils.lazy_imports import LazyImport
+        from openmdao.utils.lazy_imports import LazyModule
 
         # Use a standard library submodule for testing
-        lazy_sub = LazyImport('urllib.parse')
+        lazy_sub = LazyModule('urllib.parse')
 
         # Should not be loaded yet
         self.assertIsNone(lazy_sub._module)
@@ -81,9 +81,9 @@ class TestLazyImport(unittest.TestCase):
 
     def test_lazy_import_caching(self):
         """Test that the module is only imported once."""
-        from openmdao.utils.lazy_imports import LazyImport
+        from openmdao.utils.lazy_imports import LazyModule
 
-        lazy_pathlib = LazyImport('pathlib')
+        lazy_pathlib = LazyModule('pathlib')
 
         # Should not be loaded yet
         self.assertIsNone(lazy_pathlib._module)
@@ -107,9 +107,9 @@ class TestLazyImport(unittest.TestCase):
 
     def test_lazy_import_dir(self):
         """Test that __dir__ returns module attributes."""
-        from openmdao.utils.lazy_imports import LazyImport
+        from openmdao.utils.lazy_imports import LazyModule
 
-        lazy_sys = LazyImport('sys')
+        lazy_sys = LazyModule('sys')
 
         # Should not be loaded yet
         self.assertIsNone(lazy_sys._module)
@@ -126,9 +126,9 @@ class TestLazyImport(unittest.TestCase):
 
     def test_lazy_import_repr(self):
         """Test that __repr__ works correctly."""
-        from openmdao.utils.lazy_imports import LazyImport
+        from openmdao.utils.lazy_imports import LazyModule
 
-        lazy_re = LazyImport('re')
+        lazy_re = LazyModule('re')
 
         # Should not be loaded yet
         self.assertIsNone(lazy_re._module)
@@ -144,9 +144,9 @@ class TestLazyImport(unittest.TestCase):
 
     def test_lazy_import_bool(self):
         """Test that LazyImport instances are truthy."""
-        from openmdao.utils.lazy_imports import LazyImport
+        from openmdao.utils.lazy_imports import LazyModule
 
-        lazy_csv = LazyImport('csv')
+        lazy_csv = LazyModule('csv')
 
         # Should be truthy (instances are truthy by default)
         self.assertTrue(lazy_csv)
@@ -154,9 +154,9 @@ class TestLazyImport(unittest.TestCase):
 
     def test_lazy_import_multiple_attributes(self):
         """Test accessing multiple attributes from lazy import."""
-        from openmdao.utils.lazy_imports import LazyImport
+        from openmdao.utils.lazy_imports import LazyModule
 
-        lazy_random = LazyImport('random')
+        lazy_random = LazyModule('random')
 
         # Should not be loaded yet
         self.assertIsNone(lazy_random._module)
@@ -177,9 +177,9 @@ class TestLazyImport(unittest.TestCase):
 
     def test_lazy_import_attribute_error(self):
         """Test that AttributeError is raised for non-existent attributes."""
-        from openmdao.utils.lazy_imports import LazyImport
+        from openmdao.utils.lazy_imports import LazyModule
 
-        lazy_string = LazyImport('string')
+        lazy_string = LazyModule('string')
 
         # Should not be loaded yet
         self.assertIsNone(lazy_string._module)
@@ -204,8 +204,8 @@ class TestLazyImport(unittest.TestCase):
         self.assertIsNotNone(json)
 
         # Verify it's a LazyImport
-        from openmdao.utils.lazy_imports import LazyImport
-        self.assertIsInstance(json, LazyImport)
+        from openmdao.utils.lazy_imports import LazyModule
+        self.assertIsInstance(json, LazyModule)
 
     def test_try_except_import_pattern_failure(self):
         """Test that try/except ModuleNotFoundError pattern works for unavailable modules."""
@@ -223,10 +223,10 @@ class TestLazyImport(unittest.TestCase):
 
     def test_lazy_import_preserves_module_functionality(self):
         """Test that lazy imported modules work the same as regular imports."""
-        from openmdao.utils.lazy_imports import LazyImport
+        from openmdao.utils.lazy_imports import LazyModule
         import collections
 
-        lazy_collections = LazyImport('collections')
+        lazy_collections = LazyModule('collections')
 
         # Should not be loaded yet
         self.assertIsNone(lazy_collections._module)
@@ -246,10 +246,10 @@ class TestLazyImport(unittest.TestCase):
     )
     def test_lazy_import_with_numpy(self):
         """Test lazy import with a real heavy package (numpy)."""
-        from openmdao.utils.lazy_imports import LazyImport
+        from openmdao.utils.lazy_imports import LazyModule
 
         # Create lazy numpy
-        lazy_np = LazyImport('numpy')
+        lazy_np = LazyModule('numpy')
 
         # Should not be loaded yet
         self.assertIsNone(lazy_np._module)
@@ -269,10 +269,10 @@ class TestLazyImport(unittest.TestCase):
     )
     def test_lazy_import_mpi_via_module_getattr(self):
         """Test lazy import of MPI via module __getattr__."""
-        from openmdao.utils.lazy_imports import MPI, LazyImport
+        from openmdao.utils.lazy_imports import MPI, LazyModule
 
         # Should be a LazyImport instance
-        self.assertIsInstance(MPI, LazyImport)
+        self.assertIsInstance(MPI, LazyModule)
 
         # Should be for mpi4py.MPI
         self.assertEqual(MPI._module_name, 'mpi4py.MPI')
@@ -286,10 +286,10 @@ class TestLazyImport(unittest.TestCase):
     )
     def test_lazy_import_petsc_via_module_getattr(self):
         """Test lazy import of PETSc via module __getattr__."""
-        from openmdao.utils.lazy_imports import PETSc, LazyImport
+        from openmdao.utils.lazy_imports import PETSc, LazyModule
 
         # Should be a LazyImport instance
-        self.assertIsInstance(PETSc, LazyImport)
+        self.assertIsInstance(PETSc, LazyModule)
 
         # Should be for petsc4py.PETSc
         self.assertEqual(PETSc._module_name, 'petsc4py.PETSc')
@@ -304,13 +304,13 @@ class TestLazyImportModuleAttribute(unittest.TestCase):
     def test_getattr_creates_lazy_import(self):
         """Test that accessing module attributes creates LazyImport instances."""
         from openmdao.utils import lazy_imports
-        from openmdao.utils.lazy_imports import LazyImport
+        from openmdao.utils.lazy_imports import LazyModule
 
         # Access an attribute dynamically
         lazy_datetime = getattr(lazy_imports, 'datetime')
 
         # Should be a LazyImport instance
-        self.assertIsInstance(lazy_datetime, LazyImport)
+        self.assertIsInstance(lazy_datetime, LazyModule)
 
         # Should not be loaded yet
         self.assertIsNone(lazy_datetime._module)
@@ -325,13 +325,13 @@ class TestLazyImportModuleAttribute(unittest.TestCase):
     def test_getattr_special_case_mpi(self):
         """Test that MPI is handled specially."""
         from openmdao.utils import lazy_imports
-        from openmdao.utils.lazy_imports import LazyImport
+        from openmdao.utils.lazy_imports import LazyModule
 
         # Access MPI attribute
         mpi = getattr(lazy_imports, 'MPI')
 
         # Should be a LazyImport instance
-        self.assertIsInstance(mpi, LazyImport)
+        self.assertIsInstance(mpi, LazyModule)
 
         # Should point to mpi4py.MPI, not just mpi4py
         self.assertEqual(mpi._module_name, 'mpi4py.MPI')
@@ -346,13 +346,13 @@ class TestLazyImportModuleAttribute(unittest.TestCase):
     def test_getattr_special_case_petsc(self):
         """Test that PETSc is handled specially."""
         from openmdao.utils import lazy_imports
-        from openmdao.utils.lazy_imports import LazyImport
+        from openmdao.utils.lazy_imports import LazyModule
 
         # Access PETSc attribute
         petsc = getattr(lazy_imports, 'PETSc')
 
         # Should be a LazyImport instance
-        self.assertIsInstance(petsc, LazyImport)
+        self.assertIsInstance(petsc, LazyModule)
 
         # Should point to petsc4py.PETSc, not just petsc4py
         self.assertEqual(petsc._module_name, 'petsc4py.PETSc')
@@ -363,13 +363,13 @@ class TestLazyImportModuleAttribute(unittest.TestCase):
     def test_getattr_general_module(self):
         """Test that general modules work through __getattr__."""
         from openmdao.utils import lazy_imports
-        from openmdao.utils.lazy_imports import LazyImport
+        from openmdao.utils.lazy_imports import LazyModule
 
         # Access a general module
         lazy_textwrap = getattr(lazy_imports, 'textwrap')
 
         # Should be a LazyImport instance
-        self.assertIsInstance(lazy_textwrap, LazyImport)
+        self.assertIsInstance(lazy_textwrap, LazyModule)
 
         # Should have correct module name
         self.assertEqual(lazy_textwrap._module_name, 'textwrap')
@@ -394,10 +394,10 @@ class TestLazyImportChaining(unittest.TestCase):
     )
     def test_mpi_import_via_getattr(self):
         """Test that importing MPI via module __getattr__ works correctly."""
-        from openmdao.utils.lazy_imports import MPI, LazyImport
+        from openmdao.utils.lazy_imports import MPI, LazyModule
 
         # Should be a LazyImport instance
-        self.assertIsInstance(MPI, LazyImport)
+        self.assertIsInstance(MPI, LazyModule)
 
         # Should be for mpi4py.MPI
         self.assertEqual(MPI._module_name, 'mpi4py.MPI')

@@ -29,7 +29,7 @@ import importlib.util
 import threading
 
 
-class LazyImport:
+class LazyModule:
     """
     Lazy loader for a module that only imports on attribute access.
 
@@ -165,8 +165,8 @@ def __getattr__(name):
         raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
     if name == 'MPI':
-        return LazyImport('mpi4py.MPI')
+        return LazyModule('mpi4py.MPI')
     elif name == 'PETSc':
-        return LazyImport('petsc4py.PETSc')
+        return LazyModule('petsc4py.PETSc')
 
-    return LazyImport(name)
+    return LazyModule(name)
