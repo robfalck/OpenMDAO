@@ -14,12 +14,12 @@ For instance:
 
     from openmdao.utils.lazy_imports import IPython
 
-This will return an instance of LazyImport and will not actually perform the
+This will return an instance of LazyModuleImport and will not actually perform the
 import of IPython until an attribute of IPython is accessed:
 
     display = IPython.display
 
-The LazyImport object will efficiently test for the availability of the given
+The LazyModuleImport object will efficiently test for the availability of the given
 package/module using importlib.util.find_spec(module_name) rather than
 actually importing it. Therefore, if the package is not available,
 the import will quickly raise ModuleNotFoundError, preserving the existing
@@ -29,7 +29,7 @@ import importlib.util
 import threading
 
 
-class LazyModule:
+class LazyModuleImport:
     """
     Lazy loader for a module that only imports on attribute access.
 
@@ -58,7 +58,7 @@ class LazyModule:
     """
 
     def __init__(self, module_name):
-        """Initialize the LazyImport wrapper."""
+        """Initialize the LazyModuleImport wrapper."""
         self._module_name = module_name
         base_package = module_name.split('.')[0]
         self._module = None
@@ -165,8 +165,8 @@ def __getattr__(name):
         raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
     if name == 'MPI':
-        return LazyModule('mpi4py.MPI')
+        return LazyModuleImport('mpi4py.MPI')
     elif name == 'PETSc':
-        return LazyModule('petsc4py.PETSc')
+        return LazyModuleImport('petsc4py.PETSc')
 
-    return LazyModule(name)
+    return LazyModuleImport(name)
