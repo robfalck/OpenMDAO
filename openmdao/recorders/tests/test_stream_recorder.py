@@ -627,6 +627,98 @@ class TestStreamRecorderMPI(unittest.TestCase):
             self.assertTrue(os.path.exists('separate.ndjson'))
             self.assertTrue(os.path.exists('coordinator_compare.ndjson'))
 
+    def test_system_recorder_coordinator_mode(self):
+        """Test that system recording works in parallel with coordinator mode."""
+        prob = om.Problem()
+        model = prob.model
+
+        model.add_subsystem('comp', om.ExecComp('y=2*x'), promotes=['*'])
+
+        # With coordinator mode, system recording should work in parallel
+        recorder = StreamRecorder('system_parallel.ndjson', coordinator_mode=True)
+        recorder.record_on_process = True  # All ranks participate
+
+        # This should NOT raise RuntimeError with coordinator mode
+        model.add_recorder(recorder)
+
+        model.recording_options['record_inputs'] = True
+        model.recording_options['record_outputs'] = True
+        model.recording_options['record_residuals'] = True
+
+        prob.setup()
+        prob.run_model()
+        recorder.shutdown()
+        prob.cleanup()
+
+        if MPI and prob.comm.size > 1:
+            if prob.comm.rank == 0:
+                # Only rank 0 creates the file in coordinator mode
+                self.assertTrue(os.path.exists('system_parallel.ndjson'))
+
+                # Read and verify
+                system_records = []
+                with open('system_parallel.ndjson', 'r') as f:
+                    for line in f:
+                        record = json.loads(line)
+                        if record['type'] == 'system_iteration':
+                            system_records.append(record)
+
+                # Should have system records with rank information
+                self.assertGreater(len(system_records), 0)
+                for record in system_records:
+                    self.assertIn('rank', record)
+                    self.assertIn('inputs', record)
+                    self.assertIn('outputs', record)
+                    self.assertIn('residuals', record)
+        else:
+            # Serial run
+            self.assertTrue(os.path.exists('system_parallel.ndjson'))
+
+    def test_solver_recorder_coordinator_mode(self):
+        """Test that solver recording works in parallel with coordinator mode."""
+        prob = om.Problem(model=SellarDerivatives())
+
+        prob.model.nonlinear_solver = om.NonlinearBlockGS()
+        prob.model.linear_solver = om.DirectSolver()
+
+        # With coordinator mode, solver recording should work in parallel
+        recorder = StreamRecorder('solver_parallel.ndjson', coordinator_mode=True)
+        recorder.record_on_process = True  # All ranks participate
+
+        # This should NOT raise RuntimeError with coordinator mode
+        prob.model.nonlinear_solver.add_recorder(recorder)
+
+        prob.model.nonlinear_solver.recording_options['record_abs_error'] = True
+        prob.model.nonlinear_solver.recording_options['record_rel_error'] = True
+
+        prob.setup()
+        prob.run_model()
+        recorder.shutdown()
+        prob.cleanup()
+
+        if MPI and prob.comm.size > 1:
+            if prob.comm.rank == 0:
+                # Only rank 0 creates the file in coordinator mode
+                self.assertTrue(os.path.exists('solver_parallel.ndjson'))
+
+                # Read and verify
+                solver_records = []
+                with open('solver_parallel.ndjson', 'r') as f:
+                    for line in f:
+                        record = json.loads(line)
+                        if record['type'] == 'solver_iteration':
+                            solver_records.append(record)
+
+                # Should have solver records with rank information
+                self.assertGreater(len(solver_records), 0)
+                for record in solver_records:
+                    self.assertIn('rank', record)
+                    self.assertIn('abs_err', record)
+                    self.assertIn('rel_err', record)
+        else:
+            # Serial run
+            self.assertTrue(os.path.exists('solver_parallel.ndjson'))
+
 
 @use_tempdirs
 class TestStreamRecorderIntegration(unittest.TestCase):

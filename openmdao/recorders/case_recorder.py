@@ -119,6 +119,22 @@ class CaseRecorder(object):
         """
         return self._parallel
 
+    @property
+    def supports_parallel_recording(self):
+        """
+        Return True if this recorder can record system/solver iterations in parallel.
+
+        By default, recorders do not support parallel recording. Subclasses that
+        implement safe parallel recording (e.g., via coordinator pattern) should
+        override this property to return True.
+
+        Returns
+        -------
+        bool
+            True if parallel system/solver recording is supported.
+        """
+        return False
+
     def startup(self, recording_requester, comm=None):
         """
         Prepare for a new run.

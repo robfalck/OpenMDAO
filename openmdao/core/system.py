@@ -5321,9 +5321,13 @@ class System(object, metaclass=SystemMetaclass):
         recurse : bool
             Flag indicating if the recorder should be added to all the subsystems.
         """
-        if MPI:
-            raise RuntimeError(self.msginfo + ": Recording of Systems when running parallel "
-                                              "code is not supported yet")
+        if MPI and not recorder.supports_parallel_recording:
+            raise RuntimeError(
+                f"{self.msginfo}: Recording of Systems when running parallel code is not "
+                f"supported by {type(recorder).__name__}. Use StreamRecorder with "
+                f"coordinator_mode=True for parallel system recording, or set "
+                f"recorder.record_on_process = (comm.rank == 0) to record only on rank 0."
+            )
 
         self._rec_mgr.append(recorder)
 

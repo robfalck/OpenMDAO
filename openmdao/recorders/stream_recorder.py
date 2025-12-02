@@ -190,6 +190,22 @@ class StreamRecorder(CaseRecorder):
         elif self.format == 'msgpack':
             return MessagePackEncoder()
 
+    @property
+    def supports_parallel_recording(self):
+        """
+        Return True if this recorder can record system/solver iterations in parallel.
+
+        StreamRecorder supports parallel recording when coordinator_mode=True, which
+        uses MPI gather to safely collect records from all ranks and write them to
+        a single stream without corruption.
+
+        Returns
+        -------
+        bool
+            True if coordinator_mode is enabled.
+        """
+        return self.coordinator_mode
+
     def _add_rank_suffix(self, stream, rank):
         """
         Add rank number suffix to stream filename for parallel recording.
