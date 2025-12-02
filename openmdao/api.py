@@ -105,6 +105,8 @@ from openmdao.utils.options_dictionary import OptionsDictionary
 
 # Recorders
 from openmdao.recorders.sqlite_recorder import SqliteRecorder
+from openmdao.recorders.stream_recorder import StreamRecorder, read_stream_file, \
+    convert_stream_to_json
 from openmdao.recorders.case_reader import CaseReader
 
 # Visualizations
