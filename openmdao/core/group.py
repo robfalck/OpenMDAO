@@ -3625,11 +3625,8 @@ class Group(System):
         recurse : bool
             Flag indicating if the recorder should be added to all the subsystems.
         """
-        if MPI:
-            raise RuntimeError(self.msginfo + ": Recording of Systems when running parallel "
-                                              "code is not supported yet")
-
-        self._rec_mgr.append(recorder)
+        # Call parent to perform the parallel recording check and add to recorder manager
+        super().add_recorder(recorder, recurse=False)
 
         if recurse:
             for s in self.system_iter(include_self=False, recurse=recurse):
