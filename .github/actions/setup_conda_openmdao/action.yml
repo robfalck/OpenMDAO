@@ -57,16 +57,18 @@ inputs:
     description: 'snopt 7.2 location when being run by OpenMDAO org'
     required: false
   # Inputs for installing OpenMDAO
+  openmdao_install_from:
+    description: 'How to install OpenMDAO: pypi, github, wheel, local, or none'
+    required: false
+    default: 'pypi'
+  openmdao_version:
+    description: 'OpenMDAO version (for PyPI installs only): "" (latest) or str'
+    required: false
+    default: ''
   openmdao_optional:
-    description: 'Optional installation depedencies specifier (e.g. [all])'
+    description: 'Optional dependencies like [all] or [docs,testing]'
     required: false
-  openmdao_pep517:
-    description: 'Strictly adhere to PEP517 when building a wheel.'
-    required: false
-  openmdao_use_pypi:
-    description: 'Install OpenMDAO from pyPI'
-    required: false
-    default: 'true'
+    default: ''
 
 runs:
   using: 'composite'
@@ -141,29 +143,65 @@ runs:
     - name: 'Install OpenMDAO'
       shell: bash -l {0}
       run: |
+- name: 'Install OpenMDAO'
+      shell: bash -l {0}
+      run: |
         echo "============================================================="
         echo "Install OpenMDAO"
         echo "============================================================="
-        if [[  "${{ inputs.openmdao_from_pypi }}" == "true" ]]; then
-          echo "-----------------------------------------------------------"
-          echo "Installing from PyPi (latest)"
-          echo "-----------------------------------------------------------"
-          python -m pip install "openmdao${{ inputs.openmdao_optional }}"
-        elif [[  "${{ inputs.openmdao_from_pypi }}" != "" ]]; then
-          echo "-----------------------------------------------------------"
-          echo "Installing from PyPi version ${{ inputs.openmdao_from_pypi }}"
-          echo "-----------------------------------------------------------"
-          python -m pip install "openmdao${{ inputs.openmdao_optional }}==${{ inputs.openmdao_from_pypi }}"
-        elif [[ "${{ inputs.openmdao_pep517 }}" == "true" ]]; then
-          pip wheel --no-deps --use-pep517 .
-          WHEEL=`find openmdao-*.whl`
-          echo "-----------------------------------------------------------"
-          echo "Installing from wheel: $WHEEL"
-          echo "-----------------------------------------------------------"
-          python -m pip install $WHEEL${{ inputs.openmdao_optional }}
-        else
-          python -m pip install .${{ inputs.openmdao_optional }}
-        fi
+
+        INSTALL_FROM="${{ inputs.openmdao_install_from }}"
+        OPTIONAL="${{ inputs.openmdao_optional }}"
+        VERSION="${{ inputs.openmdao_version }}"
+
+        case "$INSTALL_FROM" in
+          pypi)
+            if [[ -n "$VERSION" ]]; then
+              echo "Installing OpenMDAO==$VERSION from PyPI"
+              python -m pip install "openmdao${OPTIONAL}==${VERSION}"
+            else
+              echo "Installing latest OpenMDAO from PyPI"
+              python -m pip install "openmdao${OPTIONAL}"
+            fi
+            ;;
+
+          github)
+            if [[ -n "$VERSION" ]]; then
+              echo "Installing OpenMDAO@${VERSION} from GitHub"
+              python -m pip install "git+https://github.com/OpenMDAO/OpenMDAO.git@${VERSION}#egg=openmdao${OPTIONAL}"
+            else
+              echo "Installing OpenMDAO@master from GitHub"
+              python -m pip install "git+https://github.com/OpenMDAO/OpenMDAO.git@master#egg=openmdao${OPTIONAL}"
+            fi
+            ;;
+
+          wheel)
+            echo "Building wheel"
+            pip wheel --no-deps .
+            WHEEL=$(find openmdao-*.whl)
+            echo "Installing from wheel: $WHEEL"
+            python -m pip install "${WHEEL}${OPTIONAL}"
+            ;;
+
+          local_developer)
+            echo "Installing from local directory in developer mode"
+            python -m pip install -e ".${OPTIONAL}"
+            ;;
+
+          local)
+            echo "Installing from local directory"
+            python -m pip install ".${OPTIONAL}"
+            ;;
+
+          none|"")
+            echo "Skipping OpenMDAO installation"
+            ;;
+
+          *)
+            echo "Error: Unknown install method '$INSTALL_FROM'"
+            exit 1
+            ;;
+        esac
 
     - name: 'Install optional dependencies'
       id: install_optional_dependendies
