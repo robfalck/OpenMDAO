@@ -93,7 +93,7 @@ jobs:
 
       - name: 'Setup Conda Environment'
         id: setup_conda_environment
-        uses: ./.github/actions/setup_conda_environment
+        uses: ./.github/actions/setup_conda_openmdao
         with:
           os_version: ${{ matrix.OS }}
           matrix_name: ${{ matrix.NAME }}
