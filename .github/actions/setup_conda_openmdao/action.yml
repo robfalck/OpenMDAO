@@ -136,19 +136,6 @@ runs:
         SECRET_ssh_known_hosts: ${{ inputs.SECRET_ssh_known_hosts}}
         SECRET_snopt_location: ${{ inputs.SECRET_snopt_location }}
         SECRET_snopt_location_72: ${{ inputs.SECRET_snopt_location_72 }}
-        SECRET_snopt_location_77: ${{ inputs.SECRET_snopt_location_77 }}
-
-    - name: 'Install pyOptSparse'
-      id: install_pyoptsparse
-      uses: ./.github/actions/install_pyoptsparse
-      with:
-        pyoptsparse_version: ${{ inputs.pyoptsparse_version }}
-        pyoptsparse_from: ${{ inputs.pyoptsparse_from }}
-        snopt_version: ${{ inputs.snopt_version }}
-        SECRET_ssh_private_key: ${{ inputs.SECRET_ssh_private_key}}
-        SECRET_ssh_known_hosts: ${{ inputs.SECRET_ssh_known_hosts}}
-        SECRET_snopt_location: ${{ inputs.SECRET_snopt_location }}
-        SECRET_snopt_location_72: ${{ inputs.SECRET_snopt_location_72 }}
         SECRET_snopt_location_77: ${{ inputs.SECRET_snopt_location_77}}
 
     - name: 'Install OpenMDAO'
