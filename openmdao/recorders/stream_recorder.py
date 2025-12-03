@@ -275,6 +275,10 @@ class StreamRecorder(CaseRecorder):
         """
         Record model viewer data for visualization.
 
+        This includes two records:
+        1. Variable metadata (units, tags, shape, etc.) - sent once up front
+        2. Full viewer data (tree structure, connections, etc.)
+
         Parameters
         ----------
         model_viewer_data : dict
@@ -286,6 +290,16 @@ class StreamRecorder(CaseRecorder):
         if not should_record or not self._record_viewer_data:
             return
 
+        # First, send variable metadata up front
+        var_metadata = self._extract_variable_metadata(model_viewer_data)
+        if var_metadata:
+            metadata_record = {
+                'type': 'variable_metadata',
+                'variables': var_metadata
+            }
+            self._write_record(metadata_record)
+
+        # Then send the full viewer data
         record = {
             'type': 'viewer_data',
             'viewer_data': model_viewer_data
@@ -483,6 +497,55 @@ class StreamRecorder(CaseRecorder):
             'derivatives': self._serialize_vars(data),
         }
         self._write_record(record)
+
+    def _extract_variable_metadata(self, model_viewer_data):
+        """
+        Extract variable metadata (units, tags, shape, etc.) from model viewer data.
+
+        Parameters
+        ----------
+        model_viewer_data : dict
+            Data from the N2 viewer containing the model tree structure.
+
+        Returns
+        -------
+        dict
+            Dictionary mapping variable names to their metadata.
+        """
+        var_metadata = {}
+
+        if 'tree' not in model_viewer_data:
+            return var_metadata
+
+        # Recursively traverse the tree to find all variables
+        def extract_from_node(node):
+            if 'children' in node:
+                # System node - recurse into children
+                for child in node['children']:
+                    extract_from_node(child)
+            elif 'type' in node and node['type'] in ('input', 'output'):
+                # Variable node - extract metadata
+                name = node.get('name', '')
+                if name:
+                    meta = {
+                        'type': node['type'],
+                        'units': node.get('units'),
+                        'shape': node.get('shape'),
+                        'desc': node.get('desc', ''),
+                    }
+
+                    # Add distributed flag if present
+                    if 'distributed' in node:
+                        meta['distributed'] = node['distributed']
+
+                    # Add implicit flag for outputs
+                    if node['type'] == 'output' and 'implicit' in node:
+                        meta['implicit'] = node['implicit']
+
+                    var_metadata[name] = meta
+
+        extract_from_node(model_viewer_data['tree'])
+        return var_metadata
 
     def _serialize_vars(self, vars_dict):
         """
