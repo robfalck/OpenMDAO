@@ -143,9 +143,6 @@ runs:
     - name: 'Install OpenMDAO'
       shell: bash -l {0}
       run: |
-- name: 'Install OpenMDAO'
-      shell: bash -l {0}
-      run: |
         echo "============================================================="
         echo "Install OpenMDAO"
         echo "============================================================="
