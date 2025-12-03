@@ -724,6 +724,59 @@ class TestStreamRecorderMPI(unittest.TestCase):
 class TestStreamRecorderIntegration(unittest.TestCase):
     """Integration tests for StreamRecorder."""
 
+    def test_variable_metadata_recording(self):
+        """Test that variable metadata is recorded up front."""
+        prob = om.Problem()
+        model = prob.model
+
+        model.add_subsystem('comp', Paraboloid(), promotes=['*'])
+
+        prob.driver = om.ScipyOptimizeDriver()
+        prob.driver.options['optimizer'] = 'SLSQP'
+
+        prob.model.add_design_var('x', lower=-50, upper=50)
+        prob.model.add_design_var('y', lower=-50, upper=50)
+        prob.model.add_objective('f_xy')
+
+        recorder = StreamRecorder('metadata_test.ndjson')
+        prob.driver.add_recorder(recorder)
+
+        prob.setup()
+        prob.run_driver()
+        recorder.shutdown()
+        prob.cleanup()
+
+        # Read and verify the recorded data
+        with open('metadata_test.ndjson', 'r') as f:
+            lines = f.readlines()
+
+        records = [json.loads(line) for line in lines]
+
+        # First record should be variable metadata
+        metadata_records = [r for r in records if r['type'] == 'variable_metadata']
+        self.assertEqual(len(metadata_records), 1, "Should have exactly one variable metadata record")
+
+        var_metadata = metadata_records[0]['variables']
+
+        # Check that we have metadata for the variables
+        self.assertIn('x', var_metadata)
+        self.assertIn('y', var_metadata)
+        self.assertIn('f_xy', var_metadata)
+
+        # Check metadata structure for x
+        x_meta = var_metadata['x']
+        self.assertIn('type', x_meta)
+        self.assertIn('units', x_meta)
+        self.assertIn('shape', x_meta)
+        self.assertIn('desc', x_meta)
+
+        # Verify metadata record comes before driver iterations
+        metadata_index = records.index(metadata_records[0])
+        driver_iterations = [i for i, r in enumerate(records) if r['type'] == 'driver_iteration']
+        if driver_iterations:
+            self.assertLess(metadata_index, min(driver_iterations),
+                           "Variable metadata should come before driver iterations")
+
     def test_multiple_recorders(self):
         """Test using multiple StreamRecorders simultaneously."""
         prob = om.Problem()
