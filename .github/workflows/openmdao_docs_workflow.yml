@@ -88,18 +88,36 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v5
 
-      - name: 'Setup OpenMDAO CI'
-        id: setup_openmdao_ci
-        uses: ./.github/actions/setup_openmdao_ci
+      - name: 'Setup Conda Environment'
+        id: setup_conda_environment
+        uses: ./.github/actions/setup_conda_environment
         with:
           matrix_name: ${{ matrix.NAME }}
-          os_version: ${{ matrix.OS }}
           python_version: ${{ matrix.PY }}
           numpy_version: ${{ matrix.NUMPY }}
           scipy_version: ${{ matrix.SCIPY }}
-          use_pypi: ${{ inputs.use_pypi }}
-          pep517: ${{ matrix.PEP517 }}
-          optional: ${{ matrix.OPTIONAL }}
+
+    - name: 'Install OpenMDAO'
+      shell: bash -l {0}
+      run: |
+        echo "============================================================="
+        echo "Install OpenMDAO"
+        echo "============================================================="
+        if [[  "${{ matrix.use_pypi }}" == "true" ]]; then
+          echo "-----------------------------------------------------------"
+          echo "Installing from PyPi"
+          echo "-----------------------------------------------------------"
+          python -m pip install openmdao${{ matrix.optional }}
+        elif [[ "${{ matrix.PEP517 }}" == "true" ]]; then
+          pip wheel --no-deps --use-pep517 .
+          WHEEL=`find openmdao-*.whl`
+          echo "-----------------------------------------------------------"
+          echo "Installing from wheel: $WHEEL"
+          echo "-----------------------------------------------------------"
+          python -m pip install $WHEEL${{ matrix.optional }}
+        else
+          python -m pip install .${{ matrix.optional }}
+        fi
 
       - name: 'Install pyOptSparse'
         id: install_pyoptsparse
