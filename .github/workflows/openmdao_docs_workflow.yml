@@ -73,6 +73,11 @@ jobs:
             OPTIONAL: '[all,numba]'
             PEP517: true
             PUBLISH: true
+            USE_PYPI: false
+            OPENMPI: ''
+            MPI4PY: ''
+            SNOPT_LOCATION: ''
+            SNOPT_LOCATION_77: ''
 
     runs-on: ${{ matrix.OS }}
 
@@ -97,27 +102,27 @@ jobs:
           numpy_version: ${{ matrix.NUMPY }}
           scipy_version: ${{ matrix.SCIPY }}
 
-    - name: 'Install OpenMDAO'
-      shell: bash -l {0}
-      run: |
-        echo "============================================================="
-        echo "Install OpenMDAO"
-        echo "============================================================="
-        if [[  "${{ matrix.use_pypi }}" == "true" ]]; then
-          echo "-----------------------------------------------------------"
-          echo "Installing from PyPi"
-          echo "-----------------------------------------------------------"
-          python -m pip install openmdao${{ matrix.optional }}
-        elif [[ "${{ matrix.PEP517 }}" == "true" ]]; then
-          pip wheel --no-deps --use-pep517 .
-          WHEEL=`find openmdao-*.whl`
-          echo "-----------------------------------------------------------"
-          echo "Installing from wheel: $WHEEL"
-          echo "-----------------------------------------------------------"
-          python -m pip install $WHEEL${{ matrix.optional }}
-        else
-          python -m pip install .${{ matrix.optional }}
-        fi
+      - name: 'Install OpenMDAO'
+        shell: bash -l {0}
+        run: |
+          echo "============================================================="
+          echo "Install OpenMDAO"
+          echo "============================================================="
+          if [[  "${{ matrix.USE_PYPI }}" == "true" ]]; then
+            echo "-----------------------------------------------------------"
+            echo "Installing from PyPi"
+            echo "-----------------------------------------------------------"
+            python -m pip install openmdao${{ matrix.OPTIONAL }}
+          elif [[ "${{ matrix.PEP517 }}" == "true" ]]; then
+            pip wheel --no-deps --use-pep517 .
+            WHEEL=$(find openmdao-*.whl)
+            echo "-----------------------------------------------------------"
+            echo "Installing from wheel: $WHEEL"
+            echo "-----------------------------------------------------------"
+            python -m pip install "$WHEEL${{ matrix.OPTIONAL }}"
+          else
+            python -m pip install .${{ matrix.OPTIONAL }}
+          fi
 
       - name: 'Install pyOptSparse'
         id: install_pyoptsparse
