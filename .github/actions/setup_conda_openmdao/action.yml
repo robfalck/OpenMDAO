@@ -149,7 +149,7 @@ runs:
         SECRET_ssh_known_hosts: ${{ inputs.SECRET_ssh_known_hosts}}
         SECRET_snopt_location: ${{ inputs.SECRET_snopt_location }}
         SECRET_snopt_location_72: ${{ inputs.SECRET_snopt_location_72 }}
-        SECRET_snopt_location_77: ${{ inputs.SECRET_snopt_location_77
+        SECRET_snopt_location_77: ${{ inputs.SECRET_snopt_location_77}}
 
     - name: 'Install OpenMDAO'
       shell: bash -l {0}
@@ -178,9 +178,9 @@ runs:
           python -m pip install .${{ inputs.openmdao_optional }}
         fi
 
-      - name: 'Install optional dependencies'
-        id: install_optional_dependendies
-        uses: ./.github/actions/install_optional_dependencies
-        with:
-          os_version: ${{ inputs.os_version }}
-          optional: ${{ inputs.openmdao_optional }}
+    - name: 'Install optional dependencies'
+      id: install_optional_dependendies
+      uses: ./.github/actions/install_optional_dependencies
+      with:
+        os_version: ${{ inputs.os_version }}
+        optional: ${{ inputs.openmdao_optional }}
