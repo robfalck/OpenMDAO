@@ -39,16 +39,7 @@ runs:
 
         cd openmdao/docs
 
-        if [[ "${{ inputs.use_snopt }}" == 'true' ]]; then
-          echo "============================================================="
-          echo "Building docs with SNOPT examples."
-          echo "============================================================="
-        else
-          echo "============================================================="
-          echo "Disabling SNOPT cells in notebooks."
-          echo "============================================================="
-          python openmdao_book/other/disable_snopt_cells.py
-        fi
+        python openmdao_book/other/disable_snopt_cells.py
 
         # start ipcluster to run MPI under notebooks
         ./ipcluster_start.sh
