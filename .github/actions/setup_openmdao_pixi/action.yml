@@ -1,0 +1,58 @@
+name: 'Setup OpenMDAO Pixi Environment'
+description: 'Sets up Pixi with OpenMDAO environment'
+
+inputs:
+  environment:
+    description: 'Pixi environment to use'
+    required: false
+    default: 'all'
+
+runs:
+  using: 'composite'
+  steps:
+
+name: 'Setup OpenMDAO Pixi Environment'
+description: 'Sets up Pixi with OpenMDAO environment'
+
+inputs:
+  environment:
+    description: 'Pixi environment to use'
+    required: false
+    default: 'all'
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Download OpenMDAO pixi.toml if not in OpenMDAO repo
+      shell: bash -l {0}
+      run: |
+        if [[ "$GITHUB_REPOSITORY" != "OpenMDAO/OpenMDAO" ]]; then
+          echo "Not in OpenMDAO repo, downloading pixi.toml"
+          if curl -f -o openmdao-pixi.toml https://raw.githubusercontent.com/OpenMDAO/OpenMDAO/main/pixi.toml; then
+            echo "Successfully downloaded OpenMDAO pixi.toml"
+            echo "PIXI_MANIFEST=openmdao-pixi.toml" >> $GITHUB_ENV
+          else
+            echo "Failed to download OpenMDAO pixi.toml, falling back to local pixi.toml"
+            echo "PIXI_MANIFEST=pixi.toml" >> $GITHUB_ENV
+          fi
+        else
+          echo "In OpenMDAO repo, using local pixi.toml"
+          echo "PIXI_MANIFEST=pixi.toml" >> $GITHUB_ENV
+        fi
+
+    - name: Setup Pixi
+      uses: prefix-dev/setup-pixi@v0.8.1
+      with:
+        manifest-path: ${{ env.PIXI_MANIFEST }}
+        environments: ${{ inputs.environment }}
+
+    - name: Install OpenMDAO
+      shell: bash -l {0}
+      run: |
+        if [[ "$GITHUB_REPOSITORY" == "OpenMDAO/OpenMDAO" ]]; then
+          # In OpenMDAO repo - install in editable mode from current checkout
+          pixi run -e ${{ inputs.environment }} pip install -e .
+        else
+          # In dependent repo - install OpenMDAO from GitHub
+          pixi run -e ${{ inputs.environment }} pip install git+https://github.com/OpenMDAO/OpenMDAO.git
+        fi

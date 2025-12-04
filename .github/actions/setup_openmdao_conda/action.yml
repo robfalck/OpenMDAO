@@ -1,4 +1,4 @@
-name: Setup Conda Environment
+name: Setup OpenMDAO Conda Environment
 description: 'Setup conda with specified Python, NumPy, and SciPy versions'
 inputs:
   os_version:
