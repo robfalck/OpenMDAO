@@ -6,19 +6,23 @@ inputs:
     description: 'Pixi environment to use'
     required: false
     default: 'all'
-
-runs:
-  using: 'composite'
-  steps:
-
-name: 'Setup OpenMDAO Pixi Environment'
-description: 'Sets up Pixi with OpenMDAO environment'
-
-inputs:
-  environment:
-    description: 'Pixi environment to use'
+  pixi-source:
+    description: 'Source of pixi.toml to use: "local" or "openmdao_master"'
     required: false
-    default: 'all'
+    default: 'openmdao_master'
+  # Inputs for installing OpenMDAO
+  openmdao_install_from:
+    description: 'How to install OpenMDAO: pypi, github, wheel, local, local_developer, or none'
+    required: false
+    default: 'pypi'
+  openmdao_version:
+    description: 'OpenMDAO version (for PyPI installs only): "" (latest) or str'
+    required: false
+    default: ''
+  openmdao_optional:
+    description: 'Optional dependencies like [all] or [docs,testing]'
+    required: false
+    default: ''
 
 runs:
   using: 'composite'
@@ -26,18 +30,18 @@ runs:
     - name: Download OpenMDAO pixi.toml if not in OpenMDAO repo
       shell: bash -l {0}
       run: |
-        if [[ "$GITHUB_REPOSITORY" != "OpenMDAO/OpenMDAO" ]]; then
-          echo "Not in OpenMDAO repo, downloading pixi.toml"
-          if curl -f -o openmdao-pixi.toml https://raw.githubusercontent.com/OpenMDAO/OpenMDAO/main/pixi.toml; then
+        if [[ "${{ inputs.pixi-source }}" == "local" ]]; then
+          echo "Using local pixi.toml"
+          echo "PIXI_MANIFEST=pixi.toml" >> $GITHUB_ENV
+        else
+          echo "Downloading pixi.toml from OpenMDAO/OpenMDAO master branch"
+          if curl -f -o openmdao-pixi.toml https://raw.githubusercontent.com/OpenMDAO/OpenMDAO/master/pixi.toml; then
             echo "Successfully downloaded OpenMDAO pixi.toml"
             echo "PIXI_MANIFEST=openmdao-pixi.toml" >> $GITHUB_ENV
           else
             echo "Failed to download OpenMDAO pixi.toml, falling back to local pixi.toml"
             echo "PIXI_MANIFEST=pixi.toml" >> $GITHUB_ENV
           fi
-        else
-          echo "In OpenMDAO repo, using local pixi.toml"
-          echo "PIXI_MANIFEST=pixi.toml" >> $GITHUB_ENV
         fi
 
     - name: Setup Pixi
@@ -46,13 +50,62 @@ runs:
         manifest-path: ${{ env.PIXI_MANIFEST }}
         environments: ${{ inputs.environment }}
 
-    - name: Install OpenMDAO
+    - name: 'Install OpenMDAO'
       shell: bash -l {0}
       run: |
-        if [[ "$GITHUB_REPOSITORY" == "OpenMDAO/OpenMDAO" ]]; then
-          # In OpenMDAO repo - install in editable mode from current checkout
-          pixi run -e ${{ inputs.environment }} pip install -e .
-        else
-          # In dependent repo - install OpenMDAO from GitHub
-          pixi run -e ${{ inputs.environment }} pip install git+https://github.com/OpenMDAO/OpenMDAO.git
-        fi
+        echo "============================================================="
+        echo "Install OpenMDAO"
+        echo "============================================================="
+
+        INSTALL_FROM="${{ inputs.openmdao_install_from }}"
+        OPTIONAL="${{ inputs.openmdao_optional }}"
+        VERSION="${{ inputs.openmdao_version }}"
+
+        case "$INSTALL_FROM" in
+          pypi)
+            if [[ -n "$VERSION" ]]; then
+              echo "Installing OpenMDAO==$VERSION from PyPI"
+              python -m pip install "openmdao${OPTIONAL}==${VERSION}"
+            else
+              echo "Installing latest OpenMDAO from PyPI"
+              python -m pip install "openmdao${OPTIONAL}"
+            fi
+            ;;
+
+          github)
+            if [[ -n "$VERSION" ]]; then
+              echo "Installing OpenMDAO@${VERSION} from GitHub"
+              python -m pip install "git+https://github.com/OpenMDAO/OpenMDAO.git@${VERSION}#egg=openmdao${OPTIONAL}"
+            else
+              echo "Installing OpenMDAO@master from GitHub"
+              python -m pip install "git+https://github.com/OpenMDAO/OpenMDAO.git@master#egg=openmdao${OPTIONAL}"
+            fi
+            ;;
+
+          wheel)
+            echo "Building wheel"
+            pip wheel --no-deps .
+            WHEEL=$(find openmdao-*.whl)
+            echo "Installing from wheel: $WHEEL"
+            python -m pip install "${WHEEL}${OPTIONAL}"
+            ;;
+
+          local_developer)
+            echo "Installing from local directory in developer mode"
+            python -m pip install -e ".${OPTIONAL}"
+            ;;
+
+          local)
+            echo "Installing from local directory"
+            python -m pip install ".${OPTIONAL}"
+            ;;
+
+          none|"")
+            echo "Skipping OpenMDAO installation"
+            ;;
+
+          *)
+            echo "Error: Unknown install method '$INSTALL_FROM'"
+            exit 1
+            ;;
+        esac
