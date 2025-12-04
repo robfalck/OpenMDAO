@@ -1,0 +1,158 @@
+# How to use this file:
+#
+# Install the default environment (jax, numba, viz, notebooks)
+# pixi install
+#
+# And then activate the environment
+# pixi shell
+#
+# Or specify a modified environment:
+#
+# Use the minimal environment
+# pixi shell -e minimal
+#
+# Use the docs environment (with jupyter-book)
+# pixi shell -e docs
+#
+# Use the all environment (everything including tests)
+# pixi shell -e all
+#
+# Use the test environment
+# pixi shell -e test
+#
+# You will then need to install OpenMDAO into the created environment:
+# For development mode:
+# pixi run install-dev
+# For a standard installation
+# pixi run install
+
+[project]
+name = "openmdao"
+version = "0.1.0"
+description = "OpenMDAO framework infrastructure"
+authors = ["OpenMDAO Team <openmdao@openmdao.org>"]
+channels = ["conda-forge"]
+platforms = ["linux-64", "osx-64", "osx-arm64", "win-64"]
+
+[dependencies]
+python = ">=3.10"
+pip = "*"
+networkx = ">=2.0"
+numpy = ">=2.0"
+packaging = "*"
+requests = "*"
+scipy = ">=1.12"
+
+[feature.docs.dependencies]
+ipyparallel = "*"
+jupyter-book = ">=1.0.3,<2"
+matplotlib = "*"
+numpydoc = ">=1.1"
+sphinx-sitemap = "*"
+idna = ">=3.7"
+jinja2 = ">=3.1.4"
+tqdm = ">=4.66.3"
+
+[feature.doe.dependencies]
+pydoe3 = "*"
+
+[feature.opt.dependencies]
+pyoptsparse = ">2.14.0"
+cyipopt = "*"
+
+# JAX is only available on Linux and macOS
+[feature.jax.target.linux-64.dependencies]
+jax = ">=0.4.0"
+jaxlib = ">=0.4.0"
+
+[feature.jax.target.osx-64.dependencies]
+jax = ">=0.4.0"
+jaxlib = ">=0.4.0"
+
+[feature.jax.target.osx-arm64.dependencies]
+jax = ">=0.4.0"
+jaxlib = ">=0.4.0"
+
+[feature.mpi.target.linux-64.dependencies]
+mpich = "*"
+mpi4py = "*"
+petsc = "*"
+petsc4py = "*"
+
+[feature.mpi.target.osx-64.dependencies]
+mpich = "*"
+mpi4py = "*"
+petsc = "*"
+petsc4py = "*"
+
+[feature.mpi.target.osx-arm64.dependencies]
+mpich = "*"
+mpi4py = "*"
+petsc = "*"
+petsc4py = "*"
+
+[feature.numba.dependencies]
+numba = "*"
+
+[feature.notebooks.dependencies]
+ipympl = "*"
+notebook = "*"
+idna = ">=3.7"
+
+[feature.test.dependencies]
+pre-commit = "*"
+aiounittest = "*"
+num2words = "*"
+numpydoc = ">=1.1"
+parameterized = "*"
+playwright = ">=1.20"
+pycodestyle = ">=2.4.0"
+pydocstyle = ">=2.0.0"
+testflo = ">=1.3.6"
+websockets = ">8"
+
+[feature.visualization.dependencies]
+panel = "*"
+bokeh = ">=3.4.0"
+colorama = "*"
+matplotlib = "*"
+rich = "*"
+
+[feature.build.dependencies]
+hatchling = "*"
+
+# Default environment - includes jax (Mac/Linux only), numba, visualization, and notebooks
+[environments]
+default = { features = ["jax", "numba", "visualization", "notebooks"], solve-group = "default" }
+
+# Minimal environment - only core runtime dependencies
+minimal = { features = [], solve-group = "default" }
+
+# Documentation environment
+docs = { features = ["docs", "notebooks", "visualization"], solve-group = "default" }
+
+# Development environment with most features
+dev = { features = ["docs", "doe", "jax", "mpi", "numba", "notebooks", "test", "visualization", "build"], solve-group = "default" }
+
+# Full environment with all features
+all = { features = ["docs", "doe", "jax", "mpi", "numba", "notebooks", "opt", "test", "visualization", "build"], solve-group = "default" }
+
+# Testing environment
+test = { features = ["test", "doe", "jax", "mpi", "numba"], solve-group = "default" }
+
+# MPI-focused environment for parallel development
+parallel = { features = ["jax", "mpi", "numba", "visualization", "notebooks"], solve-group = "default" }
+
+[tasks]
+# Installation tasks
+install-dev = "pip install -e ."
+install = "pip install ."
+
+# Testing tasks
+test-all = { cmd = "testflo -n 1 openmdao" }
+test-quick = { cmd = "testflo openmdao" }
+test-file = { cmd = "testflo" }
+
+# Development workflow helpers
+clean = "rm -rf build dist *.egg-info .pixi"
+update-lock = "pixi update"
