@@ -16,6 +16,14 @@ inputs:
   publish:
     description: '"true" if docs should be uploaded.'
     required: false
+  use_pixi:
+    description: '"true" if the pixi environment should be used, otherwise use conda.'
+    required: false
+    default: 'false'
+  pixi_env:
+    description: 'The name of the pixi environment to use.'
+    required: false
+    default: 'all'
 runs:
   using: 'composite'
   steps:
@@ -34,6 +42,11 @@ runs:
       continue-on-error: true
       shell: bash -l {0}
       run: |
+
+        if [[  "${{ inputs.use_pixi }}" == "true" ]]; then
+          pixi shell -e "${{ inputs.pixi_env }}"
+        fi
+
         export OPENMDAO_REPORTS=0
         export PYDEVD_DISABLE_FILE_VALIDATION=1
 

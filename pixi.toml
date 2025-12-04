@@ -26,9 +26,9 @@
 # For a standard installation
 # pixi run install
 
-[project]
+[workspace]
 name = "openmdao"
-description = "OpenMDAO environment"
+description = "OpenMDAO workspace"
 authors = ["OpenMDAO Team <https://github.com/OpenMDAO>"]
 channels = ["conda-forge"]
 platforms = ["linux-64", "osx-64", "osx-arm64", "win-64"]

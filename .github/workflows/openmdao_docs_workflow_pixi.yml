@@ -51,8 +51,7 @@ jobs:
           # test baseline versions on Ubuntu
           - NAME: Ubuntu Baseline
             OS: ubuntu-24.04
-            OPTIONAL: '[all,numba]'
-            PUBLISH: true
+            PUBLISH: false
 
     runs-on: ${{ matrix.OS }}
 
@@ -86,3 +85,4 @@ jobs:
           SECRET_docs_location: ${{ secrets.DOCS_LOCATION }}
           SECRET_slack_webhook_url: ${{ secrets.SLACK_WEBHOOK_URL }}
           publish: ${{ matrix.PUBLISH }}
+          use_pixi: 'true'

@@ -3,7 +3,7 @@ description: 'Sets up Pixi with OpenMDAO environment'
 
 inputs:
   environment:
-    description: 'Pixi environment to use'
+    description: 'Pixi environment(s) to install'
     required: false
     default: 'all'
   pixi_source:
