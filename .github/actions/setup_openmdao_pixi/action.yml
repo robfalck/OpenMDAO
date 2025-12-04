@@ -6,7 +6,7 @@ inputs:
     description: 'Pixi environment to use'
     required: false
     default: 'all'
-  pixi-source:
+  pixi_source:
     description: 'Source of pixi.toml to use: "local" or "openmdao_master"'
     required: false
     default: 'openmdao_master'
@@ -30,7 +30,7 @@ runs:
     - name: Download OpenMDAO pixi.toml if not in OpenMDAO repo
       shell: bash -l {0}
       run: |
-        if [[ "${{ inputs.pixi-source }}" == "local" ]]; then
+        if [[ "${{ inputs.pixi_source }}" == "local" ]]; then
           echo "Using local pixi.toml"
           echo "PIXI_MANIFEST=pixi.toml" >> $GITHUB_ENV
         else
