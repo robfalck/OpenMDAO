@@ -70,7 +70,7 @@ jobs:
 
       - name: 'Setup OpenMDAO pixi Environment'
         id: setup_pixi_environment
-        uses: ./.github/actions/setup_pixi_environment
+        uses: ./.github/actions/setup_openmdao_pixi
         with:
           environment: '${{ matrix.pixi_environment }}'
           pixi_source: 'local'
