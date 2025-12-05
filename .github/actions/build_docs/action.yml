@@ -42,14 +42,27 @@ runs:
       continue-on-error: true
       shell: bash -l {0}
       run: |
+        set +e  # Don't exit on error, we want to capture them
 
+        export OPENMDAO_REPORTS=0
+        export PYDEVD_DISABLE_FILE_VALIDATION=1
+
+        BUILD_FAILED=0
+
+        # Wrapper function that tracks failures
         if [[ "${{ inputs.use_pixi }}" == "true" ]]; then
           run_cmd() {
             pixi run -e "${{ inputs.pixi_env }}" "$@"
+            if [ $? -ne 0 ]; then
+              BUILD_FAILED=1
+            fi
           }
         else
           run_cmd() {
             "$@"
+            if [ $? -ne 0 ]; then
+              BUILD_FAILED=1
+            fi
           }
         fi
 
@@ -67,6 +80,9 @@ runs:
         run_cmd python build_source_docs.py
         run_cmd jupyter-book build -W --keep-going openmdao_book
         run_cmd python copy_build_artifacts.py
+
+        # Exit with failure if any command failed
+        exit $BUILD_FAILED
 
     - name: Display doc build reports
       if: steps.build_docs.outcome == 'failure'
