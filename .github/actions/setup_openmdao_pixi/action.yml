@@ -10,6 +10,10 @@ inputs:
     description: 'Source of pixi.toml to use: "local" or "openmdao_master"'
     required: false
     default: 'openmdao_master'
+  frozen:
+    description: 'Use frozen lock file (recommended for CI)'
+    required: false
+    default: 'true'
   # Inputs for installing OpenMDAO
   openmdao_install_from:
     description: 'How to install OpenMDAO: pypi, github, wheel, local, local_developer, or none'
@@ -49,6 +53,7 @@ runs:
       with:
         manifest-path: ${{ env.PIXI_MANIFEST }}
         environments: ${{ inputs.environment }}
+        frozen: ${{ inputs.frozen }}
 
     - name: 'Install OpenMDAO'
       shell: bash -l {0}

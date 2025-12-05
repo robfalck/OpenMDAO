@@ -72,6 +72,85 @@ generator.  You can install everything needed for development by running:
 
     pip install -e OpenMDAO[all]
 
+## Using Pixi for reproducable environments
+
+Fully utilizing OpenMDAO means relying on a number of third-party dependencies, notably [pyoptsparse](https://github.com/mdolab/pyoptsparse), [mpi4py](https://github.com/mpi4py/mpi4py), [petsc4py](https://pypi.org/project/petsc4py), [numpy](https://github.com/numpy/numpy), and [scipy](https://github.com/scipy/scipy). Keeping so many dependencies in sync can be a challenge. To help users, OpenMDAO uses pixi to maintain reproduceable environments. The goal of this is to ensure that users of a given OpenMDAO release can reproduce theenvironment against which that release was tested.
+
+OpenMDAO uses [Pixi](https://pixi.sh) for dependency management. Pixi is especially useful because some OpenMDAO dependencies (like MPI, PETSc) are not available on PyPI but are needed for parallel computing features.
+
+### Getting the pixi environments
+
+Pixi environments are defined in a manifest file (pixi.toml) and a lock file (pixi.lock) at the root of the OpenMDAO git repository. For development in OpenMDAO itself, users who have cloned the environment can access the pixi environments as follows:
+
+First, install pixi itself if not already installed.
+```bash
+curl -fsSL https://pixi.sh/install.sh | bash
+```
+
+Users can either use the OpenMDAO Pixi environments from the git repository itself, or download the Pixi manifest and lock files to a local directory.
+
+### Option 1: Using the environment from the OpenMDAO git repo
+```bash
+# Clone the repository
+git clone https://github.com/OpenMDAO/OpenMDAO.git
+
+# Enter the directory with the pixi.toml and pixi.lock files
+cd OpenMDAO
+```
+
+### Option 2: Downloading the Pixi manifest and lock files
+```bash
+# Download the latest Pixi configuration...
+curl -O https://raw.githubusercontent.com/OpenMDAO/OpenMDAO/master/pixi.toml
+curl -O https://raw.githubusercontent.com/OpenMDAO/OpenMDAO/master/pixi.lock
+
+# Alternatively, for a specific release...
+curl -O https://raw.githubusercontent.com/OpenMDAO/OpenMDAO/3.42.0/pixi.toml
+curl -O https://raw.githubusercontent.com/OpenMDAO/OpenMDAO/3.42.0/pixi.lock
+```
+
+### Installing the desired environment
+
+From the directory with the manifest and lock files:
+
+```bash
+# Install the default environment (no mpi)
+pixi install --frozen
+
+# Or, install the environment with all dependencies
+pixi install -e all --frozen
+```
+
+Using **--frozen** causes Pixi to use the exact versions for the environment as defined in the `pixi.lock` file. This is what we test against on CI and should be the most reliable environment.
+
+You can remove `--frozen` and Pixi will attempt to install the latest possible dependencies for most environments.
+
+### Using the given environment
+
+You can then either shell into the environment (more akin to activating a conda environment), or you can run a command using that environment.
+
+```bash
+# Shell into the all environment (if installed)...
+pixi shell -e all
+
+# Install OpenMDAO in developer mode (if in the OpenMDAO git repo)...
+python -m pip install -e .
+
+# OR, Install OpenMDAO from pypi...
+python -m pip install openmdao
+```
+
+That last step may seem a bit odd, but OpenMDAO is not a dependency of itself. **You will need to install OpenMDAO into whatever pixi environment you are using.** You only need to do this once after a given environment is installed.
+
+Now the environment is ready to be used
+
+```bash
+# Run a script in the environment that we have shelled into...
+python my_openmdao_script.py
+```
+
+More information about our Pixi implementation, including available environments and other ways of using it, are avaiable in the developer section of our documentation.
+
 ## OpenMDAO Versions
 
 **OpenMDAO 3.x.y** represents the current, supported version. It requires Python 3.8
