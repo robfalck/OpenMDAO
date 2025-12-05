@@ -52,6 +52,7 @@ jobs:
           - NAME: Ubuntu Baseline
             OS: ubuntu-24.04
             PUBLISH: false
+            PIXI_ENVIRONMENT: all
 
     runs-on: ${{ matrix.OS }}
 
@@ -71,7 +72,7 @@ jobs:
         id: setup_pixi_environment
         uses: ./.github/actions/setup_openmdao_pixi
         with:
-          environment: '${{ matrix.pixi_environment }}'
+          environment: '${{ matrix.PIXI_ENVIRONMENT }}'
           pixi_source: 'local'
           openmdao_install_from: 'wheel'
           openmdao_optional: ${{ matrix.OPTIONAL }}
