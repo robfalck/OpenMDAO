@@ -1,30 +1,42 @@
-# How to use this file:
+# OpenMDAO Pixi Environment Configuration
 #
-# Install the default environment (jax, numba, viz, notebooks)
-# pixi install
+# Pixi provides reproducible development environments with both conda and pip packages.
+# This is especially useful for dependencies not available on PyPI (like MPI, PETSc).
 #
-# And then activate the environment
-# pixi shell
+# Quick Start:
+#   pixi install --frozen        # Install with exact CI-tested versions
+#   pixi shell                   # Activate the default environment
+#   pip install -e .             # Install OpenMDAO in development mode
 #
-# Or specify a modified environment:
 #
-# Use the minimal environment
-# pixi shell -e minimal
+# Available Environments:
 #
-# Use the docs environment (with jupyter-book)
-# pixi shell -e docs
+# - default: General development environment with JAX, numba, visualization, notebooks, and testing support, but no MPI.
+#            Best for most users and everyday development work.
+#            Usage: pixi shell  (or pixi shell -e default)
 #
-# Use the all environment (everything including tests)
-# pixi shell -e all
+# - minimal: Default dependencies only plus testing related dependencies.
+#            Used for testing in the absence of dependencies.
+#            Usage: pixi shell -e minimal
 #
-# Use the test environment
-# pixi shell -e test
+# - all: Comprehensive environment with all optional dependencies except documenation and testing-related ones.
+#.       This will give most users the "full" OpenMDAO capability.
+#        Usage: pixi shell -e all
 #
-# You will then need to install OpenMDAO into the created environment:
-# For development mode:
-# pixi run install-dev
-# For a standard installation
-# pixi run install
+# - dev: The "all" environment with the addition of documentation and packaging-related dependencies.
+#        Usage: pixi shell -e docs
+#
+# - oldest: Includes oldest supported versions of all dependencies except packaging-related ones.
+#           Usage: pixi shell -e oldest
+#
+# - latest: Includes latest versions of all dependencies except packaging-related ones.
+#
+#
+# Installation:
+#   pixi install --frozen -e <environment>    # Install specific environment
+#   pixi run -e <environment> <command>       # Run command in environment
+#
+# For more information: https://pixi.sh
 
 [workspace]
 name = "openmdao"
@@ -121,7 +133,7 @@ colorama = "*"
 matplotlib = "*"
 rich = "*"
 
-[feature.build.dependencies]
+[feature.packaging.dependencies]
 hatchling = "*"
 
 ###############################################
@@ -290,20 +302,23 @@ rich = "*"
 
 [environments]
 
-# Default environment - doesn't include dev dependencies
-default = { features = ["jax", "numba", "mpi", "notebooks", "opt", "visualization"], solve-group = "default" }
-
 # Minimal environment - only core runtime dependencies
-minimal = { features = [], solve-group = "default" }
+minimal = { features = ["test"], solve-group = "default" }
 
-# Full environment with all features
-all = { features = ["docs", "doe", "jax", "mpi", "numba", "notebooks", "opt", "test", "visualization", "build"], solve-group = "default" }
+# Default environment - doesn't include dev or mpi dependencies
+default = { features = ["doe", "jax", "numba", "notebooks", "opt", "visualization", "test"], solve-group = "default" }
 
-# Full envirironment with oldest allowable versions of all dependencies.
-oldest = { features = ["deps-oldest", "docs", "doe-oldest", "jax-oldest", "mpi-oldest", "numba-oldest", "notebooks-oldest", "opt-oldest", "test-oldest", "visualization-oldest", "build"], solve-group = "oldest" }
+# Full environment with all features including mpi and testing support, but not documentation or packaging dependencies
+all = { features = ["doe", "jax", "numba", "notebooks", "opt", "visualization", "mpi", "test"], solve-group = "default" }
+
+# Full environment with all features, as well as docs and packaging support.
+dev = { features = ["doe", "jax", "numba", "notebooks", "opt", "visualization", "mpi", "test", "docs", "packaging"], solve-group = "default" }
+
+# Full environment with oldest allowable versions of all dependencies.
+oldest = { features = ["deps-oldest", "doe-oldest", "jax-oldest", "numba-oldest", "notebooks-oldest", "opt-oldest", "visualization-oldest", "mpi-oldest", "test-oldest", "docs"], solve-group = "oldest" }
 
 # Full envirironment with latest versions of all dependencies.
-latest = { features = ["deps-latest", "docs-latest", "doe-latest", "jax-latest", "mpi-latest", "numba-latest", "notebooks-latest", "opt-latest", "test-latest", "visualization-latest", "build"], solve-group = "latest" }
+latest = { features = ["deps-latest", "doe-latest", "jax-latest", "numba-latest", "notebooks-latest", "opt-latest", "visualization-latest", "mpi-latest", "test-latest", "docs-latest"], solve-group = "oldest" }
 
 ###############################################
 # Tasks
@@ -311,14 +326,5 @@ latest = { features = ["deps-latest", "docs-latest", "doe-latest", "jax-latest",
 
 [tasks]
 
-# Installation tasks
-install-dev = "pip install -e ."
-install = "pip install ."
-
-# Testing tasks
-test-all = { cmd = "testflo -n 1 openmdao" }
-test-quick = { cmd = "testflo openmdao" }
-
 # Development workflow helpers
-clean = "rm -rf build dist *.egg-info .pixi"
-update-lock = "pixi update"
+clean = "rm -rf packaging dist *.egg-info .pixi"
