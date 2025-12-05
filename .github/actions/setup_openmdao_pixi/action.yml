@@ -66,39 +66,39 @@ runs:
           pypi)
             if [[ -n "$VERSION" ]]; then
               echo "Installing OpenMDAO==$VERSION from PyPI"
-              pixi run -e ${{ inputs.environment }} python -m pip install "openmdao${OPTIONAL}==${VERSION}"
+              pixi run -e "${PYENV}" python -m pip install "openmdao${OPTIONAL}==${VERSION}"
             else
               echo "Installing latest OpenMDAO from PyPI"
-              pixi run -e ${{ inputs.environment }} python -m pip install "openmdao${OPTIONAL}"
+              pixi run -e "${PYENV}" python -m pip install "openmdao${OPTIONAL}"
             fi
             ;;
 
           github)
             if [[ -n "$VERSION" ]]; then
               echo "Installing OpenMDAO@${VERSION} from GitHub"
-              pixi run -e ${{ inputs.environment }} python -m pip install "git+https://github.com/OpenMDAO/OpenMDAO.git@${VERSION}#egg=openmdao${OPTIONAL}"
+              pixi run -e "${PYENV}" python -m pip install "git+https://github.com/OpenMDAO/OpenMDAO.git@${VERSION}#egg=openmdao${OPTIONAL}"
             else
               echo "Installing OpenMDAO@master from GitHub"
-              pixi run -e ${{ inputs.environment }} python -m pip install "git+https://github.com/OpenMDAO/OpenMDAO.git@master#egg=openmdao${OPTIONAL}"
+              pixi run -e "${PYENV}" python -m pip install "git+https://github.com/OpenMDAO/OpenMDAO.git@master#egg=openmdao${OPTIONAL}"
             fi
             ;;
 
           wheel)
             echo "Building wheel"
-            pixi run -e ${{ inputs.environment }} pip wheel --no-deps .
+            pixi run -e "${PYENV}" pip wheel --no-deps .
             WHEEL=$(find openmdao-*.whl)
             echo "Installing from wheel: $WHEEL"
-            pixi run -e ${{ inputs.environment }} python -m pip install "${WHEEL}${OPTIONAL}"
+            pixi run -e "${PYENV}" python -m pip install "${WHEEL}${OPTIONAL}"
             ;;
 
           local_developer)
             echo "Installing from local directory in developer mode"
-            pixi run -e ${{ inputs.environment }} python -m pip install -e ".${OPTIONAL}"
+            pixi run -e "${PYENV}" python -m pip install -e ".${OPTIONAL}"
             ;;
 
           local)
             echo "Installing from local directory"
-            pixi run -e ${{ inputs.environment }} python -m pip install ".${OPTIONAL}"
+            pixi run -e "${PYENV}" python -m pip install ".${OPTIONAL}"
             ;;
 
           none|"")
