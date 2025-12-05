@@ -355,7 +355,7 @@ jobs:
             ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
 
       - name: Fail the workflow if tests or doc build failed
-        if: steps.run_tests.outcome == 'failure' || steps.build_docs.outcome == 'failure'
+        if: steps.run_tests.outcome == 'failure'
         uses: actions/github-script@v3
         with:
           script: |

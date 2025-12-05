@@ -23,7 +23,7 @@ inputs:
   pixi_env:
     description: 'The name of the pixi environment to use.'
     required: false
-    default: 'all'
+    default: 'dev'
 runs:
   using: 'composite'
   steps:
