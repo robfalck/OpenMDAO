@@ -43,27 +43,30 @@ runs:
       shell: bash -l {0}
       run: |
 
-        if [[  "${{ inputs.use_pixi }}" == "true" ]]; then
-          pixi shell -e "${{ inputs.pixi_env }}"
-        fi
+      if [[ "${{ inputs.use_pixi }}" == "true" ]]; then
+        run_cmd() {
+          pixi run -e "${{ inputs.pixi_env }}" "$@"
+        }
+      else
+        run_cmd() {
+          "$@"
+        }
+      fi
 
-        export OPENMDAO_REPORTS=0
-        export PYDEVD_DISABLE_FILE_VALIDATION=1
+      cd openmdao/docs
 
-        cd openmdao/docs
+      run_cmd python openmdao_book/other/disable_snopt_cells.py
 
-        python openmdao_book/other/disable_snopt_cells.py
+      # start ipcluster to run MPI under notebooks
+      run_cmd ./ipcluster_start.sh
+      sleep 12
 
-        # start ipcluster to run MPI under notebooks
-        ./ipcluster_start.sh
-        sleep 12
-
-        echo "============================================================="
-        echo "Build the docs"
-        echo "============================================================="
-        python build_source_docs.py
-        jupyter-book build -W --keep-going openmdao_book
-        python copy_build_artifacts.py
+      echo "============================================================="
+      echo "Build the docs"
+      echo "============================================================="
+      run_cmd python build_source_docs.py
+      run_cmd jupyter-book build -W --keep-going openmdao_book
+      run_cmd python copy_build_artifacts.py
 
     - name: Display doc build reports
       if: steps.build_docs.outcome == 'failure'
