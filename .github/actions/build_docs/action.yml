@@ -42,6 +42,8 @@ runs:
       continue-on-error: true
       shell: bash -l {0}
       run: |
+        eval "$(pixi shell-hook -e ${{ inputs.pixi_env }})"
+
         set +e  # Don't exit on error, we want to capture them
 
         export OPENMDAO_REPORTS=0
@@ -49,37 +51,20 @@ runs:
 
         BUILD_FAILED=0
 
-        # Wrapper function that tracks failures
-        if [[ "${{ inputs.use_pixi }}" == "true" ]]; then
-          run_cmd() {
-            pixi run -e "${{ inputs.pixi_env }}" "$@"
-            if [ $? -ne 0 ]; then
-              BUILD_FAILED=1
-            fi
-          }
-        else
-          run_cmd() {
-            "$@"
-            if [ $? -ne 0 ]; then
-              BUILD_FAILED=1
-            fi
-          }
-        fi
-
         cd openmdao/docs
 
-        run_cmd python openmdao_book/other/disable_snopt_cells.py
+        python openmdao_book/other/disable_snopt_cells.py
 
         # start ipcluster to run MPI under notebooks
-        run_cmd ./ipcluster_start.sh
+        ./ipcluster_start.sh
         sleep 12
 
         echo "============================================================="
         echo "Build the docs"
         echo "============================================================="
-        run_cmd python build_source_docs.py
-        run_cmd jupyter-book build -W --keep-going openmdao_book
-        run_cmd python copy_build_artifacts.py
+        python build_source_docs.py
+        jupyter-book build -W --keep-going openmdao_book
+        python copy_build_artifacts.py
 
         # Exit with failure if any command failed
         exit $BUILD_FAILED
