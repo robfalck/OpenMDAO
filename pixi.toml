@@ -125,6 +125,7 @@ pycodestyle = ">=2.4.0"
 pydocstyle = ">=2.0.0"
 testflo = ">=1.4.15"
 websockets = ">8"
+actionlint = ">=1.7.9,<2"
 
 [feature.visualization.dependencies]
 panel = "*"

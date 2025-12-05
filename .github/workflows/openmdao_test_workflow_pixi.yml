@@ -64,6 +64,7 @@ jobs:
           - NAME: Ubuntu all (pixi)
             OS: ubuntu-24.04
             PIXI_ENVIRONMENT: all
+            BANDIT: true
           # - NAME: Ubuntu default (pixi)
           #   OS: ubuntu-24.04
           #   PIXI_ENVIRONMENT: default
@@ -101,7 +102,6 @@ jobs:
           openmdao_optional: ${{ matrix.OPTIONAL }}
 
       - name: Display run details
-        eval "$(pixi shell-hook -e ${{ matrix.PIXI_ENVIRONMENT }})"
         run: |
           echo "============================================================="
           echo "Run #${GITHUB_RUN_NUMBER}"
@@ -113,7 +113,7 @@ jobs:
 
       - name: Exit if this job was excluded
         if: matrix.EXCLUDE
-        uses: actions/github-script@v7
+        uses: actions/github-script@v8
         with:
           script: core.setFailed('The ${{ matrix.NAME }} job was excluded from the run, exiting...');
 
@@ -362,7 +362,7 @@ jobs:
 
       - name: Fail the workflow if tests or doc build failed
         if: steps.run_tests.outcome == 'failure'
-        uses: actions/github-script@v3
+        uses: actions/github-script@v8
         with:
           script: |
               let test_fail = ${{ steps.run_tests.outcome == 'failure' }};
