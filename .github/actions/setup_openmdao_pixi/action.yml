@@ -54,6 +54,7 @@ runs:
         manifest-path: ${{ env.PIXI_MANIFEST }}
         environments: ${{ inputs.environment }}
         frozen: ${{ inputs.frozen }}
+        cache: false
 
     - name: 'Install OpenMDAO'
       shell: bash -l {0}
