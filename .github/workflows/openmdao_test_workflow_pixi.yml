@@ -61,6 +61,10 @@ jobs:
           # - NAME: Ubuntu dev (pixi)
           #   OS: ubuntu-24.04
           #   PIXI_ENVIRONMENT: dev
+          - NAME: Ubuntu py312 (pixi)
+            OS: ubuntu-24.04
+            PIXI_ENVIRONMENT: py312
+            BANDIT: true
           - NAME: Ubuntu py313 (pixi)
             OS: ubuntu-24.04
             PIXI_ENVIRONMENT: py313
@@ -99,7 +103,6 @@ jobs:
           environment: '${{ matrix.PIXI_ENVIRONMENT }}'
           pixi_source: 'local'
           openmdao_install_from: 'wheel'
-          openmdao_optional: ${{ matrix.OPTIONAL }}
 
       - name: Display run details
         run: |
@@ -325,7 +328,6 @@ jobs:
           echo "============================================================="
           echo "Lint OpenMDAO code per settings in pyproject.toml"
           echo "============================================================="
-          python -m pip install ruff
           ruff check . --config pyproject.toml
 
       - name: Slack env change

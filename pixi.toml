@@ -142,6 +142,8 @@ pydocstyle = "*"
 testflo = "*"
 websockets = "*"
 actionlint = "*"
+ruff = "*"
+coverage = ">=7.6.9"
 
 [feature.visualization.dependencies]
 panel = "*"
