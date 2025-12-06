@@ -52,7 +52,7 @@ jobs:
           - NAME: Ubuntu Baseline
             OS: ubuntu-24.04
             PUBLISH: false
-            PIXI_ENVIRONMENT: all
+            PIXI_ENVIRONMENT: py313
 
     runs-on: ${{ matrix.OS }}
 

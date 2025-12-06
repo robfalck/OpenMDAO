@@ -5,7 +5,7 @@ inputs:
   environment:
     description: 'Pixi environment(s) to install'
     required: false
-    default: 'all'
+    default: 'py313'
   pixi_source:
     description: 'Source of pixi.toml to use: "local" or "openmdao_master"'
     required: false
