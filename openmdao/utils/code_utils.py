@@ -14,8 +14,6 @@ from collections import defaultdict, OrderedDict
 from tokenize import NAME, tokenize, untokenize
 from openmdao.utils.om_warnings import issue_warning
 
-import networkx as nx
-
 
 def _get_long_name(node):
     # If the node is an Attribute or Name node that is composed
@@ -178,6 +176,8 @@ def get_nested_calls(class_, method_name, stream=sys.stdout):
     """
     # moved this class def in here to keep the numpy doc scraper from barfing due to
     # stuff in nx.DiGraph.
+    import networkx as nx
+
     class OrderedDiGraph(nx.DiGraph):
         """
         A DiGraph using OrderedDicts for internal storage.
@@ -493,6 +493,9 @@ class _FuncGrapher(ast.NodeVisitor):
 
     def __init__(self, node):
         super().__init__()
+
+        import networkx as nx
+
         self.rhs = []
         self.lhs = []
         self.names = None
@@ -582,6 +585,8 @@ def get_func_graph(func, outnames=None, display=False):
         A graph containing edges from inputs to outputs.  Returns None if the function graph
         couldn't be determined.
     """
+    import networkx as nx
+
     node = ast.parse(textwrap.dedent(inspect.getsource(func)), mode='exec')
     visitor = _FuncGrapher(node)
 

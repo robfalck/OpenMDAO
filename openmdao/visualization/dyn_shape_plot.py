@@ -1,7 +1,5 @@
 """Functions for plotting the dynamic shapes dependency graph."""
 
-import networkx as nx
-
 from openmdao.utils.file_utils import _load_and_exec
 import openmdao.utils.hooks as hooks
 from openmdao.utils.general_utils import common_subpath
@@ -74,6 +72,7 @@ def view_dyn_shapes(root, outfile='shape_dep_graph.png', show=True, title=None):
     title : str, optional
         Sets the title of the plot.
     """
+    import networkx as nx
     from openmdao.core.problem import Problem
     from openmdao.utils.mpi import MPI
 

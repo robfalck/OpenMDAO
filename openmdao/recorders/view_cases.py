@@ -6,7 +6,6 @@ import pathlib
 import importlib
 import importlib.util
 
-import openmdao.api as om
 from openmdao.utils.om_warnings import CaseRecorderWarning, issue_warning
 
 
@@ -208,11 +207,11 @@ def view_cases(case_recorder_file, show=True):
             "    pip install openmdao[visualization]\n"
             "    pip install pandas"
         )
-
     import panel as pn
     import pandas as pd
+    from openmdao.api import CaseReader
 
-    cr = om.CaseReader(case_recorder_file)
+    cr = CaseReader(case_recorder_file)
 
     tabs_list = []
 

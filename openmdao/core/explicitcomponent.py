@@ -4,7 +4,6 @@ from itertools import chain
 
 from openmdao.jacobians.dictionary_jacobian import ExplicitDictionaryJacobian
 from openmdao.jacobians.jacobian import JacobianUpdateContext
-from openmdao.utils.coloring import _ColSparsityJac
 from openmdao.core.component import Component
 from openmdao.vectors.vector import _full_slice
 from openmdao.utils.class_util import overrides_method
@@ -33,6 +32,8 @@ class ExplicitComponent(Component):
         Hash value for the last set of inputs to the compute_primal function.
     _vjp_fun : function or None
         The vector-Jacobian product function.
+    _ColSparsityJac : cls
+        A lazily imported _ColSparistyJac class.
     """
 
     def __init__(self, **kwargs):
@@ -45,6 +46,9 @@ class ExplicitComponent(Component):
         self.options.undeclare('assembled_jac_type')
         self._vjp_hash = None
         self._vjp_fun = None
+
+        from openmdao.utils.coloring import _ColSparsityJac
+        self._ColSparsityJac = _ColSparsityJac
 
     @property
     def nonlinear_solver(self):
@@ -167,7 +171,7 @@ class ExplicitComponent(Component):
         Jacobian
             The initialized jacobian.
         """
-        if self._relevance_changed() and not isinstance(self._jacobian, _ColSparsityJac):
+        if self._relevance_changed() and not isinstance(self._jacobian, self._ColSparsityJac):
             self._jacobian = None
 
         if not self.matrix_free and self._jacobian is None:
@@ -665,7 +669,7 @@ class ExplicitComponent(Component):
         coo_matrix
             The sparsity matrix.
         """
-        jac = _ColSparsityJac(self)
+        jac = self._ColSparsityJac(self)
         for _ in self._perturbation_iter(num_full_jacs, perturb_size,
                                          (self._inputs,), (self._outputs, self._residuals)):
             self._apply_nonlinear()

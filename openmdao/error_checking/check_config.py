@@ -8,9 +8,7 @@ from io import StringIO
 import numpy as np
 import pickle
 
-from openmdao.core.group import Group
-from openmdao.core.component import Component
-from openmdao.core.implicitcomponent import ImplicitComponent
+
 from openmdao.utils.array_utils import array_hash
 from openmdao.utils.graph_utils import get_sccs_topo
 from openmdao.utils.logger_utils import get_logger, TestLogger
@@ -130,6 +128,8 @@ def _check_cycles_prob(prob, logger):
         The object that manages logging output.
 
     """
+    from openmdao.core.group import Group
+
     infos = ["The following groups contain cycles:"]
     for group in prob.model.system_iter(include_self=True, recurse=True, typ=Group):
         _check_cycles(group, infos)
@@ -152,6 +152,8 @@ def _check_ubcs_prob(prob, logger):
         The object that manages logging output.
 
     """
+    from openmdao.core.group import Group
+
     warnings = ["The following systems are executed out-of-order:\n"]
     for group in prob.model.system_iter(include_self=True, recurse=True, typ=Group):
         _check_ubcs(group, warnings)
@@ -171,6 +173,7 @@ def _check_dup_comp_inputs(problem, logger):
     logger : object
         The object that manages logging output.
     """
+    from openmdao.core.component import Component
     if isinstance(problem.model, Component):
         return
 
@@ -245,6 +248,7 @@ def _check_hanging_inputs(problem, logger):
     logger : object
         The object that manages logging output.
     """
+    from openmdao.core.component import Component
     model = problem.model
     if isinstance(model, Component):
         return
@@ -279,6 +283,7 @@ def _check_comp_has_no_outputs(problem, logger):
     logger : object
         The object that manages logging output.
     """
+    from openmdao.core.component import Component
     msg = []
 
     for comp in problem.model.system_iter(include_self=True, recurse=True, typ=Component):
@@ -611,6 +616,7 @@ def _check_bad_sparsity(problem, logger):
     logger : object
         The object that manages logging output.
     """
+    from openmdao.core.component import Component
     seen = set()
     for comp in problem.model.system_iter(include_self=True, recurse=True, typ=Component):
         plen = len(comp.pathname) + 1
@@ -782,6 +788,9 @@ def check_allocate_complex_ln(group, under_cs):
     bool
         True if linear vector should be complex.
     """
+    from openmdao.core.group import Group
+    from openmdao.core.implicitcomponent import ImplicitComponent
+
     under_cs |= 'cs' in group._approx_schemes
 
     if under_cs and group.nonlinear_solver is not None and \

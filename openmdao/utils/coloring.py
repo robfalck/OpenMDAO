@@ -18,7 +18,6 @@ from contextlib import contextmanager
 from pprint import pprint
 from packaging.version import Version
 
-import networkx as nx
 import numpy as np
 from scipy.sparse import coo_matrix, csc_matrix, csr_matrix
 
@@ -31,16 +30,8 @@ from openmdao.utils.reports_system import register_report
 from openmdao.utils.array_utils import submat_sparsity_iter
 from openmdao.devtools.memory import mem_usage
 
-try:
-    import jax
-    jax.config.update("jax_enable_x64", True)  # jax by default uses 32 bit floats
-    import jax.numpy as jnp
-    from jax.experimental.sparse import BCOO
-except ImportError:
-    jax = None
-    jnp = np
 
-
+jax_available = find_spec('jax') is not None
 bokeh_available = find_spec('bokeh') is not None
 
 
@@ -1891,6 +1882,10 @@ class Coloring(object):
         BCOO
             The sparsity matrix in jax BCOO format.
         """
+        import jax
+        jax.config.update("jax_enable_x64", True)  # jax by default uses 32 bit floats
+        import jax.numpy as jnp
+        from jax.experimental.sparse import BCOO
         data = jnp.ones(len(self._nzrows))
         indices = jnp.array(zip(self._nzrows, self._nzcols))
         return BCOO((data, indices), shape=self._shape)
@@ -2623,6 +2618,7 @@ def _color_partition(J, Jprows, Jpcols, direct=True, overlap=None):
 
 
 def _sort_subtractions(allsubs):
+    import networkx as nx
     graph = nx.DiGraph()
     for pos, subtractions in allsubs.items():
         for sub in subtractions:
