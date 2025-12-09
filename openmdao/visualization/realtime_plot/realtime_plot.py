@@ -2,6 +2,7 @@
 Classes and functions to support the realtime plotting.
 """
 
+import importlib.util
 import os
 import sqlite3
 import subprocess
@@ -12,20 +13,9 @@ from openmdao.utils import hooks
 from openmdao.utils.file_utils import _load_and_exec, is_python_file
 from openmdao.utils.gui_testing_utils import get_free_port
 from openmdao.utils.record_util import check_valid_sqlite3_db
-from openmdao.visualization.realtime_plot.realtime_analysis_driver_plot \
-    import _RealTimeAnalysisDriverPlot
-from openmdao.visualization.realtime_plot.realtime_optimizer_plot import _RealTimeOptimizerPlot
 
-try:
-    from bokeh.server.server import Server
-    from bokeh.application.application import Application
-    from bokeh.application.handlers import FunctionHandler
-    from tornado.ioloop import PeriodicCallback
-    from tornado.web import StaticFileHandler
 
-    bokeh_and_dependencies_available = True
-except ImportError:
-    bokeh_and_dependencies_available = False
+bokeh_and_dependencies_available = importlib.util.find_spec('bokeh') is not None
 
 
 # the time between calls to the udpate method
@@ -361,7 +351,14 @@ def realtime_plot(case_recorder_filename, callback_period,
     script : str or None
         If not None, the file path of the script that created the case recorder file.
     """
+    from bokeh.server.server import Server
+    from bokeh.application.application import Application
+    from bokeh.application.handlers import FunctionHandler
+    from tornado.ioloop import PeriodicCallback
+    from tornado.web import StaticFileHandler
+
     def _make_realtime_plot_doc(doc):
+        from openmdao.visualization.realtime_plot.realtime_optimizer_plot import _RealTimeOptimizerPlot
         case_tracker = _CaseRecorderTracker(case_recorder_filename)
         if case_tracker.is_driver_optimizer():
             _RealTimeOptimizerPlot(
@@ -372,6 +369,8 @@ def realtime_plot(case_recorder_filename, callback_period,
                 script=script,
             )
         else:
+            from openmdao.visualization.realtime_plot.realtime_analysis_driver_plot \
+                import _RealTimeAnalysisDriverPlot
             _RealTimeAnalysisDriverPlot(
                 case_tracker,
                 callback_period,

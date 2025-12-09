@@ -5,24 +5,10 @@ import pathlib
 import sys
 from operator import itemgetter
 
-import networkx as nx
 import numpy as np
 
-from openmdao.drivers.analysis_driver import AnalysisDriver
 import openmdao.utils.hooks as hooks
-from openmdao.core.explicitcomponent import ExplicitComponent
-from openmdao.core.indepvarcomp import IndepVarComp
-from openmdao.core.parallel_group import ParallelGroup
-from openmdao.core.group import Group
-from openmdao.core.problem import Problem, _SetupStatus
-from openmdao.core.implicitcomponent import ImplicitComponent
 from openmdao.core.constants import _UNDEFINED
-from openmdao.components.exec_comp import ExecComp
-from openmdao.components.meta_model_structured_comp import MetaModelStructuredComp
-from openmdao.components.meta_model_unstructured_comp import MetaModelUnStructuredComp
-from openmdao.drivers.doe_driver import DOEDriver
-from openmdao.recorders.case_reader import CaseReader
-from openmdao.solvers.nonlinear.newton import NewtonSolver
 from openmdao.utils.array_utils import convert_ndarray_to_support_nans_in_json
 from openmdao.utils.class_util import overrides_method
 from openmdao.utils.general_utils import default_noraise, is_undefined
@@ -176,6 +162,16 @@ def _get_tree_dict(system, values=True, is_parallel=False):
     is_parallel : bool
         If True, values can be remote and are not available.
     """
+    from openmdao.core.explicitcomponent import ExplicitComponent
+    from openmdao.core.implicitcomponent import ImplicitComponent
+    from openmdao.core.indepvarcomp import IndepVarComp
+    from openmdao.components.exec_comp import ExecComp
+    from openmdao.components.meta_model_structured_comp import MetaModelStructuredComp
+    from openmdao.components.meta_model_unstructured_comp import MetaModelUnStructuredComp
+    from openmdao.core.group import Group
+    from openmdao.core.parallel_group import ParallelGroup
+    from openmdao.solvers.nonlinear.newton import NewtonSolver
+
     tree_dict = {
         'name': system.name if system.name else 'root',
         'type': 'subsystem' if system.name else 'root',
@@ -334,7 +330,14 @@ def _get_viewer_data(data_source, values=_UNDEFINED, case_id=None):
     dict
         A dictionary containing information about the model for use by the viewer.
     """
+    import networkx as nx
+    from openmdao.core.problem import Problem, _SetupStatus
+    from openmdao.core.group import Group
+    from openmdao.recorders.case_reader import CaseReader
+
     if isinstance(data_source, Problem):
+        from openmdao.drivers.analysis_driver import AnalysisDriver
+        from openmdao.drivers.doe_driver import DOEDriver
         # make sure at least setup_part2 has been run
         data_source.set_setup_status(_SetupStatus.POST_SETUP2)
 

@@ -16,7 +16,7 @@ import numpy as np
 from numpy import atleast_2d as array2d
 
 from scipy import linalg
-from scipy.optimize import minimize
+
 from scipy.spatial.distance import squareform
 
 from openmdao.surrogate_models.surrogate_model import MultiFiSurrogateModel
@@ -299,6 +299,8 @@ class MultiFiCoKriging(object):
         Standard deviation of the low fidelity training data for y.
     _nfev : int
         Number of function evaluations.
+    _minimize : func
+        The scipy.optmize.minimize function, lazily imported
 
     Notes
     -----
@@ -354,6 +356,9 @@ class MultiFiCoKriging(object):
         self.nlevel = None
 
         self._nfev = 0
+
+        from scipy.optimize import minimize
+        self._minimize = minimize
 
     def _build_R(self, lvl, theta):
         """
@@ -622,12 +627,12 @@ class MultiFiCoKriging(object):
 
         constraints = tuple(constraints)
 
-        sol = minimize(rlf_transform, x0, method='COBYLA',
-                       constraints=constraints,
-                       options={'tol': tol,
-                                'disp': False,
-                                'rhobeg': 1.0,
-                                'rhoend': 1.0E-8})
+        sol = self._minimize(rlf_transform, x0, method='COBYLA',
+                             constraints=constraints,
+                             options={'tol': tol,
+                                      'disp': False,
+                                      'rhobeg': 1.0,
+                                      'rhoend': 1.0E-8})
 
         log10_optimal_x = sol['x']
         optimal_rlf_value = sol['fun']

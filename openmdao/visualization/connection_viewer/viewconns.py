@@ -7,9 +7,6 @@ from collections import defaultdict
 
 import numpy as np
 
-from openmdao.core.problem import Problem
-from openmdao.core.constants import _SetupStatus
-from openmdao.utils.mpi import MPI
 from openmdao.utils.general_utils import printoptions
 from openmdao.utils.notebook_utils import notebook, colab
 from openmdao.utils.reports_system import register_report
@@ -54,6 +51,10 @@ def view_connections(root, outfile='connections.html', show_browser=True,
     title : str, optional
         Sets the title of the web page.
     """
+    from openmdao.utils.mpi import MPI
+    from openmdao.core.problem import Problem
+    from openmdao.core.constants import _SetupStatus
+
     if MPI and MPI.COMM_WORLD.rank != 0:
         return
 

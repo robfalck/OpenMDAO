@@ -5,7 +5,6 @@ from timeit import default_timer as etime
 import atexit
 from collections import defaultdict
 
-from openmdao.utils.mpi import MPI
 
 from openmdao.devtools.iprof_utils import func_group, find_qualified_name, _collect_methods, \
      _setup_func_group, _get_methods, _Options
@@ -37,6 +36,7 @@ _inst_data = {}
 
 
 def _setup(options, finalize=True):
+    from openmdao.utils.mpi import MPI
 
     global _profile_prefix, _matches
     global _profile_setup, _profile_total, _profile_out
@@ -159,6 +159,7 @@ def _finalize_profile():
     """
     Called at exit to write out the profiling data.
     """
+    from openmdao.utils.mpi import MPI
     global _profile_prefix, _profile_total, _inst_data
 
     stop()
@@ -351,6 +352,7 @@ def _iprof_totals_exec(options, user_args):
     Called from the command line (openmdao prof_totals command) to create a file containing total
     elapsed times and number of calls for all profiled functions.
     """
+    from openmdao.utils.mpi import MPI
 
     if not options.file:
         print("No files to process.")

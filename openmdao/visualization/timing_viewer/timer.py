@@ -11,7 +11,6 @@ from functools import wraps, partial
 import openmdao.utils.hooks as hooks
 from openmdao.utils.om_warnings import issue_warning
 
-from openmdao.core.parallel_group import ParallelGroup
 
 # can use this to globally turn timing on/off so we can time specific sections of code
 _timing_active = False
@@ -189,15 +188,21 @@ class TimingManager(object):
         Set of pathnames of ParallelGroups.
     _par_only : bool
         If True, only instrument direct children of ParallelGroups.
+    _ParallelGroup : cls
+        A lazily-imported ParallelGroup class.
     """
 
     def __init__(self, options=None):
         """
         Initialize data structures.
         """
+        from openmdao.core.parallel_group import ParallelGroup
+
         self._timers = {}
         self._par_groups = set()
         self._par_only = options is None or options.view.lower() == 'text'
+
+        self._ParallelGroup = ParallelGroup
 
     def add_timings(self, name_obj_proc_iter, method_names):
         """
@@ -232,7 +237,7 @@ class TimingManager(object):
         method = getattr(obj, method_name, None)
         if method is not None:
             timer = FuncTimer(method_name)
-            if isinstance(obj, ParallelGroup):
+            if isinstance(obj, self._ParallelGroup):
                 self._par_groups.add(obj.pathname)
             parent = obj.pathname.rpartition('.')[0]
             is_par_child = parent in self._par_groups

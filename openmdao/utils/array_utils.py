@@ -2,61 +2,37 @@
 Utils for dealing with arrays.
 """
 import sys
+import importlib.util
 from itertools import product
 import hashlib
+from math import prod
 
 import numpy as np
 
 from scipy.sparse import coo_matrix, csr_matrix, issparse
 from openmdao.core.constants import INT_DTYPE
-from openmdao.utils.omnumba import numba
 
 
-if sys.version_info >= (3, 8):
-    from math import prod
+has_numba = importlib.util.find_spec('numba') is not None
 
-    def shape_to_len(shape):
-        """
-        Compute length given a shape tuple.
 
-        Parameters
-        ----------
-        shape : tuple of int or None
-            Numpy shape tuple.
+def shape_to_len(shape):
+    """
+    Compute length given a shape tuple.
 
-        Returns
-        -------
-        int
-            Length of array.
-        """
-        if shape is None:
-            return None
-        return prod(shape)
-else:
-    def shape_to_len(shape):
-        """
-        Compute length given a shape tuple.
+    Parameters
+    ----------
+    shape : tuple of int or None
+        Numpy shape tuple.
 
-        For realistic-dimension arrays, looping over the shape tuple is much faster than np.prod.
-
-        Parameters
-        ----------
-        shape : tuple of int
-            Numpy shape tuple.
-
-        Returns
-        -------
-        int
-            Length of multidimensional array.
-        """
-        if shape is None:
-            return None
-
-        length = 1
-        for dim in shape:
-            length *= dim
-
-        return length
+    Returns
+    -------
+    int
+        Length of array.
+    """
+    if shape is None:
+        return None
+    return prod(shape)
 
 
 def evenly_distrib_idxs(num_divisions, arr_size):
@@ -921,7 +897,7 @@ def convert_ndarray_to_support_nans_in_json(val):
     return val_as_list
 
 
-if numba is None:
+if not has_numba:
     allclose = np.allclose
 
     def allzero(a):
@@ -941,6 +917,7 @@ if numba is None:
         return not np.any(a)
 
 else:
+    from openmdao.utils.omnumba import numba
 
     @numba.jit(nopython=True, nogil=True)
     def allclose(a, b, rtol=3e-16, atol=3e-16):

@@ -6,7 +6,6 @@ from openmdao.jacobians.subjac import Subjac
 from openmdao.utils.units import unit_conversion
 from openmdao.utils.rangemapper import RangeMapper
 from openmdao.utils.general_utils import do_nothing_context
-from openmdao.utils.coloring import _ColSparsityJac
 from openmdao.matrices.dense_matrix import DenseMatrix
 from openmdao.matrices.csc_matrix import CSCMatrix
 from openmdao.matrices.csr_matrix import CSRMatrix
@@ -1111,6 +1110,8 @@ class GroupJacobianUpdateContext:
         The group that owns this jacobian.
     jac : Jacobian
         The jacobian that is being updated.
+    _ColSparsityJac : Jacobian
+        A lazily imported _ColSparsityJac class
     """
 
     def __init__(self, group):
@@ -1122,8 +1123,11 @@ class GroupJacobianUpdateContext:
         group : Group
             The group that owns this jacobian.
         """
+        from openmdao.utils.coloring import _ColSparsityJac
+
         self.group = group
         self.jac = None
+        self._ColSparsityJac = _ColSparsityJac
 
     def __enter__(self):
         """
@@ -1136,7 +1140,7 @@ class GroupJacobianUpdateContext:
         """
         if self.group._owns_approx_jac:
             if self.group._tot_jac is not None and not isinstance(self.group._jacobian,
-                                                                  _ColSparsityJac):
+                                                                  self._ColSparsityJac):
                 self.jac = self.group._jacobian = self.group._tot_jac
             else:
                 self.jac = self.group._jacobian = self.group._get_jacobian()

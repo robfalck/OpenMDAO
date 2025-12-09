@@ -4,19 +4,15 @@ Code for generating a dashboard for case recorder files.
 import argparse
 import pathlib
 import importlib
+import importlib.util
 
 import openmdao.api as om
 from openmdao.utils.om_warnings import CaseRecorderWarning, issue_warning
 
-try:
-    import panel as pn
-except ModuleNotFoundError:
-    pn = None
 
-try:
-    import pandas as pd
-except ModuleNotFoundError:
-    pd = None
+has_panel = importlib.util.find_spec('panel') is not None
+has_pandas = importlib.util.find_spec('pandas') is not None
+
 
 try:
     from openmdao.utils.gui_testing_utils import get_free_port
@@ -135,6 +131,7 @@ def variable_metadata_to_data_frame(variables_metadata):
     DataFrame
         DataFrame containing the information about the variable metadata as a table.
     """
+    import pandas as pd
     df = pd.DataFrame(columns=metadata_names)
     i = 0
     for var_name, metadata in variables_metadata.items():
@@ -196,7 +193,7 @@ def view_cases(case_recorder_file, show=True):
     show : bool
         If True, show the dashboard. If False, do not show. Mostly for running tests.
     """
-    if pn is None:
+    if not has_panel:
         raise RuntimeError(
             "The view_cases function requires the 'panel' package, "
             "which can be installed with one of the following commands:\n"
@@ -204,13 +201,16 @@ def view_cases(case_recorder_file, show=True):
             "    pip install panel"
         )
 
-    if pd is None:
+    if not has_pandas:
         raise RuntimeError(
             "The view_cases function requires the 'pandas' package, "
             "which can be installed with one of the following commands:\n"
             "    pip install openmdao[visualization]\n"
             "    pip install pandas"
         )
+
+    import panel as pn
+    import pandas as pd
 
     cr = om.CaseReader(case_recorder_file)
 

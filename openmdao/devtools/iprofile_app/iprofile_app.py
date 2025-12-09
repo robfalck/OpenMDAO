@@ -18,7 +18,6 @@ from itertools import groupby
 
 from openmdao.devtools.iprofile import _process_profile, _iprof_py_file
 from openmdao.devtools.iprof_utils import func_group, _setup_func_group
-from openmdao.utils.mpi import MPI
 
 
 def _launch_browser(port):
@@ -205,6 +204,8 @@ else:
         """
         Called from a command line to instance based profile data in a web page.
         """
+        from openmdao.utils.mpi import MPI
+
         if options.file[0].endswith('.py'):
             if len(options.file) > 1:
                 print("iprofview can only process a single python file.", file=sys.stderr)

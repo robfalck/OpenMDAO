@@ -6,6 +6,7 @@ import sys
 import os
 import argparse
 import importlib.metadata as ilmd
+import importlib.util
 
 import re
 
@@ -34,11 +35,6 @@ from openmdao.visualization.dyn_shape_plot import _view_dyn_shapes_setup_parser,
     _view_dyn_shapes_cmd
 from openmdao.visualization.dyn_units_plot import _view_dyn_units_setup_parser, \
     _view_dyn_units_cmd
-try:
-    import bokeh
-    from openmdao.visualization.meta_model_viewer.meta_model_visualization import view_metamodel
-except ImportError:
-    bokeh = None
 from openmdao.components.meta_model_semi_structured_comp import MetaModelSemiStructuredComp
 from openmdao.components.meta_model_structured_comp import MetaModelStructuredComp
 from openmdao.components.meta_model_unstructured_comp import MetaModelUnStructuredComp
@@ -51,7 +47,6 @@ from openmdao.devtools.iprofile import _iprof_totals_exec, _iprof_totals_setup_p
 from openmdao.devtools.iprof_mem import _mem_prof_exec, _mem_prof_setup_parser, \
     _mempost_exec, _mempost_setup_parser
 from openmdao.error_checking.check_config import _check_config_cmd, _check_config_setup_parser
-from openmdao.utils.mpi import MPI
 from openmdao.utils.file_utils import clean_outputs
 from openmdao.utils.find_cite import print_citations
 from openmdao.utils.code_utils import _calltree_setup_parser, _calltree_exec
@@ -159,10 +154,12 @@ def _meta_model_cmd(options, user_args):
         Args to be passed to the user script.
     """
     def _view_metamodel(prob):
-        if bokeh is None:
+        if importlib.util.find_spec('bokeh') is None:
             print("bokeh must be installed to view a MetaModel.  Use the command:\n",
                   "    pip install bokeh")
             exit()
+
+        from openmdao.visualization.meta_model_viewer.meta_model_visualization import view_metamodel
 
         hooks._unregister_hook('final_setup', 'Problem')
 
@@ -435,6 +432,7 @@ def _cite_cmd(options, user_args):
         options.classes = None
 
     def _cite(prob):
+        from openmdao.utils.mpi import MPI
         if not MPI or MPI.COMM_WORLD.rank == 0:
             print_citations(prob, classes=options.classes, out_stream=out)
 
