@@ -161,6 +161,12 @@ colorama = "*"
 matplotlib = "*"
 rich = "*"
 
+[feature.openmdao.dependencies]
+openmdao = ">=3.41.0,<4"
+
+[feature.openmdao-editable.pypi-dependencies]
+openmdao = { path = ".", editable = true }
+
 ###############################################
 # Oldest supported versions
 ###############################################
@@ -178,17 +184,19 @@ networkx = "==3.3"
 [environments]
 
 # Default - uses whatever Python solver picks
-default = { features = ["py313", "doe", "opt", "jax", "numba", "notebooks", "visualization", "test"], solve-group = "default" }
-dev = { features = ["py313", "doe", "opt", "jax", "numba", "notebooks", "visualization", "test", "mpi", "docs", "packaging"], solve-group = "default" }
-minimal = { features = ["py313", "test"], solve-group = "default" }
+default = { features = ["py313", "openmdao", "doe", "opt", "jax", "numba", "notebooks", "visualization", "test"], solve-group = "default" }
+dev = { features = ["py313", "openmdao", "doe", "opt", "jax", "numba", "notebooks", "visualization", "test", "mpi", "docs", "packaging"], solve-group = "default" }
+minimal = { features = ["py313", "openmdao", "test"], solve-group = "default" }
 
 # Oldest supported versions
-oldest = { features = ["deps-oldest", "doe", "opt", "jax", "numba", "notebooks", "visualization", "test", "mpi"], solve-group = "oldest" }
+oldest = { features = ["deps-oldest", "openmdao", "doe", "opt", "jax", "numba", "notebooks", "visualization", "test", "mpi"], solve-group = "oldest" }
 
 # Python version matrix
-py311 = { features = ["py311", "doe", "opt", "jax", "numba", "notebooks", "visualization", "test", "mpi"], solve-group = "py311" }
-py312 = { features = ["py312", "doe", "opt", "jax", "numba", "notebooks", "visualization", "test", "mpi"], solve-group = "py312" }
-py313 = { features = ["py313", "doe", "opt", "jax", "numba", "notebooks", "visualization", "test", "mpi"], solve-group = "py313" }
+py311 = { features = ["py311", "openmdao", "doe", "opt", "jax", "numba", "notebooks", "visualization", "test", "mpi"], solve-group = "py311" }
+py312 = { features = ["py312", "openmdao", "doe", "opt", "jax", "numba", "notebooks", "visualization", "test", "mpi"], solve-group = "py312" }
+py313 = { features = ["py313", "openmdao", "doe", "opt", "jax", "numba", "notebooks", "visualization", "test", "mpi"], solve-group = "py313" }
+
+default-editable = { features = ["py313", "openmdao-editable", "doe", "opt", "jax", "numba", "notebooks", "visualization", "test"], solve-group = "default-editable"}
 
 ###############################################
 # Tasks
