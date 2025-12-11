@@ -50,12 +50,6 @@ platforms = ["linux-64", "osx-64", "osx-arm64", "win-64"]
 
 [dependencies]
 python = ">=3.11"
-numpy = ">=2.0"
-scipy = ">=1.13"
-networkx = ">=3.3"
-pip = ">=25.3"
-packaging = ">=25.0"
-requests = ">=2.32.5"
 
 ###############################################
 # Python version features
@@ -87,18 +81,11 @@ scipy = ">=1.13,<1.16"
 # Optional features (version-agnostic as much as possible)
 ##########################################################
 
-[feature.docs.dependencies]
-ipyparallel = "*"
-jupyter-book = ">=1.0.3,<2"
-matplotlib = "*"
-numpydoc = "*"
-sphinx-sitemap = "*"
-idna = "*"
-jinja2 = "*"
-tqdm = "*"
+[feature.docs.pypi-dependencies]
+openmdao = { extras = ["docs"] }
 
-[feature.doe.dependencies]
-pydoe3 = "*"
+[feature.doe.pypi-dependencies]
+openmdao = { extras = ["doe"] }
 
 [feature.opt.dependencies]
 pyoptsparse = ">=2.14.0"
@@ -106,7 +93,7 @@ cyipopt = "*"
 
 # Jax not available for windows on conda-forge
 [feature.jax.pypi-dependencies]
-jax = "*"
+openmdao = { extras = ["jax"] }
 
 # petsc isn't available for windows
 [feature.mpi.target.linux-64.dependencies]
@@ -127,41 +114,23 @@ mpi4py = "*"
 petsc = "*"
 petsc4py = "*"
 
-[feature.notebooks.dependencies]
-ipympl = "*"
-notebook = "*"
-idna = "*"
+[feature.notebooks.pypi-dependencies]
+openmdao = { extras = ["notebooks"] }
 
-[feature.numba.dependencies]
-numba = "*"
+[feature.numba.pypi-dependencies]
+# numba = "*"
+openmdao = { extras = ["numba"] }
 
 [feature.packaging.dependencies]
 hatchling = "*"
 
-[feature.test.dependencies]
-pre-commit = "*"
-aiounittest = "*"
-num2words = "*"
-numpydoc = "*"
-parameterized = "*"
-playwright = "*"
-pycodestyle = "*"
-pydocstyle = "*"
-testflo = "*"
-websockets = "*"
-actionlint = "*"
-ruff = "*"
-coverage = "*"
-nbdime = "*"
+[feature.test.pypi-dependencies]
+openmdao = { extras = ["test"] }
 
-[feature.visualization.dependencies]
-panel = "*"
-bokeh = "*"
-colorama = "*"
-matplotlib = "*"
-rich = "*"
+[feature.visualization.pypi-dependencies]
+openmdao = { extras = ["visualization"] }
 
-[feature.openmdao.dependencies]
+[feature.openmdao.pypi-dependencies]
 openmdao = ">=3.41.0,<4"
 
 [feature.openmdao-editable.pypi-dependencies]
