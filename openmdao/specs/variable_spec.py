@@ -1,9 +1,10 @@
-from collections.abc import Container, Callable
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
 
 
 class VariableSpec(BaseModel):
+
+    model_config = ConfigDict(arbitrary_types_allowed=True)
 
     name : str = Field(
         ...,
@@ -11,14 +12,14 @@ class VariableSpec(BaseModel):
     units : str | None = Field(
         default=None,
         description='The units of the variable for within a component.')
-    shape : tuple[int] | None = Field(
+    shape : tuple[int, ...] | None = Field(
         default=None,
         description='Shape of this variable, only required if val is '
         'not an array. Default is None.')
     desc : str = Field(
         default='',
         description='A description of the variable.')
-    tags : Container[str] = Field(
+    tags : set[str] = Field(
         default_factory=set,
         description='Tags used to denote characteristics of the Varaible.')
     shape_by_conn : bool = Field(
@@ -28,9 +29,9 @@ class VariableSpec(BaseModel):
         default=None,
         description='If a str, that str is the name of a variable. '
         'Shape this input to match that of the named variable.')
-    compute_shape : Callable | None = Field(
+    compute_shape : str | None = Field(
         default=None,
-        description="A function taking a dict arg "
+        description="Dotted path to a function taking a dict arg "
         "containing names and shapes of this component's "
         "outputs and returning the shape of this input.")
     units_by_conn : bool = Field(
@@ -39,10 +40,11 @@ class VariableSpec(BaseModel):
     copy_units : str | None = Field(
         default=None,
         description='If True, set units of this input to match its connected output.')
-    compute_units : Callable | None = Field(
+    compute_units : str | None = Field(
         default=None,
-        description="A function taking a dict arg containing names and PhysicalUnits of this "
-        "component's outputs and returning the PhysicalUnits of this input.")
+        description="Dotted path to a function taking a dict arg containing names and "
+        "PhysicalUnits of this component's outputs and returning the PhysicalUnits of "
+        "this input.")
     require_conection : bool = Field(
         default=False,
         description='For inputs, if True and this is not a ' \
