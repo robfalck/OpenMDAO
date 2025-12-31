@@ -1,14 +1,16 @@
-from typing import Literal
+from typing import Literal, TYPE_CHECKING
 from pydantic import BaseModel, Field, model_validator
 
 from openmdao.specs.partials_spec import PartialsSpec
-from openmdao.specs.subsystem_spec import SubsystemSpec
+
+if TYPE_CHECKING:
+    from openmdao.specs.subsystem_spec import SubsystemSpec
 
 # ============================================================================
 # Core System Specifications (define systems in isolation)
 # ============================================================================
 
-from openmdao.specs import ConnectionSpec
+from openmdao.specs.connection_spec import ConnectionSpec
 
 
 class ComponentSpec(BaseModel):
@@ -87,16 +89,26 @@ class GroupSpec(BaseModel):
     def validate_connections(self):
         """Validate that connections reference valid subsystems."""
         subsystem_names = {subsys.name for subsys in self.subsystems}
-        
+
         for conn in self.connections:
-            src_system = conn.source.split('.')[0]
-            tgt_system = conn.target.split('.')[0]
-            
+            src_system = conn.src.split('.')[0]
+            tgt_system = conn.tgt.split('.')[0]
+
             if src_system not in subsystem_names:
-                raise ValueError(f"Connection source '{conn.source}' references unknown "
+                raise ValueError(f"Connection source '{conn.src}' references unknown "
                                  "system '{src_system}'")
             if tgt_system not in subsystem_names:
-                raise ValueError(f"Connection target '{conn.target}' references unknown "
+                raise ValueError(f"Connection target '{conn.tgt}' references unknown "
                                  "system '{tgt_system}'")
-        
+
         return self
+
+
+# Rebuild the model after SubsystemSpec is defined to resolve forward references
+def _rebuild_group_spec():
+    """Rebuild GroupSpec after SubsystemSpec is imported."""
+    GroupSpec.model_rebuild()
+
+
+# This will be called when the module is fully imported
+_rebuild_group_spec()
