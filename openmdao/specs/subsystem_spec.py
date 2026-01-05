@@ -1,8 +1,8 @@
 from pydantic import BaseModel, Field, field_validator, model_validator, ConfigDict
 
-
-from openmdao.specs.group_spec import GroupSpec
 from openmdao.specs.component_spec import ComponentSpec
+from openmdao.specs.group_spec import GroupSpec
+
 
 
 class SubsystemSpec(BaseModel):
@@ -103,3 +103,7 @@ class SubsystemSpec(BaseModel):
                 "Cannot specify 'promotes' together with 'promotes_inputs' or 'promotes_outputs'."
             )
         return self
+
+
+# Rebuild GroupSpec to resolve the 'SubsystemSpec' forward reference
+GroupSpec.model_rebuild()

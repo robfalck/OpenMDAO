@@ -1,4 +1,3 @@
-from collections.abc import Sequence
 from pydantic import BaseModel, Field, field_validator, ConfigDict
 import numpy as np
 
@@ -67,7 +66,8 @@ class IndicesSpec(BaseModel):
     
     model_config = ConfigDict(arbitrary_types_allowed=True)
     
-    value: None | Sequence[int] | np.ndarray = Field(
+    # TODO: Accept any sequence of integers and store as list internally
+    value: None | list[int] | np.ndarray = Field(
         default=None,
         description="Indices specification"
     )

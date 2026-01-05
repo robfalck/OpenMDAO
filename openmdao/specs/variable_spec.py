@@ -1,6 +1,8 @@
 
 from pydantic import BaseModel, Field, ConfigDict
 
+import numpy as np
+
 
 class VariableSpec(BaseModel):
 
@@ -19,8 +21,8 @@ class VariableSpec(BaseModel):
     desc : str = Field(
         default='',
         description='A description of the variable.')
-    tags : set[str] = Field(
-        default_factory=set,
+    tags : list[str] = Field(
+        default_factory=list,
         description='Tags used to denote characteristics of the Varaible.')
     shape_by_conn : bool = Field(
         default=False,
@@ -57,3 +59,39 @@ class VariableSpec(BaseModel):
         default=None,
         description="Valid python name to represent the variable in" \
         "compute_primal if 'name' is not a valid python name.")
+    
+    # Properties associated with implicit outputs
+
+    # TODO: Accept any sequence of floats and convert to list
+    lower: None | float | list[float] | np.ndarray = Field(
+        default=None,
+        description='Lower bound of the constraint.'
+    )
+    
+    # TODO: Accept any sequence of floats and convert to list
+    upper: None | float | list[float] | np.ndarray = Field(
+        default=None,
+        description='Upper bound of the constraint.'
+    )
+
+    ref: None | float | np.ndarray = Field(
+        default=None,
+        description='Value of response variable that scales to 1.0 in the nonlinear solver.'
+    )
+    
+    ref0: None | float | np.ndarray = Field(
+        default=None,
+        description='Value of response variable that scales to 0.0 in the nonlinear solver.'
+    )
+    
+    adder: None | float | np.ndarray = Field(
+        default=None,
+        description='Value to add to the model value to get the scaled value. '
+        'Adder is first in precedence.'
+    )
+    
+    scaler: None | float | np.ndarray = Field(
+        default=None,
+        description='Value to multiply the model value to get the scaled value. '
+        'Scaler is second in precedence.'
+    )
