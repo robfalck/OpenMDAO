@@ -1,47 +1,11 @@
 from typing import Literal, TYPE_CHECKING
 from pydantic import BaseModel, Field, model_validator
 
-from openmdao.specs.partials_spec import PartialsSpec
-
-if TYPE_CHECKING:
-    from openmdao.specs.subsystem_spec import SubsystemSpec
-
-# ============================================================================
-# Core System Specifications (define systems in isolation)
-# ============================================================================
-
 from openmdao.specs.connection_spec import ConnectionSpec
 
 
-class ComponentSpec(BaseModel):
-    """Specification for a component in isolation."""
-    
-    component_class: str = Field(
-        ...,
-        description="Fully qualified component class name"
-    )
-    
-    init_kwargs: dict = Field(
-        default_factory=dict,
-        description="Component initialization kwargs"
-    )
-    
-    # Execution specification
-    is_explicit: bool = Field(
-        default=True,
-        description="Whether component is explicit"
-    )
-    
-    distributed: bool = Field(
-        default=False,
-        description="Whether component is distributed"
-    )
-    
-    # Partial derivatives specification
-    partials: list['PartialsSpec'] = Field(
-        default_factory=list,
-        description="Partial derivative declarations"
-    )
+if TYPE_CHECKING:
+    from openmdao.specs.subsystem_spec import SubsystemSpec
 
 
 class SolverSpec(BaseModel):
@@ -56,7 +20,7 @@ class GroupSpec(BaseModel):
     
     type: Literal["group"] = "group"
     
-    # Child subsystems (note: these are SubsystemSpecs, not SystemSpecs directly)
+    # Child subsystems - use string annotation to avoid circular import
     subsystems: list['SubsystemSpec'] = Field(
         default_factory=list,
         description="Child subsystems with their inclusion specifications"
@@ -102,13 +66,3 @@ class GroupSpec(BaseModel):
                                  "system '{tgt_system}'")
 
         return self
-
-
-# Rebuild the model after SubsystemSpec is defined to resolve forward references
-def _rebuild_group_spec():
-    """Rebuild GroupSpec after SubsystemSpec is imported."""
-    GroupSpec.model_rebuild()
-
-
-# This will be called when the module is fully imported
-_rebuild_group_spec()
