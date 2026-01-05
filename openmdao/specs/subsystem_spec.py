@@ -1,7 +1,9 @@
-from pydantic import BaseModel, Field, field_validator, model_validator, ConfigDict
+from pydantic import BaseModel, Field, field_validator, field_serializer, model_validator, \
+    ConfigDict
 
 from openmdao.specs.component_spec import ComponentSpec
 from openmdao.specs.group_spec import GroupSpec
+from openmdao.specs.systems_registry import _SYSTEM_SPEC_REGISTRY
 
 
 
@@ -30,6 +32,40 @@ class SubsystemSpec(BaseModel):
         ...,
         description="The system specification (component or group)"
     )
+
+    @field_validator('system', mode='before')
+    @classmethod
+    def deserialize_system(cls, v):
+        """
+        Deserialize system using the registry to get the correct subclass.
+
+        This allows proper deserialization of ComponentSpec subclasses
+        (OMExplicitComponentSpec, ExecCompSpec, etc.) based on their 'type' field.
+        """
+        # If it's already an instance, return as-is
+        if isinstance(v, (ComponentSpec, GroupSpec)):
+            return v
+
+        # If it's a dict, look up the appropriate class from the registry
+        if isinstance(v, dict):
+            type_name = v.get('type')
+            if type_name and type_name in _SYSTEM_SPEC_REGISTRY:
+                # Use the registered class for this type
+                spec_class = _SYSTEM_SPEC_REGISTRY[type_name]
+                return spec_class.model_validate(v)
+            # Fallback to default behavior if type not in registry
+
+        return v
+
+    @field_serializer('system')
+    def serialize_system(self, system: ComponentSpec | GroupSpec, _info):
+        """
+        Serialize system using its actual class's model_dump.
+
+        This ensures that subclass-specific fields (like 'type') are included.
+        """
+        # Use the actual class's model_dump to preserve subclass fields
+        return system.model_dump()
     
     # Promotion specifications
     promotes: list[str | tuple[str, str]] | None = Field(
