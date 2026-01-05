@@ -7,7 +7,8 @@ to create a serializable specification of the Sellar MDA problem.
 The spec can be serialized to JSON/YAML and used to reconstruct the problem later.
 """
 import json
-from openmdao.specs import GroupSpec, ComponentSpec, SubsystemSpec, VariableSpec, ExecCompSpec, OMExplicitComponentSpec
+from openmdao.specs import GroupSpec, SubsystemSpec, VariableSpec, ExecCompSpec, OMExplicitComponentSpec
+from openmdao.specs.group_spec import NonlinearSolverSpec, LinearSolverSpec, LinesearchSolverSpec
 
 
 def create_sellar_spec():
@@ -109,12 +110,15 @@ def create_sellar_spec():
             # Note: In this version with promotes, d1 and d2 are connected via promoted y1 and y2
             # No explicit connections needed
         ],
-        # TODO: Solver specs are not yet fully implemented
-        # When implemented, would look like:
-        # nonlinear_solver=SolverSpec(solver_type='NewtonSolver', options={'maxiter': 10}),
-        # linear_solver=SolverSpec(solver_type='DirectSolver', options={})
-        nonlinear_solver=None,
-        linear_solver=None
+        # Solver specs - Sellar is a coupled problem that requires a nonlinear solver
+        nonlinear_solver=NonlinearSolverSpec(
+            solver_type='NewtonSolver',
+            options={'maxiter': 10, 'atol': 1e-10, 'rtol': 1e-10}
+        ),
+        linear_solver=LinearSolverSpec(
+            solver_type='DirectSolver',
+            options={}
+        )
     )
 
     return sellar_spec
@@ -220,7 +224,20 @@ def create_sellar_spec_with_connections():
             ConnectionSpec(src='d2.y2', tgt='d1.y2'),
             ConnectionSpec(src='d2.y2', tgt='responses.y2'),
             # ConnectionSpec(src='d2.y2', tgt='con_cmp2.y2'),
-        ]
+        ],
+        # Solver specs with linesearch
+        nonlinear_solver=NonlinearSolverSpec(
+            solver_type='NewtonSolver',
+            options={'maxiter': 10, 'atol': 1e-10},
+            linesearch=LinesearchSolverSpec(
+                solver_type='ArmijoGoldsteinLS',
+                options={'maxiter': 3}
+            )
+        ),
+        linear_solver=LinearSolverSpec(
+            solver_type='ScipyKrylov',
+            options={'maxiter': 100}
+        )
     )
 
     return sellar_spec
@@ -279,7 +296,9 @@ def main():
         print(f"     - {conn.src} -> {conn.tgt}")
 
     # Serialize connected version
-    conn_spec_dict = sellar_conn_spec.model_dump(exclude_defaults=True)
+    # Note: Don't use exclude_defaults=True because we need the 'type' field
+    # for proper deserialization of ComponentSpec subclasses
+    conn_spec_dict = sellar_conn_spec.model_dump()
     conn_output_file = 'sellar_spec_connected.json'
     with open(conn_output_file, 'w') as f:
         json.dump(conn_spec_dict, f, indent=2)
@@ -288,10 +307,14 @@ def main():
 
     with open(conn_output_file, 'r') as f:
         loaded_json = json.load(f)
-        
+
     restored_sellar_conn_spec = GroupSpec.model_validate(loaded_json)
 
-    print(restored_sellar_conn_spec)
+    print("\n5. Verifying deserialized component types...")
+    for subsys in restored_sellar_conn_spec.subsystems:
+        print(f"   - {subsys.name}: {type(subsys.system).__name__}")
+
+    
 
     # print("\n" + "=" * 70)
     # print("Missing Schemas / TODO Items")

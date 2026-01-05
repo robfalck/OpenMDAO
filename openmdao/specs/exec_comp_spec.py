@@ -5,8 +5,10 @@ from pydantic import Field, field_validator, model_validator, ConfigDict
 
 from openmdao.specs.component_spec import ComponentSpec
 from openmdao.specs.variable_spec import VariableSpec
+from openmdao.specs.systems_registry import register_system_spec
 
 
+@register_system_spec
 class ExecCompSpec(ComponentSpec):
     """
     Specification for an ExecComp.
