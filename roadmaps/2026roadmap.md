@@ -11,7 +11,7 @@ We achieved some of our main targets for the year, including relevance for parti
 
 ## 2026 Focus
 
-Last year saw incredible changes in the AI-related world. It's become clear that things like agentic coding and GPU-based workflows will be the norm. This year, we're aiming for some agressive advances to OpenMDAO to decrease the workload for users, improve modularity, and make OpenMDAO easier to integrate into a larger ecosystem that may involve other analysis frameworks or AI-driven workflows.
+Last year saw incredible changes in the AI-related world. It's become clear that things like agentic coding and GPU-based workflows will be the norm. This year, we're aiming for some aggressive advances to OpenMDAO to decrease the workload for users, improve modularity, and make OpenMDAO easier to integrate into a larger ecosystem that may involve other analysis frameworks or AI-driven workflows.
 
 These changes are intended to make working with OpenMDAO simpler, but we also recognize that we cannot expect users to go through a painful transition process. We still need to support the existing mode of operation while transitioning users to a better way of doing things
 
@@ -40,7 +40,7 @@ We've often had users request something along the lines of a GUI for OpenMDAO. I
 
 #### A Separate Execution Engine
 
-In OpenMDAO <= 3, the same Systems/Groups used to define the model also provide much of the computation algoirthm. If we first build this model instead, we can run it through a separate _MAUD-Engine_ (for the lack of a better term) to convert inputs into outputs and to provide relevant derivatives. While the mathematics of MAUD is fairly compute-efficient, it does involve some iteration. Keeping the definition of the model itself in Python makes sense for usibilty reasons, but separating the computational aspect
+In OpenMDAO <= 3, the same Systems/Groups used to define the model also provide much of the computation algorithm. If we first build this model instead, we can run it through a separate _MAUD-Engine_ (for the lack of a better term) to convert inputs into outputs and to provide relevant derivatives. While the mathematics of MAUD is fairly compute-efficient, it does involve some iteration. Keeping the definition of the model itself in Python makes sense for usability reasons, but separating the computational aspect
 makes it possible to define the _MAUD-Engine_ in some other language if we choose to do so.
 
 ### Functional Access for Wider Generality
@@ -75,6 +75,89 @@ for x, y in itertools.product(x_vals, y_vals):
     results.append((x, y, obj, con))
 ```
 
+Or potentially use OpenMDAO within a `jax` workflow:
+
+```python
+
+
+f, df = om.build_functions(model,
+                           inputs=['x', 'y'],
+                           outputs=['obj', 'con'],
+                           compute_totals=True,
+                           color_totals=False)
+
+# Wrap as JAX-compatible function with custom VJP
+def openmdao_primal(x, y):
+    """Forward pass using OpenMDAO"""
+    obj, con = f(x, y)
+    return jnp.array([obj, con])
+
+def openmdao_vjp(x, y):
+    """Custom VJP using OpenMDAO derivatives"""
+    # Forward pass
+    outputs = openmdao_primal(x, y)
+    
+    def vjp_fn(v):
+        """Vector-Jacobian product: v^T * J"""
+        # Get Jacobian from OpenMDAO
+        J = df(x, y)  # Returns dict like {'obj': {'x': ..., 'y': ...}, 'con': {...}}
+        
+        # Contract with cotangent vector v
+        # v is [v_obj, v_con]
+        vjp_x = v[0] * J['obj']['x'] + v[1] * J['con']['x']
+        vjp_y = v[0] * J['obj']['y'] + v[1] * J['con']['y']
+        
+        return (vjp_x, vjp_y)
+    
+    return outputs, vjp_fn
+
+# Register custom VJP with JAX
+openmdao_primal.defvjp(openmdao_vjp)
+```
+
+### Notional Usage Workflow
+
+With the user's model defined via a Pydantic BaseModel-derived specification, we need to load it.
+As part of the model validation, we'll perform some of the duties of OpenMDAO's current setup process:
+1. Check that connections are internally consistent.
+
+```python
+import json
+from openmdao.specs import GroupSpec
+
+# Load JSON
+with open('my_model.json') as f:
+    model_dict = json.load(f)
+
+# Deserialize using Pydantic
+# complete=True would add Automatic IVC comp so that all inputs have corresponding outputs.
+model = om.load_model(model_dict, complete=True)
+
+# Interrogate the model to get indepdent variables and implicit outputs.
+required_inputs = model.get_inputs()
+
+# Set initial values of required inputs
+# We need to do this for shape/units tracing if dynamic shaping is used.
+model.set_initial_values({'x': (np.zeros(3,), 'kg'),
+                          'y': 5.0,
+                          'z': (np.ones(2, 2), 'kg*m')})
+
+# Allocate the MAUD vectors and provide callable functions.
+f, df = om.build_functions(completed_model, inputs=[...], outputs=[...])
+```
+
+```mermaid
+flowchart LR
+    A[Load JSON Model] --> B[model.get_inputs]
+    B --> C[model.set_initial_values]
+    C --> D[om.build_functions]
+    D --> E[use functions]
+```
+
+### On Second Derivatives
+
+We previously expressed a desire for second derivatives in OpenMDAO.  Many optimizers are known to perform better when they are available, but it's always felt like a burden to require that they be provided analytically by the user.  While we can finite-difference the partials of some derivatives, this wouldn't be tractable for larger problems. As we continue to push the use of tools like jax and Julia for component calculations, the ability to easily get high quality second order derivatives from components becomes easier, and the functional interface could potentially be made to also return a callable that provides a hessian-vector product. This would wait until after the MAUD Engine is functional for our current capability.
+
 ### Pseudo-Explicit Models
 
 The MAUD architecture uses a "fully implicit form".  That is, each submodel is expected to provide its residuals and their derivatives to models above it.  In OpenMDAO <= 3, we break this assumption in ExplicitComponent.
@@ -88,8 +171,24 @@ OpenMDAO currently supports this via the notion of the SubModelComp, but this im
 
 ### Backwards Compatibility
 
-OpenMDAO has had a few painful transitions betwween major versions in its past, and we recognize the time and energy users have put into their work.
+OpenMDAO has had a few painful transitions between major versions in its past, and we recognize the time and energy users have put into their work.
 
 We have a strong preference for people's models being able to work as-is via `openmdao.api`.
 Then, in `openmdao.specs` we would define `ComponentSpec`, `VariableSpec`, `GroupSpec`, etc. Building a pydantic-backed Group would be done here. In addition, we will want to support a transition process so that users existing models and groups can be transitioned via something like `myComp.model_dump_json()` or `myComp.create_spec()`.
 
+## Development Timeline
+
+We will address the inclusion of Pydantic first, in **Q1 - Q2**.
+
+**Phase 1 (Q1-Q2)**: Foundation
+- Pydantic specs in openmdao.specs
+- Basic serialization/deserialization
+- Migration tooling (model_dump_json, create_spec)
+
+**Phase 2 (Q2-Q3)**: Functional Interface
+- build_functions implementation
+- Integration examples (scipy, JAX, optax)
+
+**Phase 3 (Q3-Q4)**: Advanced Features
+- Pseudo-explicit groups
+- MAUD-Engine separation exploration
