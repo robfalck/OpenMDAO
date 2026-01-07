@@ -38,10 +38,10 @@ If I have a complicated aerodynamics model and I want to swap it in place of ano
 
 We've often had users request something along the lines of a GUI for OpenMDAO. In the past, with models defined imperatively, we couldn't do this because you'd inevitably want to recreate the code which provides the model defined in your GUI. What if the inputs to that model were defined programmatically, how could we know. Switching to a declarative approach with pydantic negates that limitation, meaning going from graphically assembled [XDSM diagram](https://mdolab.engin.umich.edu/wiki/xdsm-overview) to a functional computational would be possible.
 
-#### A Separate Executive
+#### A Separate Execution Engine
 
-In OpenMDAO <= 3, the same Systems/Groups used to define the model also provide much of the computation algoirthm. If we first build this model instead, we can run it through a separate _MAUD-Executive_ (for the lack of a better term) to convert inputs into outputs and to provide relevant derivatives. While the mathematics of MAUD is fairly compute-efficient, it does involve some iteration. Keeping the definition of the model itself in Python makes sense for usibilty reasons, but separating the computational aspect
-makes it possible to define the _MAUD-Executive_ in some other language if we choose to do so.
+In OpenMDAO <= 3, the same Systems/Groups used to define the model also provide much of the computation algoirthm. If we first build this model instead, we can run it through a separate _MAUD-Engine_ (for the lack of a better term) to convert inputs into outputs and to provide relevant derivatives. While the mathematics of MAUD is fairly compute-efficient, it does involve some iteration. Keeping the definition of the model itself in Python makes sense for usibilty reasons, but separating the computational aspect
+makes it possible to define the _MAUD-Engine_ in some other language if we choose to do so.
 
 ### Functional Access for Wider Generality
 
@@ -75,33 +75,21 @@ for x, y in itertools.product(x_vals, y_vals):
     results.append((x, y, obj, con))
 ```
 
+### Pseudo-Explicit Models
 
-## 2025 Focus Areas
+The MAUD architecture uses a "fully implicit form".  That is, each submodel is expected to provide its residuals and their derivatives to models above it.  In OpenMDAO <= 3, we break this assumption in ExplicitComponent.
+ExplicitComponent only exposes the derivatives of its outputs wrt the intputs. Technically speaking, it still poses
+these in an implicit form, but the end result is that we only care about the ultimate inputs and outputs of an ExplicitComponent, not any intermediate calculations.
 
-1. Continued expansion of coupling with AD tools. Given what we can do with JAX, it makes sense to make similar efforts towards the portion of the community that relies upon PyTorch for similar capability. We will look at building components that wrap PyTorch models in much the same way that we can wrap JAX models today.
+On the other hand, with Groups, all of the internal residuals and derivatives are exposed to the containing system.
+Sometimes, this can provide more robustness because the outer-level solvers and drivers are able to see more of the interactions within the system. On the other hand, it may pose more information than necessary to the calling systems. A [2025 study from MDOLab at the University of Michigan](https://mdolab.engin.umich.edu/bibliography/Kaneko2025b.html) demonstrated the value of this capability.
 
-2. Post-Optimality Sensitivity and Suboptimization
+OpenMDAO currently supports this via the notion of the SubModelComp, but this implementation isn't as efficient as it could be. An alternative we would like to explore is to be able to optionally execute MAUD within a group, and only expose the resulting _semi-total_ derivatives. Such a group would appear as explicit component to the outside world.
 
-We're finishing up some work that generalizes generation of lagrange multipliers following optimization. These multipliers provide the sensitivty of the objective function to the constraints and bounds imposed by the user, and we can use these to obtain sensitivities wrt other model inputs.
+### Backwards Compatibility
 
-In viewing the optimization problem as its own implicit process, we're also interested in obtaining sensitivities for the resulting design variable values with respect to the bounds/constraints and inputs. The math to accomplish this requires second derivatives, and at least initially, we'll be relying upon finite differences **across compute_totals** (not across the optmization) to obtain these.
+OpenMDAO has had a few painful transitions betwween major versions in its past, and we recognize the time and energy users have put into their work.
 
-Ultimately the most robust way to do this would involve directly computing second total derivatives using the MAUD machinery in OpenMDAO. In the past this has always been hampered by the need for the user to compute their own second derivatives. Perhaps AD tools will open up a path to this.
+We have a strong preference for people's models being able to work as-is via `openmdao.api`.
+Then, in `openmdao.specs` we would define `ComponentSpec`, `VariableSpec`, `GroupSpec`, etc. Building a pydantic-backed Group would be done here. In addition, we will want to support a transition process so that users existing models and groups can be transitioned via something like `myComp.model_dump_json()` or `myComp.create_spec()`.
 
-3. AnalysisDriver to Surrogate model tool
-
-One of the biggest use-cases for AnalysisDriver is to inform the creation of surrogate models. It mkes sense that OpenMDAO should provide some automation of this capability.
-
-4. Partial Derivative Relevance
-
-`compute_partials` currently has no way of knowing what partials are actually needed for the current optimization problem.  In many cases this is moot because the partial calculations are generally less expensive than conditionally checking for them.
-
-However, there are cases where individual partial calculations are not cheap. If we could use relevance to determine which ones need to be calculated, OpenMDAO would get considerably faster in some situations.
-
-This is also the case for using finite-difference or complex-step across big models, especially something like a file-wrapped external code. Using `declare_partials(of='*', wrt='*', method='fd')` will cause OpenMDAO to compute all of the partials, even those not needed. There should be room for some considerable performance gains here.
-
-5. Expand use of shape_by_conn and implement units_by_conn
-
-We have had a shape-by-connection capability for some time, but it hasn't gotten significant uptake because computing partials by hand when the shapes of inputs can be changing is too challenging. This is another scenario where AD should help.
-
-We also frequently find ourselves in situations where the units of outputs depend upon the units of inputs. This is often the case when "pass-thru" components are used, or with something like a simple matrix-vector product. Dymos is probably the best example of this.  Given a generic ODE model, it performs some significant introspection to determine the shapes and units of variables in the ODE. Having a units-by-conn capability would make life easier here as well.
