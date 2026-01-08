@@ -146,9 +146,10 @@ model.set_initial_values({
 
 # Compile model into callable functions
 # This allocates MAUD vectors and returns executable functions
-f, df = om.compile(model, 
-                   inputs=['x', 'y'],      # Function arguments
-                   outputs=['obj', 'con'])  # Function returns
+f, df = om.functionalize(model, 
+                         inputs=['x', 'y'], # Function arguments
+                         outputs=['obj', 'con'], # Function returns
+                         totals=True)  # Also provide a function for total derivatives.
 
 # Execute
 obj, con = f(np.ones(3), 6.0)
