@@ -170,7 +170,7 @@ We previously expressed a desire for second derivatives in OpenMDAO.  Many optim
 ### Pseudo-Explicit Models
 
 The MAUD architecture uses a "fully implicit form".  That is, each submodel is expected to provide its residuals and their derivatives to models above it.  In OpenMDAO <= 3, we break this assumption in ExplicitComponent.
-ExplicitComponent only exposes the derivatives of its outputs wrt the intputs. Technically speaking, it still poses
+ExplicitComponent only exposes the derivatives of its outputs wrt the inputs. Technically speaking, it still poses
 these in an implicit form, but the end result is that we only care about the ultimate inputs and outputs of an ExplicitComponent, not any intermediate calculations.
 
 On the other hand, with Groups, all of the internal residuals and derivatives are exposed to the containing system.
