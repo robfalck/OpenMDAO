@@ -144,12 +144,12 @@ model.set_initial_values({
     'z': (np.ones((2, 2)), 'N*m')  # 2D array with units
 })
 
-# Compile model into callable functions
+# Provide callable function interface to the model and its derivatives
 # This allocates MAUD vectors and returns executable functions
-f, df = om.functionalize(model, 
-                         inputs=['x', 'y'], # Function arguments
-                         outputs=['obj', 'con'], # Function returns
-                         totals=True)  # Also provide a function for total derivatives.
+f, df = om.build_functions(model, 
+                           inputs=['x', 'y'], # Function arguments
+                           outputs=['obj', 'con'], # Function returns
+                           totals=True)  # Also provide a function for total derivatives.
 
 # Execute
 obj, con = f(np.ones(3), 6.0)
