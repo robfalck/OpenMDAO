@@ -11,6 +11,10 @@ class VariableSpec(BaseModel):
     name : str = Field(
         ...,
         description=('The name of the variable in a component.'))
+    val : float | complex | list[float | complex | int] = Field(
+        default=1.0,
+        description='The initial value of the variable.'
+    )
     units : str | None = Field(
         default=None,
         description='The units of the variable for within a component.')
