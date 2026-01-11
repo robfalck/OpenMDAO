@@ -29,7 +29,6 @@ class LinearSolverType(str, Enum):
     LINEAR_RUNONCE = "LinearRunOnce"
     SCIPY_KRYLOV = "ScipyKrylov"
     PETSC_KRYLOV = "PETScKrylov"
-    LINEAR_USER_DEFINED = "LinearUserDefined"
 
 
 class LinesearchSolverType(str, Enum):

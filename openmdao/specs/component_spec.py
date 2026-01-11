@@ -1,22 +1,28 @@
-from typing import Literal
+from typing import Literal, Generic
 
 from pydantic import BaseModel, Field, field_validator
 
 from openmdao.specs.variable_spec import VariableSpec
 from openmdao.specs.systems_registry import register_system_spec
+from openmdao.specs.options_spec import ComponentOptionsSpec, ComponentOptionsT
 
 
-class ComponentSpec(BaseModel):
+class ComponentSpec(BaseModel, Generic[ComponentOptionsT]):
     """Base specification for a component."""
 
-    inputs : list[VariableSpec] = Field(
+    inputs: list[VariableSpec] = Field(
         ...,
         description='Input variables for this component.'
     )
 
-    outputs : list[VariableSpec] = Field(
+    outputs: list[VariableSpec] = Field(
         ...,
         description='Output variables for this component.'
+    )
+
+    options: ComponentOptionsT = Field(
+        ...,
+        description='User-configurable options on the component.'
     )
 
     @field_validator('inputs', 'outputs', mode='before')
@@ -67,71 +73,59 @@ class ComponentSpec(BaseModel):
 
 
 @register_system_spec
-class OMExplicitComponentSpec(ComponentSpec):
+class OMExplicitComponentSpec(ComponentSpec[ComponentOptionsSpec]):
 
     type: Literal['OMExplicitComponent'] = 'OMExplicitComponent'
 
-    path : str | None = Field(
+    path: str = Field(
         ...,
         description='The dotted path to the component class definition.'
     )
 
+    @field_validator('options')
+    @classmethod
+    def check_explicit_component_options(cls, v):
+        """
+        Validate that explicit components don't use implicit-only options.
+
+        This is the equivalent of options.undeclare in OpenMDAO 3.x models.
+        """
+        if v.assembled_jac_type is not None:
+            raise ValueError(
+                "assembled_jac_type is not valid for ExplicitComponents. "
+                "This option only applies to Groups and ImplicitComponents."
+            )
+        return v
+
+
 @register_system_spec
-class OMImplicitComponentSpec(ComponentSpec):
+class OMImplicitComponentSpec(ComponentSpec[ComponentOptionsSpec]):
 
     type: Literal['OMImplicitComponent'] = 'OMImplicitComponent'
 
-    path : str | None = Field(
-        ...,
-        description='The dotted path to the component class definition.'
-    )
-
-@register_system_spec
-class OMJaxExplicitComponentSpec(ComponentSpec):
-
-    type: Literal['JaxExplicitComponent'] = 'JaxExplicitComponent'
-
-    path : str | None = Field(
-        ...,
-        description='If given, the dotted path to the component class definition.'
-    )
-
-@register_system_spec
-class OMJaxImplicitComponentSpec(ComponentSpec):
-
-    type: Literal['JaxExplicitComponent'] = 'JaxExplicitComponent'
-
-    path : str | None = Field(
+    path: str = Field(
         ...,
         description='The dotted path to the component class definition.'
     )
 
 
+@register_system_spec
+class OMJaxExplicitComponentSpec(ComponentSpec[ComponentOptionsSpec]):
+
+    type: Literal['JaxExplicitComponent'] = 'JaxExplicitComponent'
+
+    path: str = Field(
+        ...,
+        description='The dotted path to the component class definition.'
+    )
 
 
-    # compute : str | None = Field(
-    #     default=None,
-    #     description="If given, the dotted path to the component's compute function."
-    # )
+@register_system_spec
+class OMJaxImplicitComponentSpec(ComponentSpec[ComponentOptionsSpec]):
 
-    # compute_partials : str | None = Field(
-    #     default=None,
-    #     description="If given, the dotted path to the component's compute_partials function."
-    # )
+    type: Literal['OMJaxImplicitComponent'] = 'OMJaxImplicitComponent'
 
-    # compute_jacvec_prod : str | None = Field(
-    #     default=None,
-    #     description="If given, the dotted path to the component's compute_jacvec_prod function.")
-
-    # partials : list[PartialsSpec] = Field(
-    #     default_factory=list,
-    #     description="Partial derivatives declared for the outputs of this component."
-    # )
-
-    # @field_validator('partials', mode='before')
-    # @classmethod
-    # def convert_partials_to_list(cls, v):
-    #     """Convert any collection of PartialsSpec to a list."""
-    #     if isinstance(v, list):
-    #         return v
-    #     return list(v)
+    path: str = Field(
+        ...,
+        description='The dotted path to the component class definition.'
+    )
