@@ -75,7 +75,9 @@ class ExecCompSpec(ComponentSpec[ExecCompOptionsSpec]):
     model_config = ConfigDict(arbitrary_types_allowed=True)
     
     type: Literal['ExecComp'] = 'ExecComp'
-    
+
+    path: str = "openmdao.api.ExecComp"
+
     exprs: str | Sequence[str] = Field(
         ...,
         description="Expression(s) to be evaluated. Can be a single string or list of strings."
@@ -128,7 +130,23 @@ class ExecCompSpec(ComponentSpec[ExecCompOptionsSpec]):
             pass
         
         return self
-    
+
+    def to_init_kwargs(self):
+        """
+        Return positional and keyword arguments for ExecComp instantiation.
+
+        Returns
+        -------
+        tuple
+            (positional_args, keyword_args) where positional_args is a list
+            and keyword_args is a dict
+        """
+        exprs_arg = self.exprs
+
+        # Options become keyword arguments
+        options_dict = self.options.model_dump(exclude_defaults=True) if self.options else {}
+
+        return ([exprs_arg], options_dict)
 
 # Example usage
 if __name__ == "__main__":

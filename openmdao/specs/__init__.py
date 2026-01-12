@@ -8,3 +8,4 @@ from .indices_spec import IndicesSpec, SrcIndicesSpec
 from .response_spec import ConstraintSpec, ObjectiveSpec
 from .variable_spec import VariableSpec
 from .systems_registry import register_system_spec
+from .instantiation import instantiate_from_spec

@@ -20,8 +20,8 @@ class ComponentSpec(BaseModel, Generic[ComponentOptionsT]):
         description='Output variables for this component.'
     )
 
-    options: ComponentOptionsT = Field(
-        ...,
+    options: ComponentOptionsT | None = Field(
+        default=None,
         description='User-configurable options on the component.'
     )
 
@@ -82,7 +82,7 @@ class OMExplicitComponentSpec(ComponentSpec[ComponentOptionsSpec]):
         description='The dotted path to the component class definition.'
     )
 
-    @field_validator('options')
+    @field_validator('options', mode='before')
     @classmethod
     def check_explicit_component_options(cls, v):
         """
@@ -90,7 +90,7 @@ class OMExplicitComponentSpec(ComponentSpec[ComponentOptionsSpec]):
 
         This is the equivalent of options.undeclare in OpenMDAO 3.x models.
         """
-        if v.assembled_jac_type is not None:
+        if v is not None and v.assembled_jac_type is not None:
             raise ValueError(
                 "assembled_jac_type is not valid for ExplicitComponents. "
                 "This option only applies to Groups and ImplicitComponents."
