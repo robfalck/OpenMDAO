@@ -7,7 +7,8 @@ to create a serializable specification of the Sellar MDA problem.
 The spec can be serialized to JSON/YAML and used to reconstruct the problem later.
 """
 import json
-from openmdao.specs import GroupSpec, SubsystemSpec, VariableSpec, ExecCompSpec, OMExplicitComponentSpec
+from openmdao.specs import GroupSpec, SubsystemSpec, VariableSpec, ExecCompSpec, OMExplicitComponentSpec, \
+    instantiate_from_spec
 from openmdao.specs.group_spec import NonlinearSolverSpec, LinearSolverSpec, LinesearchSolverSpec
 
 
@@ -314,6 +315,12 @@ def main():
     for subsys in restored_sellar_conn_spec.subsystems:
         print(f"   - {subsys.name}: {type(subsys.system).__name__}")
 
+
+    import openmdao.api as om
+
+    p = om.Problem()
+    p.model = instantiate_from_spec(restored_sellar_conn_spec)
+    p.setup()
     
 
     # print("\n" + "=" * 70)

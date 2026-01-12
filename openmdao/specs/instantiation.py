@@ -1,3 +1,4 @@
+from typing import cast
 from openmdao.specs.component_spec import ComponentSpec
 from openmdao.specs.group_spec import GroupSpec
 
@@ -36,10 +37,10 @@ def instantiate_from_spec(spec : ComponentSpec | GroupSpec | dict | str):
                 f"Known types: {list(_SYSTEM_SPEC_REGISTRY.keys())}"
             )
         
-        spec = spec_class.model_validate(spec)
+        spec = cast(ComponentSpec | GroupSpec, spec_class.model_validate(spec))
     
     # Handle different spec types
-    if spec.type == 'group':
+    if isinstance(spec, GroupSpec):
         return _instantiate_group(spec)
     else:
         return _instantiate_component(spec)
@@ -61,17 +62,25 @@ def _instantiate_component(spec):
     
     # Build init kwargs - check if spec provides a custom method
     if hasattr(spec, 'to_init_kwargs'):
-        init_kwargs = spec.to_init_kwargs()
+        result = spec.to_init_kwargs()
+        # Handle both tuple (args, kwargs) and dict (kwargs only) returns
+        if isinstance(result, tuple):
+            init_args, init_kwargs = result
+            comp = component_class(*init_args, **init_kwargs)
+            return comp
+        else:
+            # Backward compatible: just kwargs
+            init_kwargs = result
     elif hasattr(spec, 'options') and spec.options:
-        options_dict = (spec.options if isinstance(spec.options, dict) 
+        options_dict = (spec.options if isinstance(spec.options, dict)
                        else spec.options.model_dump(exclude_defaults=True))
         init_kwargs = options_dict
     else:
         init_kwargs = {}
-    
+
     # Instantiate the component
     comp = component_class(**init_kwargs)
-    
+
     return comp
 
 
