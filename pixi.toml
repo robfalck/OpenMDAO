@@ -15,7 +15,7 @@
 #            Good for users who don't want MPI capability.
 #            Usage: pixi shell  (or pixi shell -e default)
 #
-# - py311, py312, py313: Full environments pinned to specific Python versions.
+# - py311, py312, py313, py314: Full environments pinned to specific Python versions.
 #          Useful for testing compatibility across Python versions.
 #          These are probably the most useful environments for ueers.
 #          Usage: pixi shell -e py312
@@ -68,6 +68,9 @@ python = "3.11.*"
 python = "3.12.*"
 
 [feature.py313.dependencies]
+python = "3.13.*"
+
+[feature.py314.dependencies]
 python = "3.13.*"
 
 ##########################################################
@@ -176,6 +179,7 @@ oldest = { features = ["deps-oldest", "doe", "opt", "jax", "numba", "notebooks",
 py311 = { features = ["py311", "doe", "opt", "jax", "numba", "notebooks", "visualization", "test", "mpi"], solve-group = "py311" }
 py312 = { features = ["py312", "doe", "opt", "jax", "numba", "notebooks", "visualization", "test", "mpi"], solve-group = "py312" }
 py313 = { features = ["py313", "doe", "opt", "jax", "numba", "notebooks", "visualization", "test", "mpi"], solve-group = "py313" }
+py314 = { features = ["py314", "doe", "opt", "jax", "numba", "notebooks", "visualization", "test", "mpi"], solve-group = "py314" }
 
 ###############################################
 # Tasks
