@@ -1,13 +1,14 @@
 from typing import Literal, Generic
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import Field, field_validator
 
+from openmdao.specs.system_spec import SystemSpec
 from openmdao.specs.variable_spec import VariableSpec
 from openmdao.specs.systems_registry import register_system_spec
 from openmdao.specs.options_spec import ComponentOptionsSpec, ComponentOptionsT
 
 
-class ComponentSpec(BaseModel, Generic[ComponentOptionsT]):
+class ComponentSpec(SystemSpec, Generic[ComponentOptionsT]):
     """Base specification for a component."""
 
     inputs: list[VariableSpec] = Field(
@@ -82,6 +83,21 @@ class OMExplicitComponentSpec(ComponentSpec[ComponentOptionsSpec]):
         description='The dotted path to the component class definition.'
     )
 
+    @field_validator('assembled_jac_type', mode='before')
+    @classmethod
+    def check_explicit_component_assembled_jac_type(cls, v):
+        """
+        Validate that explicit components don't use assembled_jac_type.
+
+        Only ImplicitComponents and Groups can use assembled_jac_type.
+        """
+        if v is not None:
+            raise ValueError(
+                "assembled_jac_type is not valid for ExplicitComponents. "
+                "This option only applies to Groups and ImplicitComponents."
+            )
+        return v
+
     @field_validator('options', mode='before')
     @classmethod
     def check_explicit_component_options(cls, v):
@@ -90,7 +106,7 @@ class OMExplicitComponentSpec(ComponentSpec[ComponentOptionsSpec]):
 
         This is the equivalent of options.undeclare in OpenMDAO 3.x models.
         """
-        if v is not None and v.assembled_jac_type is not None:
+        if v is not None and hasattr(v, 'assembled_jac_type') and v.assembled_jac_type is not None:
             raise ValueError(
                 "assembled_jac_type is not valid for ExplicitComponents. "
                 "This option only applies to Groups and ImplicitComponents."

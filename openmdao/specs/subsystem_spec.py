@@ -1,10 +1,11 @@
 from pydantic import BaseModel, Field, field_validator, field_serializer, model_validator, \
     ConfigDict
 
-from openmdao.specs.component_spec import ComponentSpec
-from openmdao.specs.group_spec import GroupSpec
+from openmdao.specs.system_spec import SystemSpec
 from openmdao.specs.promotes_spec import PromotesSpec
 from openmdao.specs.systems_registry import _SYSTEM_SPEC_REGISTRY
+from openmdao.specs.component_spec import ComponentSpec
+from openmdao.specs.group_spec import GroupSpec
 
 
 
@@ -29,7 +30,7 @@ class SubsystemSpec(BaseModel):
         description="Name of the subsystem in the parent group. Must be Pythonic."
     )
     
-    system: ComponentSpec | GroupSpec = Field(
+    system: SystemSpec = Field(
         ...,
         description="The system specification (component or group)"
     )
@@ -99,7 +100,7 @@ class SubsystemSpec(BaseModel):
         return v
 
     @field_serializer('system')
-    def serialize_system(self, system: ComponentSpec | GroupSpec, _info):
+    def serialize_system(self, system: SystemSpec, _info):
         """
         Serialize system using its actual class's model_dump.
 
@@ -182,5 +183,5 @@ class SubsystemSpec(BaseModel):
         return self
 
 
-# Rebuild GroupSpec to resolve the 'SubsystemSpec' forward reference
+# Rebuild models to resolve forward references now that all imports are complete
 GroupSpec.model_rebuild()

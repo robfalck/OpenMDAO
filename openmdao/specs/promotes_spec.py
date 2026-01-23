@@ -17,26 +17,6 @@ class PromotesSpec(BaseModel):
     - A string name: 'x' (simple promotion)
     - A tuple (old_name, new_name): ('x', 'X') (promotion with renaming)
 
-    Parameters
-    ----------
-    name : str or tuple[str, str]
-        Variable name to promote. Can be a string for simple promotion,
-        or a tuple (old_name, new_name) for renaming.
-
-    io_type : {'input', 'output', 'any'}
-        Whether this promotes an input, output, or either. Default is 'any'.
-
-    src_indices : SrcIndicesSpec, optional
-        Indices into source variable. Only applicable for promoted inputs.
-
-    src_shape : tuple or int, optional
-        Assumed shape of connected source. Only applicable for promoted inputs.
-
-    subsys_name : str, optional
-        Name of the subsystem to promote from. If None, applies to current system
-        (used for simple promotions via add_subsystem). If specified, indicates
-        this promotion should be done via a Group.promotes() call.
-
     Examples
     --------
     # Simple promotion of variable 'x' in current system
@@ -60,6 +40,8 @@ class PromotesSpec(BaseModel):
         io_type='input',
         subsys_name=None  # None means current system
     )
+
+    Field descriptions provide details for each attribute.
     """
 
     model_config = ConfigDict(arbitrary_types_allowed=True)

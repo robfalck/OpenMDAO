@@ -1,4 +1,4 @@
-from typing import Literal, TypeVar
+from typing import TypeVar
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -41,19 +41,19 @@ class RecordingOptionsSpec(BaseModel):
 
 
 class SystemOptionsSpec(BaseModel):
+    """
+    Base class for system-level options.
+
+    This class is intentionally minimal as system-level configuration
+    has been consolidated into SystemSpec. It's kept for inheritance
+    structure and future extensibility.
+
+    Note: The following fields have been moved to SystemSpec:
+    - assembled_jac_type (now a system-level property, not an option)
+    - derivs_method (now a system-level property, not an option)
+    """
 
     model_config = ConfigDict(extra='allow', arbitrary_types_allowed=True)
-
-    assembled_jac_type: Literal['csc', 'csr', 'dense'] | None = Field(
-        default=None,
-        description='Linear solver in this group or implicit component, '
-                    'if using an assembled jacobian, will use this type.'
-    )
-
-    derivs_method: Literal['jax', 'cs', 'fd'] | None = Field(
-        default=None,
-        description='The method to use for computing derivatives.'
-    )
 
 
 class ComponentOptionsSpec(SystemOptionsSpec):

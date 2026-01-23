@@ -1,4 +1,5 @@
 from typing import cast, TYPE_CHECKING
+from openmdao.specs.system_spec import SystemSpec
 from openmdao.specs.component_spec import ComponentSpec
 from openmdao.specs.group_spec import GroupSpec
 
@@ -6,7 +7,163 @@ if TYPE_CHECKING:
     from openmdao.specs.exec_comp_spec import ExecCompSpec
 
 
-def instantiate_from_spec(spec : ComponentSpec | GroupSpec | dict | str):
+# Solver registry mapping solver_type strings to module paths
+_SOLVER_REGISTRY = {
+    # Linear solvers
+    'DirectSolver': 'openmdao.solvers.linear.direct.DirectSolver',
+    'LinearBlockGS': 'openmdao.solvers.linear.linear_block_gs.LinearBlockGS',
+    'LinearBlockJac': 'openmdao.solvers.linear.linear_block_jac.LinearBlockJac',
+    'LinearRunOnce': 'openmdao.solvers.linear.linear_runonce.LinearRunOnce',
+    'ScipyKrylov': 'openmdao.solvers.linear.scipy_iter_solver.ScipyKrylov',
+    'PETScKrylov': 'openmdao.solvers.linear.petsc_ksp.PETScKrylov',
+
+    # Nonlinear solvers
+    'NewtonSolver': 'openmdao.solvers.nonlinear.newton.NewtonSolver',
+    'BroydenSolver': 'openmdao.solvers.nonlinear.broyden.BroydenSolver',
+    'NonlinearBlockGS': 'openmdao.solvers.nonlinear.nonlinear_block_gs.NonlinearBlockGS',
+    'NonlinearBlockJac': 'openmdao.solvers.nonlinear.nonlinear_block_jac.NonlinearBlockJac',
+    'NonlinearRunOnce': 'openmdao.solvers.nonlinear.nonlinear_runonce.NonlinearRunOnce',
+
+    # Linesearch solvers
+    'ArmijoGoldsteinLS': 'openmdao.solvers.linesearch.backtracking.ArmijoGoldsteinLS',
+    'BoundsEnforceLS': 'openmdao.solvers.linesearch.backtracking.BoundsEnforceLS',
+}
+
+
+def _instantiate_solver(solver_spec):
+    """
+    Instantiate a solver from its spec.
+
+    Parameters
+    ----------
+    solver_spec : NonlinearSolverSpec or LinearSolverSpec or LinesearchSolverSpec
+        Solver specification
+
+    Returns
+    -------
+    Solver instance
+    """
+    import importlib
+
+    solver_path = _SOLVER_REGISTRY.get(solver_spec.solver_type)
+    if solver_path is None:
+        raise ValueError(f"Unknown solver type: {solver_spec.solver_type}")
+
+    module_path, class_name = solver_path.rsplit('.', 1)
+    module = importlib.import_module(module_path)
+    solver_class = getattr(module, class_name)
+
+    # Instantiate solver
+    solver = solver_class()
+
+    # Set options
+    for key, value in solver_spec.options.items():
+        solver.options[key] = value
+
+    # Handle nested linesearch (for nonlinear solvers)
+    if hasattr(solver_spec, 'linesearch') and solver_spec.linesearch is not None:
+        linesearch = _instantiate_solver(solver_spec.linesearch)
+        solver.linesearch = linesearch
+
+    return solver
+
+
+def _apply_system_spec_properties(system, spec):
+    """
+    Apply system-level properties from SystemSpec to an instantiated system.
+
+    This handles properties common to all systems (Components and Groups):
+    - Solvers (nonlinear_solver, linear_solver)
+    - Design variables (design_vars)
+    - Constraints (constraints)
+    - Objectives (objective)
+    - Options (assembled_jac_type, derivs_method)
+    - Recording options (recording_options)
+
+    Parameters
+    ----------
+    system : System
+        Instantiated OpenMDAO system (Component or Group)
+    spec : SystemSpec
+        System specification (ComponentSpec or GroupSpec)
+    """
+    # Set nonlinear solver
+    if spec.nonlinear_solver is not None:
+        system.nonlinear_solver = _instantiate_solver(spec.nonlinear_solver)
+
+    # Set linear solver
+    if spec.linear_solver is not None:
+        system.linear_solver = _instantiate_solver(spec.linear_solver)
+
+    # Set assembled_jac_type option
+    if spec.assembled_jac_type is not None:
+        system.options['assembled_jac_type'] = spec.assembled_jac_type
+
+    # Set derivs_method option
+    if spec.derivs_method is not None:
+        system.options['derivs_method'] = spec.derivs_method
+
+    # Add design variables
+    for dv_spec in spec.design_vars:
+        system.add_design_var(
+            dv_spec.name,
+            lower=dv_spec.lower,
+            upper=dv_spec.upper,
+            ref=dv_spec.ref,
+            ref0=dv_spec.ref0,
+            indices=dv_spec.indices.value if dv_spec.indices.value is not None else None,
+            adder=dv_spec.adder,
+            scaler=dv_spec.scaler,
+            units=dv_spec.units,
+            parallel_deriv_color=dv_spec.parallel_deriv_color,
+            cache_linear_solution=dv_spec.cache_linear_solution,
+            flat_indices=dv_spec.flat_indices
+        )
+
+    # Add constraints
+    for con_spec in spec.constraints:
+        system.add_constraint(
+            con_spec.name,
+            lower=con_spec.lower,
+            upper=con_spec.upper,
+            equals=con_spec.equals,
+            ref=con_spec.ref,
+            ref0=con_spec.ref0,
+            adder=con_spec.adder,
+            scaler=con_spec.scaler,
+            indices=con_spec.indices.value if con_spec.indices.value is not None else None,
+            linear=con_spec.linear,
+            parallel_deriv_color=con_spec.parallel_deriv_color,
+            cache_linear_solution=con_spec.cache_linear_solution,
+            flat_indices=con_spec.flat_indices,
+            alias=con_spec.alias
+        )
+
+    # Add objectives
+    for obj_spec in spec.objective:
+        system.add_objective(
+            obj_spec.name,
+            ref=obj_spec.ref,
+            ref0=obj_spec.ref0,
+            index=obj_spec.index,
+            adder=obj_spec.adder,
+            scaler=obj_spec.scaler,
+            parallel_deriv_color=obj_spec.parallel_deriv_color,
+            cache_linear_solution=obj_spec.cache_linear_solution,
+            alias=obj_spec.alias
+        )
+
+    # Configure recording options
+    if spec.recording_options is not None:
+        system.recording_options['record_inputs'] = spec.recording_options.record_inputs
+        system.recording_options['record_outputs'] = spec.recording_options.record_outputs
+        system.recording_options['record_residuals'] = spec.recording_options.record_residuals
+        system.recording_options['includes'] = spec.recording_options.includes
+        system.recording_options['excludes'] = spec.recording_options.excludes
+        system.recording_options['options_excludes'] = spec.recording_options.options_excludes
+
+
+def instantiate_from_spec(spec : SystemSpec | dict | str):
     """
     Instantiate an OpenMDAO system from a specification.
     
@@ -40,7 +197,7 @@ def instantiate_from_spec(spec : ComponentSpec | GroupSpec | dict | str):
                 f"Known types: {list(_SYSTEM_SPEC_REGISTRY.keys())}"
             )
         
-        spec = cast(ComponentSpec | GroupSpec, spec_class.model_validate(spec))
+        spec = cast(SystemSpec, spec_class.model_validate(spec))
     
     # Handle different spec types
     if isinstance(spec, GroupSpec):
@@ -83,6 +240,9 @@ def _instantiate_component(spec):
 
     # Instantiate the component
     comp = component_class(**init_kwargs)
+
+    # Apply system-level properties from SystemSpec
+    _apply_system_spec_properties(comp, spec)
 
     return comp
 
@@ -146,6 +306,9 @@ def _instantiate_group(spec):
 
     for subsys_name, promotes_specs in promotes_by_subsys.items():
         _apply_promotes_call(group, subsys_name, promotes_specs)
+
+    # Apply system-level properties from SystemSpec
+    _apply_system_spec_properties(group, spec)
 
     return group
 

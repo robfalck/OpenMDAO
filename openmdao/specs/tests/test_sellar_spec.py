@@ -8,7 +8,7 @@ The spec can be serialized to JSON/YAML and used to reconstruct the problem late
 """
 import json
 from openmdao.specs import GroupSpec, SubsystemSpec, VariableSpec, ExecCompSpec, OMExplicitComponentSpec, InputDefaultsSpec, \
-    instantiate_from_spec
+    instantiate_from_spec, DesignVarSpec, ConstraintSpec, ObjectiveSpec
 from openmdao.specs.group_spec import NonlinearSolverSpec, LinearSolverSpec, LinesearchSolverSpec
 
 
@@ -119,7 +119,15 @@ def create_sellar_spec():
         linear_solver=LinearSolverSpec(
             solver_type='DirectSolver',
             options={}
-        )
+        ),
+
+        design_vars=[DesignVarSpec(name='x', lower=0, upper=10),
+                     DesignVarSpec(name='z', lower=0, upper=10)],
+
+        objective=[ObjectiveSpec(name='obj')],
+
+        constraints=[ConstraintSpec(name='con1', upper=0),
+                     ConstraintSpec(name='con2', upper=0)],
     )
 
     return sellar_spec
@@ -229,7 +237,7 @@ def create_sellar_spec_with_connections():
         # Solver specs with linesearch
         nonlinear_solver=NonlinearSolverSpec(
             solver_type='NewtonSolver',
-            options={'maxiter': 10, 'atol': 1e-10},
+            options={'maxiter': 10, 'atol': 1e-10, 'solve_subsystems': True},
             linesearch=LinesearchSolverSpec(
                 solver_type='ArmijoGoldsteinLS',
                 options={'maxiter': 3}
@@ -240,7 +248,15 @@ def create_sellar_spec_with_connections():
             options={'maxiter': 100}
         ),
         input_defaults={'x': {'val': 1.0},
-                        'z': {'val': [0.0, 0.0]}}
+                        'z': {'val': [0.0, 0.0]}},
+
+        design_vars=[DesignVarSpec(name='x', lower=0, upper=10),
+                     DesignVarSpec(name='z', lower=0, upper=10)],
+
+        objective=[ObjectiveSpec(name='obj')],
+
+        constraints=[ConstraintSpec(name='con1', upper=0),
+                     ConstraintSpec(name='con2', upper=0)],
     )
 
     return sellar_spec
@@ -317,14 +333,14 @@ def main():
     for subsys in restored_sellar_conn_spec.subsystems:
         print(f"   - {subsys.name}: {type(subsys.system).__name__}")
 
-
     import openmdao.api as om
 
     p = om.Problem()
     p.model = instantiate_from_spec(restored_sellar_conn_spec)
+    p.driver = om.ScipyOptimizeDriver()
     p.setup()
 
-    p.final_setup()
+    p.run_driver()
 
     
 
@@ -375,6 +391,137 @@ def main():
     # print("  - Used to regenerate the OpenMDAO model")
     # print("  - Validated against the pydantic schema")
     # print("=" * 70)
+
+
+def test_solvers_applied():
+    """Test that solvers are properly instantiated and applied to group."""
+    from openmdao.specs.options_spec import RecordingOptionsSpec
+
+    spec = GroupSpec(
+        subsystems=[],
+        nonlinear_solver=NonlinearSolverSpec(
+            solver_type='NewtonSolver',
+            options={'maxiter': 10, 'atol': 1e-9}
+        ),
+        linear_solver=LinearSolverSpec(
+            solver_type='DirectSolver',
+            options={}
+        )
+    )
+
+    group = instantiate_from_spec(spec)
+
+    # Verify nonlinear solver is set
+    assert group.nonlinear_solver is not None
+    assert group.nonlinear_solver.__class__.__name__ == 'NewtonSolver'
+    assert group.nonlinear_solver.options['maxiter'] == 10
+    assert group.nonlinear_solver.options['atol'] == 1e-9
+
+    # Verify linear solver is set
+    assert group.linear_solver is not None
+    assert group.linear_solver.__class__.__name__ == 'DirectSolver'
+
+
+def test_design_vars_applied():
+    """Test that design variables are added during instantiation without errors."""
+    spec = GroupSpec(
+        subsystems=[],
+        design_vars=[
+            DesignVarSpec(name='x', lower=0, upper=10, ref=5.0),
+            DesignVarSpec(name='z', lower=-5, upper=5)
+        ]
+    )
+
+    # Should not raise any errors when instantiating with design vars
+    group = instantiate_from_spec(spec)
+    assert group is not None
+
+
+def test_constraints_applied():
+    """Test that constraints are added during instantiation without errors."""
+    spec = GroupSpec(
+        subsystems=[],
+        constraints=[
+            ConstraintSpec(name='con1', upper=0),
+            ConstraintSpec(name='con2', lower=0, upper=10),
+            ConstraintSpec(name='con3', equals=5)
+        ]
+    )
+
+    # Should not raise any errors when instantiating with constraints
+    group = instantiate_from_spec(spec)
+    assert group is not None
+
+
+def test_objectives_applied():
+    """Test that objectives are added during instantiation without errors."""
+    spec = GroupSpec(
+        subsystems=[],
+        objective=[
+            ObjectiveSpec(name='obj', ref=1.0)
+        ]
+    )
+
+    # Should not raise any errors when instantiating with objectives
+    group = instantiate_from_spec(spec)
+    assert group is not None
+
+
+def test_options_applied():
+    """Test that system options are set during instantiation."""
+    spec = GroupSpec(
+        subsystems=[],
+        assembled_jac_type='csc',
+        derivs_method='cs'
+    )
+
+    group = instantiate_from_spec(spec)
+
+    # Verify options are set
+    assert group.options['assembled_jac_type'] == 'csc'
+    assert group.options['derivs_method'] == 'cs'
+
+
+def test_nested_linesearch_solver():
+    """Test that linesearch solvers nested in nonlinear solvers are instantiated."""
+    spec = GroupSpec(
+        subsystems=[],
+        nonlinear_solver=NonlinearSolverSpec(
+            solver_type='NewtonSolver',
+            options={'maxiter': 10},
+            linesearch=LinesearchSolverSpec(
+                solver_type='ArmijoGoldsteinLS',
+                options={'maxiter': 3}
+            )
+        )
+    )
+
+    group = instantiate_from_spec(spec)
+
+    # Verify nonlinear solver is set
+    assert group.nonlinear_solver is not None
+    assert group.nonlinear_solver.__class__.__name__ == 'NewtonSolver'
+
+    # Verify linesearch is set on the solver
+    assert hasattr(group.nonlinear_solver, 'linesearch')
+    assert group.nonlinear_solver.linesearch is not None
+    assert group.nonlinear_solver.linesearch.__class__.__name__ == 'ArmijoGoldsteinLS'
+    assert group.nonlinear_solver.linesearch.options['maxiter'] == 3
+
+
+def test_system_properties_with_sellar():
+    """Test system properties on the actual Sellar spec with connections."""
+    sellar_spec = create_sellar_spec_with_connections()
+
+    # Should not raise errors when instantiating with all system properties
+    group = instantiate_from_spec(sellar_spec)
+    assert group is not None
+
+    # Verify solvers are set (these can be checked without setup)
+    assert group.nonlinear_solver is not None
+    assert group.linear_solver is not None
+    assert group.nonlinear_solver.__class__.__name__ == 'NewtonSolver'
+    assert group.linear_solver.__class__.__name__ == 'ScipyKrylov'
 
 
 if __name__ == '__main__':

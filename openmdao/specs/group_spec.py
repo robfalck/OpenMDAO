@@ -3,6 +3,7 @@ from typing import Literal, TYPE_CHECKING
 from enum import Enum
 from pydantic import BaseModel, Field, model_validator, field_validator
 
+from openmdao.specs.system_spec import SystemSpec
 from openmdao.specs.connection_spec import ConnectionSpec
 from openmdao.specs.systems_registry import register_system_spec
 from openmdao.specs.input_defaults_spec import InputDefaultsSpec
@@ -165,32 +166,21 @@ class LinearSolverSpec(BaseModel):
 
 
 @register_system_spec
-class GroupSpec(BaseModel):
+class GroupSpec(SystemSpec):
     """Specification for a group in isolation."""
 
     type: Literal["group"] = "group"
-    
+
     # Child subsystems - use string annotation to avoid circular import
     subsystems: list['SubsystemSpec'] = Field(
         default_factory=list,
         description="Child subsystems with their inclusion specifications"
     )
-    
+
     # Connections within this group
     connections: list[ConnectionSpec] = Field(
         default_factory=list,
         description="Connections between subsystems"
-    )
-    
-    # Solver specifications
-    nonlinear_solver: NonlinearSolverSpec | None = Field(
-        default=None,
-        description="Nonlinear solver for this group"
-    )
-
-    linear_solver: LinearSolverSpec | None = Field(
-        default=None,
-        description="Linear solver for this group"
     )
 
     input_defaults : list[InputDefaultsSpec] | dict[str, dict] = Field(
@@ -202,12 +192,6 @@ class GroupSpec(BaseModel):
         default_factory=list,
         description="Advanced promotions for specific subsystems via Group.promotes(). "
                     "Each PromotesSpec with a subsys_name specifies a Group.promotes() call."
-    )
-
-    # Group behavior
-    assembled_jac_type: Literal["csc", "dense", None] = Field(
-        default=None,
-        description="Type of assembled Jacobian"
     )
 
     @field_validator('input_defaults', mode='before')

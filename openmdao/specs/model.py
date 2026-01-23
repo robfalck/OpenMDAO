@@ -6,7 +6,6 @@ setup() has been called. This is stored for efficiency but in general users shou
 with Model.
 """
 
-from pydantic import BaseModel
 from .group_spec import GroupSpec
 
 
