@@ -6,6 +6,7 @@ from pydantic import BaseModel, Field, model_validator, field_validator
 from openmdao.specs.connection_spec import ConnectionSpec
 from openmdao.specs.systems_registry import register_system_spec
 from openmdao.specs.input_defaults_spec import InputDefaultsSpec
+from openmdao.specs.promotes_spec import PromotesSpec
 
 
 if TYPE_CHECKING:
@@ -196,7 +197,13 @@ class GroupSpec(BaseModel):
         default_factory=list,
         description='Default values for any inputs to be provided by automatic indep var comps.'
     )
-    
+
+    promotes: list[PromotesSpec] = Field(
+        default_factory=list,
+        description="Advanced promotions for specific subsystems via Group.promotes(). "
+                    "Each PromotesSpec with a subsys_name specifies a Group.promotes() call."
+    )
+
     # Group behavior
     assembled_jac_type: Literal["csc", "dense", None] = Field(
         default=None,

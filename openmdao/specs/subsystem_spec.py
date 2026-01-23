@@ -3,6 +3,7 @@ from pydantic import BaseModel, Field, field_validator, field_serializer, model_
 
 from openmdao.specs.component_spec import ComponentSpec
 from openmdao.specs.group_spec import GroupSpec
+from openmdao.specs.promotes_spec import PromotesSpec
 from openmdao.specs.systems_registry import _SYSTEM_SPEC_REGISTRY
 
 
@@ -68,20 +69,19 @@ class SubsystemSpec(BaseModel):
         return system.model_dump()
     
     # Promotion specifications
-    promotes: list[str | tuple[str, str]] | None = Field(
+    promotes: list[PromotesSpec] | None = Field(
         default=None,
-        description="Variables to promote (inputs and outputs). "
-                    "Can be strings or (old_name, new_name) tuples."
+        description="Variables to promote (inputs and outputs)."
     )
-    
-    promotes_inputs: list[str | tuple[str, str]] | None = Field(
+
+    promotes_inputs: list[PromotesSpec] | None = Field(
         default=None,
-        description="Input variables to promote. Can be strings or (old_name, new_name) tuples."
+        description="Input variables to promote."
     )
-    
-    promotes_outputs: list[str | tuple[str, str]] | None = Field(
+
+    promotes_outputs: list[PromotesSpec] | None = Field(
         default=None,
-        description="Output variables to promote. Can be strings or (old_name, new_name) tuples."
+        description="Output variables to promote."
     )
     
     # MPI-related options
@@ -119,6 +119,46 @@ class SubsystemSpec(BaseModel):
             raise ValueError("Subsystem name must contain only alphanumeric characters and "
                              "underscores")
         return v
+
+    @field_validator('promotes', 'promotes_inputs', 'promotes_outputs', mode='before')
+    @classmethod
+    def convert_legacy_promotes(cls, v, info):
+        """Convert legacy str/tuple format to PromotesSpec objects.
+
+        This validator provides backward compatibility for JSON specs that use
+        the old format of simple lists of strings or tuples, converting them
+        to PromotesSpec objects with appropriate io_type.
+        """
+        if v is None:
+            return None
+
+        if not isinstance(v, list):
+            return v
+
+        # Determine io_type from field name
+        field_name = info.field_name
+        if field_name == 'promotes_inputs':
+            io_type = 'input'
+        elif field_name == 'promotes_outputs':
+            io_type = 'output'
+        else:
+            io_type = 'any'
+
+        result = []
+        for item in v:
+            if isinstance(item, PromotesSpec):
+                result.append(item)
+            elif isinstance(item, (str, tuple)):
+                # Convert legacy format to PromotesSpec
+                result.append(PromotesSpec(name=item, io_type=io_type))
+            elif isinstance(item, dict):
+                # Convert from dict (e.g., from JSON)
+                result.append(PromotesSpec.model_validate(item))
+            else:
+                # Try to validate it as PromotesSpec
+                result.append(PromotesSpec.model_validate(item))
+
+        return result
     
     @field_validator('max_procs')
     @classmethod

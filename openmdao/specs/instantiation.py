@@ -90,7 +90,7 @@ def _instantiate_component(spec):
 def _instantiate_group(spec):
     """Instantiate a group from spec."""
     from openmdao.api import Group
-    
+
     # Build init kwargs
     if hasattr(spec, 'to_init_kwargs'):
         init_kwargs = spec.to_init_kwargs()
@@ -100,25 +100,31 @@ def _instantiate_group(spec):
         init_kwargs = options_dict
     else:
         init_kwargs = {}
-    
+
     group = Group(**init_kwargs)
-    
+
     # Add subsystems recursively
     for subsys_spec in spec.subsystems:
         print('adding subsystem')
         print(subsys_spec)
         subsys = instantiate_from_spec(subsys_spec.system)
+
+        # Convert PromotesSpec objects to simple names/tuples for add_subsystem()
+        promotes_list = _extract_promote_names(subsys_spec.promotes)
+        promotes_inputs_list = _extract_promote_names(subsys_spec.promotes_inputs)
+        promotes_outputs_list = _extract_promote_names(subsys_spec.promotes_outputs)
+
         group.add_subsystem(
             subsys_spec.name,
             subsys,
-            promotes_inputs=subsys_spec.promotes_inputs,
-            promotes_outputs=subsys_spec.promotes_outputs,
-            promotes=subsys_spec.promotes,
+            promotes_inputs=promotes_inputs_list,
+            promotes_outputs=promotes_outputs_list,
+            promotes=promotes_list,
             min_procs=subsys_spec.min_procs,
             max_procs=subsys_spec.max_procs,
             proc_weight=subsys_spec.proc_weight
         )
-    
+
     # Add connections
     for conn_spec in spec.connections:
         print('adding connection')
@@ -126,7 +132,7 @@ def _instantiate_group(spec):
         src_indices = None
         if conn_spec.src_indices.value is not None:
             src_indices = conn_spec.src_indices.value
-        
+
         group.connect(conn_spec.src, conn_spec.tgt, src_indices=src_indices)
 
     # Set input defaults
@@ -135,8 +141,132 @@ def _instantiate_group(spec):
         print(indef_spec)
         group.set_input_defaults(name=indef_spec.name, val=indef_spec.val, units=indef_spec.units,
                                  src_shape=indef_spec.src_shape)
-    
+
+    # Add advanced promotions via Group.promotes() method calls
+    # Group by subsys_name to collect all promotes for each subsystem
+    promotes_by_subsys = {}
+    for pspec in spec.promotes:
+        if pspec.subsys_name is not None:
+            if pspec.subsys_name not in promotes_by_subsys:
+                promotes_by_subsys[pspec.subsys_name] = []
+            promotes_by_subsys[pspec.subsys_name].append(pspec)
+
+    for subsys_name, promotes_specs in promotes_by_subsys.items():
+        print('adding promotes call')
+        print(f'subsys_name={subsys_name}, promotes_specs={promotes_specs}')
+        _apply_promotes_call(group, subsys_name, promotes_specs)
+
     return group
+
+
+def _extract_promote_names(promotes_specs):
+    """
+    Convert list of PromotesSpec objects to simple names/tuples for add_subsystem().
+
+    Parameters
+    ----------
+    promotes_specs : list[PromotesSpec] or None
+        List of PromotesSpec objects
+
+    Returns
+    -------
+    list or None
+        List of strings or tuples (old_name, new_name) suitable for add_subsystem()
+    """
+    if not promotes_specs:
+        return None
+
+    result = []
+    for pspec in promotes_specs:
+        result.append(pspec.name)
+    return result if result else None
+
+
+def _apply_promotes_call(group, subsys_name, promotes_specs):
+    """
+    Apply a set of PromotesSpec objects to a group via Group.promotes().
+
+    Groups promotes by io_type and calls Group.promotes() appropriately.
+
+    Parameters
+    ----------
+    group : Group
+        The group to apply promotions to
+    subsys_name : str
+        Name of the subsystem to promote from
+    promotes_specs : list[PromotesSpec]
+        List of PromotesSpec objects to apply
+    """
+    # Group promotes by io_type
+    any_promotes = []
+    input_promotes = []
+    output_promotes = []
+
+    for pspec in promotes_specs:
+        if pspec.io_type == 'any':
+            any_promotes.append(pspec)
+        elif pspec.io_type == 'input':
+            input_promotes.append(pspec)
+        elif pspec.io_type == 'output':
+            output_promotes.append(pspec)
+
+    # Apply promotes calls with appropriate parameters
+    if any_promotes:
+        _do_promotes_call(group, subsys_name, any_promotes, io_type='any')
+
+    if input_promotes:
+        _do_promotes_call(group, subsys_name, input_promotes, io_type='input')
+
+    if output_promotes:
+        _do_promotes_call(group, subsys_name, output_promotes, io_type='output')
+
+
+def _do_promotes_call(group, subsys_name, promotes_specs, io_type):
+    """
+    Make a single Group.promotes() call for a specific io_type.
+
+    Parameters
+    ----------
+    group : Group
+        The group to apply promotions to
+    subsys_name : str
+        Name of the subsystem to promote from
+    promotes_specs : list[PromotesSpec]
+        List of PromotesSpec objects with the same io_type
+    io_type : {'any', 'input', 'output'}
+        The type of promotion
+    """
+    # Extract simple names/tuples (the variable names and renames)
+    names = [pspec.name for pspec in promotes_specs]
+
+    # Build kwargs for group.promotes() call
+    promotes_kwargs = {}
+
+    if io_type == 'any':
+        promotes_kwargs['any'] = names
+    elif io_type == 'input':
+        promotes_kwargs['inputs'] = names
+    elif io_type == 'output':
+        promotes_kwargs['outputs'] = names
+
+    # Handle src_indices and src_shape
+    # Check if all specs have the same src_indices and src_shape (simple case)
+    # Otherwise, we need to call promotes() multiple times or handle per-variable
+    all_same_src_indices = all(pspec.src_indices == promotes_specs[0].src_indices
+                                for pspec in promotes_specs)
+    all_same_src_shape = all(pspec.src_shape == promotes_specs[0].src_shape
+                              for pspec in promotes_specs)
+
+    if all_same_src_indices and promotes_specs[0].src_indices is not None:
+        src_indices_value = promotes_specs[0].src_indices.value
+        if src_indices_value is not None:
+            promotes_kwargs['src_indices'] = src_indices_value
+
+    if all_same_src_shape and promotes_specs[0].src_shape is not None:
+        promotes_kwargs['src_shape'] = promotes_specs[0].src_shape
+
+    # Make the promotes call
+    group.promotes(subsys_name, **promotes_kwargs)
 
 
 def _load_spec_from_file(filepath):
@@ -370,9 +500,9 @@ def _group_to_spec(group) -> 'GroupSpec':
     )
 
 
-def _extract_promotions(group, subsys_name, io_type) -> list[str]:
+def _extract_promotions(group, subsys_name, io_type) -> list:
     """
-    Extract promotion list for a subsystem.
+    Extract promotion list for a subsystem as PromotesSpec objects.
 
     Parameters
     ----------
@@ -385,24 +515,41 @@ def _extract_promotions(group, subsys_name, io_type) -> list[str]:
 
     Returns
     -------
-    list[str]
-        List of promoted variable names
+    list[PromotesSpec]
+        List of PromotesSpec objects representing promotions
     """
-    promoted_names = []
+    from openmdao.specs.promotes_spec import PromotesSpec
+
+    promotes_specs = []
 
     if not hasattr(group, '_var_allprocs_abs2prom'):
-        return promoted_names
+        return promotes_specs
 
     abs2prom = group._var_allprocs_abs2prom[io_type]
 
     for abs_name, prom_name in abs2prom.items():
         # Check if this absolute name belongs to the subsystem
         # Format: "groupname.subsysname.varname"
-        if abs_name.startswith(f"{group.name}.{subsys_name}."):
-            # Extract the original name from prom_name
-            promoted_names.append(prom_name)
+        prefix = f"{group.name}.{subsys_name}." if group.name else f"{subsys_name}."
 
-    return promoted_names
+        if abs_name.startswith(prefix):
+            # Extract the original variable name from the absolute name
+            # Format is "groupname.subsysname.varname" -> extract "varname"
+            var_name = abs_name[len(prefix):]
+
+            # Check if the variable was renamed during promotion
+            if prom_name != var_name:
+                # Variable was renamed
+                name = (var_name, prom_name)
+            else:
+                # Simple promotion without renaming
+                name = var_name
+
+            # Create PromotesSpec with appropriate io_type
+            pspec = PromotesSpec(name=name, io_type=io_type)
+            promotes_specs.append(pspec)
+
+    return promotes_specs
 
 
 def _extract_connections(group) -> list:
