@@ -9,4 +9,4 @@ from .response_spec import ConstraintSpec, ObjectiveSpec
 from .variable_spec import VariableSpec
 from .systems_registry import register_system_spec
 from .input_defaults_spec import InputDefaultsSpec
-from .instantiation import instantiate_from_spec
+from .instantiation import instantiate_from_spec, to_spec

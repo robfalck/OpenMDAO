@@ -161,23 +161,6 @@ def collect_errors(method):
     return wrapper
 
 
-class ValidationError(ValueError):
-    """
-    Custom error class for when validation checking fails.
-
-    Parameters
-    ----------
-    message : str
-        Message displayed when this error is raised.
-    """
-
-    def __init__(self, message="Errors / Warnings during validation"):
-        """
-        Initialize all attributes.
-        """
-        super().__init__(message)
-
-
 class System(object, metaclass=SystemMetaclass):
     """
     Base class for all systems in OpenMDAO.
@@ -7153,7 +7136,7 @@ class System(object, metaclass=SystemMetaclass):
                 '\n-----------------------------------------------------------------'
             )
             if validation_errors:
-                raise ValidationError(msg_text)
+                raise ValueError(msg_text)
             else:
                 print(msg_text)
         else:

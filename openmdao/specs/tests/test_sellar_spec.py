@@ -238,7 +238,9 @@ def create_sellar_spec_with_connections():
         linear_solver=LinearSolverSpec(
             solver_type='ScipyKrylov',
             options={'maxiter': 100}
-        )
+        ),
+        input_defaults={'x': {'val': 1.0},
+                        'z': {'val': [0.0, 0.0]}}
     )
 
     return sellar_spec
@@ -322,7 +324,7 @@ def main():
     p.model = instantiate_from_spec(restored_sellar_conn_spec)
     p.setup()
 
-    p.run_driver()
+    p.final_setup()
 
     
 

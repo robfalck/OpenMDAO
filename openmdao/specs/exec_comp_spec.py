@@ -146,6 +146,33 @@ class ExecCompSpec(ComponentSpec[ExecCompOptionsSpec]):
         # Options become keyword arguments
         options_dict = self.options.model_dump(exclude_defaults=True) if self.options else {}
 
+        # Fields that ExecComp recognizes for variables (from ExecComp._allowed_meta)
+        allowed_fields = {'value', 'val', 'shape', 'units', 'res_units', 'desc',
+                         'ref', 'ref0', 'res_ref', 'lower', 'upper', 'src_indices',
+                         'flat_src_indices', 'tags', 'shape_by_conn', 'copy_shape',
+                         'compute_shape', 'units_by_conn', 'copy_units', 'compute_units',
+                         'constant'}
+
+        # Add input and output metadata as keyword arguments
+        # ExecComp accepts variable metadata like: ExecComp(exprs, x={'shape': (2,)}, ...)
+        for var in self.inputs:
+            var_dict = var.model_dump(exclude_defaults=True)  # exclude to avoid val conflicts
+            var_dict.pop('name', None)  # Remove name key since it's the kwarg key
+            var_dict.pop('val', None)  # Don't pass val for inputs - it comes from connected source
+            # Keep only fields that ExecComp recognizes
+            var_dict = {k: v for k, v in var_dict.items() if k in allowed_fields}
+            if var_dict:  # Only add if there's metadata
+                options_dict[var.name] = var_dict
+
+        for var in self.outputs:
+            var_dict = var.model_dump(exclude_defaults=True)  # Exclude defaults
+            var_dict.pop('name', None)  # Remove name key since it's the kwarg key
+            # For outputs, keep val if specified (it provides initial value)
+            # Keep only fields that ExecComp recognizes
+            var_dict = {k: v for k, v in var_dict.items() if k in allowed_fields}
+            if var_dict:  # Only add if there's metadata
+                options_dict[var.name] = var_dict
+
         return ([exprs_arg], options_dict)
 
 # Example usage
@@ -204,3 +231,16 @@ if __name__ == "__main__":
     spec_dict = obj_spec.model_dump()
     restored = ExecCompSpec.model_validate(spec_dict)
     print("\n\nRound-trip successful:", restored.exprs == obj_spec.exprs)
+
+
+# Register ExecComp for reverse conversion (component -> spec)
+def _register_exec_comp():
+    """Register ExecComp for spec conversion."""
+    try:
+        from openmdao.api import ExecComp
+        from openmdao.specs.systems_registry import register_component_to_spec
+        register_component_to_spec(ExecComp, ExecCompSpec)
+    except ImportError:
+        pass
+
+_register_exec_comp()

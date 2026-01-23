@@ -1,9 +1,11 @@
+import collections
 from typing import Literal, TYPE_CHECKING
 from enum import Enum
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, model_validator, field_validator
 
 from openmdao.specs.connection_spec import ConnectionSpec
 from openmdao.specs.systems_registry import register_system_spec
+from openmdao.specs.input_defaults_spec import InputDefaultsSpec
 
 
 if TYPE_CHECKING:
@@ -103,7 +105,8 @@ class NonlinearSolverSpec(BaseModel):
         )
     """
 
-    solver_type: NonlinearSolverType | Literal["NewtonSolver", "BroydenSolver", "NonlinearBlockGS", "NonlinearBlockJac", "NonlinearRunOnce"] = Field(
+    solver_type: NonlinearSolverType | Literal["NewtonSolver", "BroydenSolver", "NonlinearBlockGS",
+                                               "NonlinearBlockJac", "NonlinearRunOnce"] = Field(
         ...,
         description="Type of nonlinear solver"
     )
@@ -188,13 +191,49 @@ class GroupSpec(BaseModel):
         default=None,
         description="Linear solver for this group"
     )
+
+    input_defaults : list[InputDefaultsSpec] | dict[str, dict] = Field(
+        default_factory=list,
+        description='Default values for any inputs to be provided by automatic indep var comps.'
+    )
     
     # Group behavior
     assembled_jac_type: Literal["csc", "dense", None] = Field(
         default=None,
         description="Type of assembled Jacobian"
     )
-    
+
+    @field_validator('input_defaults', mode='before')
+    @classmethod
+    def pre_validate_input_defaults(cls, v):
+        """
+        Validate input defaults.
+
+        If provided as a dictionary, convert to a list.
+        """
+        if isinstance(v, dict):
+            return [InputDefaultsSpec(name=name, **meta) for name, meta in v.items()]
+        return v
+
+    @field_validator('input_defaults', mode='after')
+    @classmethod
+    def post_validate_input_defaults(cls, v):
+        """
+        Validate input defaults after creation.
+
+        Ensure elements in input_defaults have unique names.
+        """
+        names = [item.name for item in v]
+        name_counts = collections.Counter(names)
+        dups = [name for name, count in name_counts.items() if count > 1]
+
+        if dups:
+            raise ValueError(f'The following names have multiple input defaults: {dups}')
+
+        return v
+
+
+
     @model_validator(mode='after')
     def validate_connections(self):
         """Validate that connections reference valid subsystems."""
