@@ -83,7 +83,7 @@ class ExecCompSpec(ComponentSpec[ExecCompOptionsSpec]):
         description="Expression(s) to be evaluated. Can be a single string or list of strings."
     )
 
-    options: ExecCompOptionsSpec = Field(
+    options: ExecCompOptionsSpec | None = Field(
         default_factory=ExecCompOptionsSpec,
         description='ExecComp options.'
     )

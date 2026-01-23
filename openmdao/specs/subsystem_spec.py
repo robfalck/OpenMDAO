@@ -34,6 +34,46 @@ class SubsystemSpec(BaseModel):
         description="The system specification (component or group)"
     )
 
+    # Promotion specifications
+    promotes: list[PromotesSpec] | list[str | tuple[str, str]] | None = Field(
+        default=None,
+        description="Variables to promote (inputs and outputs)."
+    )
+
+    promotes_inputs: list[PromotesSpec] | list[str | tuple[str, str]] | None = Field(
+        default=None,
+        description="Input variables to promote."
+    )
+
+    promotes_outputs: list[PromotesSpec] | list[str | tuple[str, str]] | None = Field(
+        default=None,
+        description="Output variables to promote."
+    )
+    
+    # MPI-related options
+    min_procs: int = Field(
+        default=1,
+        ge=1,
+        description="Minimum number of MPI processes usable by the subsystem."
+    )
+    
+    max_procs: int | None = Field(
+        default=None,
+        description="Maximum number of MPI processes usable by the subsystem."
+    )
+    
+    proc_weight: float = Field(
+        default=1.0,
+        gt=0.0,
+        description="Weight given to the subsystem when allocating available MPI processes."
+    )
+    
+    proc_group: str | None = Field(
+        default=None,
+        description="Name of a processor group for co-allocation on same MPI process(es)."
+    )
+
+
     @field_validator('system', mode='before')
     @classmethod
     def deserialize_system(cls, v):
@@ -67,45 +107,6 @@ class SubsystemSpec(BaseModel):
         """
         # Use the actual class's model_dump to preserve subclass fields
         return system.model_dump()
-    
-    # Promotion specifications
-    promotes: list[PromotesSpec] | None = Field(
-        default=None,
-        description="Variables to promote (inputs and outputs)."
-    )
-
-    promotes_inputs: list[PromotesSpec] | None = Field(
-        default=None,
-        description="Input variables to promote."
-    )
-
-    promotes_outputs: list[PromotesSpec] | None = Field(
-        default=None,
-        description="Output variables to promote."
-    )
-    
-    # MPI-related options
-    min_procs: int = Field(
-        default=1,
-        ge=1,
-        description="Minimum number of MPI processes usable by the subsystem."
-    )
-    
-    max_procs: int | None = Field(
-        default=None,
-        description="Maximum number of MPI processes usable by the subsystem."
-    )
-    
-    proc_weight: float = Field(
-        default=1.0,
-        gt=0.0,
-        description="Weight given to the subsystem when allocating available MPI processes."
-    )
-    
-    proc_group: str | None = Field(
-        default=None,
-        description="Name of a processor group for co-allocation on same MPI process(es)."
-    )
     
     @field_validator('name')
     @classmethod
