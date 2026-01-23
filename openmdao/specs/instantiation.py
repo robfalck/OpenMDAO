@@ -90,7 +90,6 @@ def _instantiate_component(spec):
 def _instantiate_group(spec):
     """Instantiate a group from spec."""
     from openmdao.api import Group
-
     # Build init kwargs
     if hasattr(spec, 'to_init_kwargs'):
         init_kwargs = spec.to_init_kwargs()
@@ -105,8 +104,6 @@ def _instantiate_group(spec):
 
     # Add subsystems recursively
     for subsys_spec in spec.subsystems:
-        print('adding subsystem')
-        print(subsys_spec)
         subsys = instantiate_from_spec(subsys_spec.system)
 
         # Convert PromotesSpec objects to simple names/tuples for add_subsystem()
@@ -127,8 +124,6 @@ def _instantiate_group(spec):
 
     # Add connections
     for conn_spec in spec.connections:
-        print('adding connection')
-        print(conn_spec)
         src_indices = None
         if conn_spec.src_indices.value is not None:
             src_indices = conn_spec.src_indices.value
@@ -137,8 +132,6 @@ def _instantiate_group(spec):
 
     # Set input defaults
     for indef_spec in spec.input_defaults:
-        print('setting input defaults')
-        print(indef_spec)
         group.set_input_defaults(name=indef_spec.name, val=indef_spec.val, units=indef_spec.units,
                                  src_shape=indef_spec.src_shape)
 
@@ -152,8 +145,6 @@ def _instantiate_group(spec):
             promotes_by_subsys[pspec.subsys_name].append(pspec)
 
     for subsys_name, promotes_specs in promotes_by_subsys.items():
-        print('adding promotes call')
-        print(f'subsys_name={subsys_name}, promotes_specs={promotes_specs}')
         _apply_promotes_call(group, subsys_name, promotes_specs)
 
     return group
