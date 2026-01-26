@@ -96,8 +96,7 @@ class LinearSolverBaseSpec(BaseModel):
     without defining any fields.
     """
 
-    solver_type: str = Field(...,
-        description='An identifier for the linear solver class.')
+    pass
 
 
 @register_solver_spec
@@ -111,10 +110,7 @@ class DirectSolverSpec(LinearSolverBaseSpec):
     Examples
     --------
     Basic direct solver:
-        DirectSolverSpec(
-            solver_type='DirectSolver',
-            options=DirectSolverOptionsSpec()
-        )
+        DirectSolverSpec()
     """
 
     solver_type: Literal['DirectSolver'] = 'DirectSolver'
@@ -137,13 +133,11 @@ class LinearBlockGSSpec(LinearSolverBaseSpec):
     --------
     Basic Block GS solver:
         LinearBlockGSSpec(
-            solver_type='LinearBlockGS',
             options=LinearBlockGSOptionsSpec(maxiter=20)
         )
 
     Block GS with Aitken:
         LinearBlockGSSpec(
-            solver_type='LinearBlockGS',
             options=LinearBlockGSOptionsSpec(
                 use_aitken=True,
                 maxiter=30
@@ -171,7 +165,6 @@ class LinearBlockJacSpec(LinearSolverBaseSpec):
     --------
     Basic Block Jacobi solver:
         LinearBlockJacSpec(
-            solver_type='LinearBlockJac',
             options=LinearBlockJacOptionsSpec(maxiter=15)
         )
     """
@@ -196,7 +189,6 @@ class LinearRunOnceSpec(LinearSolverBaseSpec):
     --------
     Run-once solver:
         LinearRunOnceSpec(
-            solver_type='LinearRunOnce',
             options=LinearRunOnceOptionsSpec()
         )
     """
@@ -254,7 +246,6 @@ class PETScKrylovSpec(LinearSolverBaseSpec):
     --------
     Basic PETSc Krylov solver:
         PETScKrylovSpec(
-            solver_type='PETScKrylov',
             options=PETScKrylovOptionsSpec(
                 maxiter=100
             )
@@ -262,7 +253,6 @@ class PETScKrylovSpec(LinearSolverBaseSpec):
 
     With ILU preconditioner:
         PETScKrylovSpec(
-            solver_type='PETScKrylov',
             options=PETScKrylovOptionsSpec(
                 ksp_type='cg',
                 pc_type='ilu',
