@@ -8,13 +8,15 @@ derivatives methods, and recording options.
 from __future__ import annotations
 
 from typing import Literal
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator, field_serializer
 
 from openmdao.specs.design_var_spec import DesignVarSpec
 from openmdao.specs.response_spec import ConstraintSpec, ObjectiveSpec
 from openmdao.specs.options_spec import RecordingOptionsSpec
 # Imports at the end to avoid circular imports and ensure proper resolution
-from openmdao.specs.solver_spec import NonlinearSolverSpec, LinearSolverSpec  # noqa: E402, F401
+from openmdao.specs.nonlinear_solver_spec import NonlinearSolverBaseSpec
+from openmdao.specs.linear_solver_spec import LinearSolverBaseSpec
+from openmdao.specs.solver_registry import _SOLVER_SPEC_REGISTRY
 
 
 
@@ -33,13 +35,13 @@ class SystemSpec(BaseModel):
     Field descriptions provide details for each attribute.
     """
 
-    nonlinear_solver: NonlinearSolverSpec | None = Field(
+    nonlinear_solver: NonlinearSolverBaseSpec | None = Field(
         default=None,
         description="Nonlinear solver for this system. "
                     "Used for implicit components and groups with coupling."
     )
 
-    linear_solver: LinearSolverSpec | None = Field(
+    linear_solver: LinearSolverBaseSpec | None = Field(
         default=None,
         description="Linear solver for this system. "
                     "Used for computing derivatives and linear solutions."
@@ -76,6 +78,50 @@ class SystemSpec(BaseModel):
     objective: list[ObjectiveSpec] = Field(default_factory=list,
                                            description="Optimization objective "
                                            "for this system")
+
+    @field_validator('nonlinear_solver', mode='before')
+    @classmethod
+    def route_nonlinear_solver_to_concrete_spec(cls, v):
+        """Route nonlinear solver dicts to their concrete spec types via registry."""
+        if isinstance(v, dict):
+            solver_type = v.get('solver_type')
+            if solver_type is not None:
+                spec_class = _SOLVER_SPEC_REGISTRY.get(solver_type)
+                if spec_class is not None:
+                    return spec_class.model_validate(v)
+        return v
+
+    @field_validator('linear_solver', mode='before')
+    @classmethod
+    def route_linear_solver_to_concrete_spec(cls, v):
+        """Route linear solver dicts to their concrete spec types via registry."""
+        if isinstance(v, dict):
+            solver_type = v.get('solver_type')
+            if solver_type is not None:
+                spec_class = _SOLVER_SPEC_REGISTRY.get(solver_type)
+                if spec_class is not None:
+                    return spec_class.model_validate(v)
+        return v
+
+    @field_serializer('nonlinear_solver')
+    def serialize_nonlinear_solver(self, v, _info):
+        """Serialize nonlinear solver spec properly."""
+        if v is None:
+            return None
+        # Use the spec's model_dump to ensure all fields are serialized
+        if hasattr(v, 'model_dump'):
+            return v.model_dump()
+        return v
+
+    @field_serializer('linear_solver')
+    def serialize_linear_solver(self, v, _info):
+        """Serialize linear solver spec properly."""
+        if v is None:
+            return None
+        # Use the spec's model_dump to ensure all fields are serialized
+        if hasattr(v, 'model_dump'):
+            return v.model_dump()
+        return v
 
 # Rebuild SystemSpec to resolve all forward references
 SystemSpec.model_rebuild()

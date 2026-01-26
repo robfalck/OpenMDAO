@@ -30,23 +30,23 @@ _SOLVER_REGISTRY = {
 def register_solver_spec(spec_class):
     """
     Register a solver spec type.
-    
-    Extracts the type name from the class's 'type' field default value.
-    
+
+    Extracts the type name from the class's 'solver_type' field default value.
+
     Examples
     --------
-    @register_system_spec
-    class MyCustomSpec(ComponentSpec):
-        type: str = "mySolver"
+    @register_solver_spec
+    class MyCustomSpec(NonlinearSolverSpec):
+        solver_type: Literal['NewtonSolver'] = 'NewtonSolver'
     """
-    # Get the type name from the type field's default
-    type_field = spec_class.model_fields.get('type')
+    # Get the type name from the solver_type field's default
+    type_field = spec_class.model_fields.get('solver_type')
     if type_field and hasattr(type_field, 'default'):
         type_value = type_field.default
     else:
         raise ValueError(
-            f"{spec_class.__name__} must have a 'type' field with a default value"
+            f"{spec_class.__name__} must have a 'solver_type' field with a default value"
         )
-    
+
     _SOLVER_SPEC_REGISTRY[type_value] = spec_class
     return spec_class

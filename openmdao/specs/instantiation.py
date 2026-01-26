@@ -11,22 +11,34 @@ from openmdao.specs.promotes_spec import PromotesSpec
 from openmdao.specs.solver_registry import _SOLVER_SPEC_REGISTRY, _SOLVER_REGISTRY
 
 
-
-
 def _instantiate_solver(solver_spec):
     """
     Instantiate a solver from its spec.
 
     Parameters
     ----------
-    solver_spec : NonlinearSolverSpec or LinearSolverSpec or LinesearchSolverSpec
-        Solver specification
+    solver_spec : NonlinearSolverSpec or LinearSolverSpec or LinesearchSolverSpec or dict
+        Solver specification or dict to be converted to spec
 
     Returns
     -------
     Solver instance
     """
     import importlib
+
+    # Convert dict to spec if needed - use registry to find correct spec class
+    if isinstance(solver_spec, dict):
+        solver_type = solver_spec.get('solver_type')
+        if solver_type is None:
+            raise ValueError("Solver spec dict must have a 'solver_type' field")
+
+        # Look up specific spec class from registry
+        spec_class = _SOLVER_SPEC_REGISTRY.get(solver_type)
+        if spec_class is None:
+            raise ValueError(f"Unknown solver type: {solver_type}")
+
+        # Validate using the specific spec class
+        solver_spec = spec_class.model_validate(solver_spec)
 
     solver_path = _SOLVER_REGISTRY.get(solver_spec.solver_type)
     if solver_path is None:
@@ -39,9 +51,18 @@ def _instantiate_solver(solver_spec):
     # Instantiate solver
     solver = solver_class()
 
-    # Set options
-    for key, value in solver_spec.options.items():
-        solver.options[key] = value
+    # Set options - handle both dict and options spec objects
+    if hasattr(solver_spec, 'options'):
+        options = solver_spec.options
+        if isinstance(options, dict):
+            # Direct dict assignment
+            for key, value in options.items():
+                solver.options[key] = value
+        else:
+            # Options spec object - extract via model_dump
+            options_dict = options.model_dump(exclude_defaults=False)
+            for key, value in options_dict.items():
+                solver.options[key] = value
 
     # Handle nested linesearch (for nonlinear solvers)
     if hasattr(solver_spec, 'linesearch') and solver_spec.linesearch is not None:

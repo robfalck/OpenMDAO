@@ -8,7 +8,8 @@ The spec can be serialized to JSON/YAML and used to reconstruct the problem late
 """
 import json
 from openmdao.specs import GroupSpec, SubsystemSpec, VariableSpec, ExecCompSpec, OMExplicitComponentSpec, InputDefaultsSpec, \
-    instantiate_from_spec, DesignVarSpec, ConstraintSpec, ObjectiveSpec, NonlinearSolverSpec, LinearSolverSpec, LinesearchSolverSpec
+    instantiate_from_spec, DesignVarSpec, ConstraintSpec, ObjectiveSpec, LinesearchSolverSpec, NewtonSolverSpec, DirectSolverSpec, \
+    ScipyKrylovSpec, NewtonSolverOptionsSpec
 
 
 def create_sellar_spec():
@@ -111,14 +112,11 @@ def create_sellar_spec():
             # No explicit connections needed
         ],
         # Solver specs - Sellar is a coupled problem that requires a nonlinear solver
-        nonlinear_solver=NonlinearSolverSpec(
+        nonlinear_solver=NewtonSolverSpec(
             solver_type='NewtonSolver',
-            options={'maxiter': 10, 'atol': 1e-10, 'rtol': 1e-10}
+            options={'maxiter': 10, 'atol': 1e-10, 'rtol': 1e-10, 'solve_subsystems': True}
         ),
-        linear_solver=LinearSolverSpec(
-            solver_type='DirectSolver',
-            options={}
-        ),
+        linear_solver=DirectSolverSpec(),
 
         design_vars=[DesignVarSpec(name='x', lower=0, upper=10),
                      DesignVarSpec(name='z', lower=0, upper=10)],
@@ -232,16 +230,18 @@ def create_sellar_spec_with_connections():
             ConnectionSpec(src='d2.y2', tgt='responses.y2'),
         ],
         # Solver specs with linesearch
-        nonlinear_solver=NonlinearSolverSpec(
-            solver_type='NewtonSolver',
-            options={'maxiter': 10, 'atol': 1e-10, 'solve_subsystems': True},
+        nonlinear_solver=NewtonSolverSpec(
+            options=NewtonSolverOptionsSpec(
+                solve_subsystems=True,
+                maxiter=10,
+                atol=1e-10
+            ),
             linesearch=LinesearchSolverSpec(
                 solver_type='ArmijoGoldsteinLS',
-                options={'maxiter': 3}
+                options={}
             )
         ),
-        linear_solver=LinearSolverSpec(
-            solver_type='ScipyKrylov',
+        linear_solver=ScipyKrylovSpec(
             options={'maxiter': 100}
         ),
         input_defaults={'x': {'val': 1.0},
@@ -519,6 +519,130 @@ def test_system_properties_with_sellar():
     assert group.linear_solver is not None
     assert group.nonlinear_solver.__class__.__name__ == 'NewtonSolver'
     assert group.linear_solver.__class__.__name__ == 'ScipyKrylov'
+
+
+def test_newton_solver_spec():
+    """Test NewtonSolverSpec with typed options."""
+    from openmdao.specs.nonlinear_solver_spec import NewtonSolverSpec, NewtonSolverOptionsSpec
+
+    # Create spec with typed options
+    spec = GroupSpec(
+        subsystems=[],
+        nonlinear_solver=NewtonSolverSpec(
+            solver_type='NewtonSolver',
+            options=NewtonSolverOptionsSpec(
+                solve_subsystems=True,
+                maxiter=15,
+                atol=1e-8
+            )
+        )
+    )
+
+    group = instantiate_from_spec(spec)
+
+    # Verify solver is set
+    assert group.nonlinear_solver is not None
+    assert group.nonlinear_solver.__class__.__name__ == 'NewtonSolver'
+    assert group.nonlinear_solver.options['solve_subsystems'] == True
+    assert group.nonlinear_solver.options['maxiter'] == 15
+    assert group.nonlinear_solver.options['atol'] == 1e-8
+    print('✓ NewtonSolverSpec test passed')
+
+
+def test_nonlinear_block_gs_spec():
+    """Test NonlinearBlockGSSpec with typed options."""
+    from openmdao.specs.nonlinear_solver_spec import NonlinearBlockGSSpec, NonlinearBlockGSOptionsSpec
+
+    # Create spec with typed options including Aitken
+    spec = GroupSpec(
+        subsystems=[],
+        nonlinear_solver=NonlinearBlockGSSpec(
+            solver_type='NonlinearBlockGS',
+            options=NonlinearBlockGSOptionsSpec(
+                use_aitken=True,
+                aitken_initial_factor=1.0,
+                maxiter=25
+            )
+        )
+    )
+
+    group = instantiate_from_spec(spec)
+
+    # Verify solver is set
+    assert group.nonlinear_solver is not None
+    assert group.nonlinear_solver.__class__.__name__ == 'NonlinearBlockGS'
+    assert group.nonlinear_solver.options['use_aitken'] == True
+    assert group.nonlinear_solver.options['aitken_initial_factor'] == 1.0
+    assert group.nonlinear_solver.options['maxiter'] == 25
+    print('✓ NonlinearBlockGSSpec test passed')
+
+
+def test_nonlinear_block_jac_spec():
+    """Test NonlinearBlockJacSpec with typed options."""
+    from openmdao.specs.nonlinear_solver_spec import NonlinearBlockJacSpec, NonlinearBlockJacOptionsSpec
+
+    # Create spec with typed options (only base options)
+    spec = GroupSpec(
+        subsystems=[],
+        nonlinear_solver=NonlinearBlockJacSpec(
+            solver_type='NonlinearBlockJac',
+            options=NonlinearBlockJacOptionsSpec(
+                maxiter=20,
+                rtol=1e-9
+            )
+        )
+    )
+
+    group = instantiate_from_spec(spec)
+
+    # Verify solver is set
+    assert group.nonlinear_solver is not None
+    assert group.nonlinear_solver.__class__.__name__ == 'NonlinearBlockJac'
+    assert group.nonlinear_solver.options['maxiter'] == 20
+    assert group.nonlinear_solver.options['rtol'] == 1e-9
+    print('✓ NonlinearBlockJacSpec test passed')
+
+
+def test_solver_spec_serialization():
+    """Test that solver specs can be serialized to/from JSON."""
+    from openmdao.specs.nonlinear_solver_spec import NewtonSolverSpec, NewtonSolverOptionsSpec
+    import json
+
+    # Create spec
+    original_spec = GroupSpec(
+        subsystems=[],
+        nonlinear_solver=NewtonSolverSpec(
+            solver_type='NewtonSolver',
+            options=NewtonSolverOptionsSpec(
+                solve_subsystems=True,
+                maxiter=10
+            )
+        )
+    )
+
+    # Serialize to dict/JSON
+    spec_dict = original_spec.model_dump()
+    spec_json = json.dumps(spec_dict)
+
+    # Deserialize
+    restored_dict = json.loads(spec_json)
+    restored_spec = GroupSpec.model_validate(restored_dict)
+
+    # Verify
+    assert restored_spec.nonlinear_solver.solver_type == 'NewtonSolver'
+    # After deserialization, options might be a dict, so handle both cases
+    options = restored_spec.nonlinear_solver.options
+    if isinstance(options, dict):
+        assert options['solve_subsystems'] == True
+        assert options['maxiter'] == 10
+    else:
+        assert options.solve_subsystems == True
+        assert options.maxiter == 10
+
+    # Instantiate and verify it works
+    group = instantiate_from_spec(restored_spec)
+    assert group.nonlinear_solver.__class__.__name__ == 'NewtonSolver'
+    print('✓ Solver spec serialization test passed')
 
 
 if __name__ == '__main__':
