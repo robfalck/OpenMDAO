@@ -8,8 +8,7 @@ The spec can be serialized to JSON/YAML and used to reconstruct the problem late
 """
 import json
 from openmdao.specs import GroupSpec, SubsystemSpec, VariableSpec, ExecCompSpec, OMExplicitComponentSpec, InputDefaultsSpec, \
-    instantiate_from_spec, DesignVarSpec, ConstraintSpec, ObjectiveSpec
-from openmdao.specs.group_spec import NonlinearSolverSpec, LinearSolverSpec, LinesearchSolverSpec
+    instantiate_from_spec, DesignVarSpec, ConstraintSpec, ObjectiveSpec, NonlinearSolverSpec, LinearSolverSpec, LinesearchSolverSpec
 
 
 def create_sellar_spec():
@@ -229,10 +228,8 @@ def create_sellar_spec_with_connections():
             # Connect discipline outputs to each other and to constraints/objective
             ConnectionSpec(src='d1.y1', tgt='d2.y1'),
             ConnectionSpec(src='d1.y1', tgt='responses.y1'),
-            # ConnectionSpec(src='d1.y1', tgt='con_cmp1.y1'),
             ConnectionSpec(src='d2.y2', tgt='d1.y2'),
             ConnectionSpec(src='d2.y2', tgt='responses.y2'),
-            # ConnectionSpec(src='d2.y2', tgt='con_cmp2.y2'),
         ],
         # Solver specs with linesearch
         nonlinear_solver=NonlinearSolverSpec(

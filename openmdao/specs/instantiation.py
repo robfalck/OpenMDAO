@@ -1,33 +1,16 @@
-from typing import cast, TYPE_CHECKING
+from typing import cast
+
 from openmdao.specs.system_spec import SystemSpec
-from openmdao.specs.component_spec import ComponentSpec
 from openmdao.specs.group_spec import GroupSpec
+from openmdao.specs.component_spec import ComponentSpec
+from openmdao.core.component import Component
+from openmdao.core.group import Group
+from openmdao.core.parallel_group import ParallelGroup
+from openmdao.specs.exec_comp_spec import ExecCompSpec
+from openmdao.specs.promotes_spec import PromotesSpec
+from openmdao.specs.solver_registry import _SOLVER_SPEC_REGISTRY, _SOLVER_REGISTRY
 
-if TYPE_CHECKING:
-    from openmdao.specs.exec_comp_spec import ExecCompSpec
 
-
-# Solver registry mapping solver_type strings to module paths
-_SOLVER_REGISTRY = {
-    # Linear solvers
-    'DirectSolver': 'openmdao.solvers.linear.direct.DirectSolver',
-    'LinearBlockGS': 'openmdao.solvers.linear.linear_block_gs.LinearBlockGS',
-    'LinearBlockJac': 'openmdao.solvers.linear.linear_block_jac.LinearBlockJac',
-    'LinearRunOnce': 'openmdao.solvers.linear.linear_runonce.LinearRunOnce',
-    'ScipyKrylov': 'openmdao.solvers.linear.scipy_iter_solver.ScipyKrylov',
-    'PETScKrylov': 'openmdao.solvers.linear.petsc_ksp.PETScKrylov',
-
-    # Nonlinear solvers
-    'NewtonSolver': 'openmdao.solvers.nonlinear.newton.NewtonSolver',
-    'BroydenSolver': 'openmdao.solvers.nonlinear.broyden.BroydenSolver',
-    'NonlinearBlockGS': 'openmdao.solvers.nonlinear.nonlinear_block_gs.NonlinearBlockGS',
-    'NonlinearBlockJac': 'openmdao.solvers.nonlinear.nonlinear_block_jac.NonlinearBlockJac',
-    'NonlinearRunOnce': 'openmdao.solvers.nonlinear.nonlinear_runonce.NonlinearRunOnce',
-
-    # Linesearch solvers
-    'ArmijoGoldsteinLS': 'openmdao.solvers.linesearch.backtracking.ArmijoGoldsteinLS',
-    'BoundsEnforceLS': 'openmdao.solvers.linesearch.backtracking.BoundsEnforceLS',
-}
 
 
 def _instantiate_solver(solver_spec):
@@ -163,7 +146,7 @@ def _apply_system_spec_properties(system, spec):
         system.recording_options['options_excludes'] = spec.recording_options.options_excludes
 
 
-def instantiate_from_spec(spec : SystemSpec | dict | str):
+def instantiate_from_spec(spec : SystemSpec | dict | str) -> Group | Component:
     """
     Instantiate an OpenMDAO system from a specification.
     
@@ -178,6 +161,7 @@ def instantiate_from_spec(spec : SystemSpec | dict | str):
         Instantiated OpenMDAO component or group
     """
     from pathlib import Path
+    from openmdao.specs.group_spec import GroupSpec
     from openmdao.specs.systems_registry import _SYSTEM_SPEC_REGISTRY
     
     # Convert file to spec
@@ -336,7 +320,7 @@ def _extract_promote_names(promotes_specs):
     return result if result else None
 
 
-def _apply_promotes_call(group, subsys_name, promotes_specs):
+def _apply_promotes_call(group : Group | ParallelGroup, subsys_name : str, promotes_specs : PromotesSpec):
     """
     Apply a set of PromotesSpec objects to a group via Group.promotes().
 

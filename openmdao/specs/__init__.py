@@ -10,6 +10,7 @@ from .design_var_spec import DesignVarSpec
 from .response_spec import ConstraintSpec, ObjectiveSpec
 from .variable_spec import VariableSpec
 from .systems_registry import register_system_spec
+from .solver_spec import NonlinearSolverSpec, LinearSolverSpec, LinesearchSolverSpec
 from .input_defaults_spec import InputDefaultsSpec
 from .promotes_spec import PromotesSpec
 from .instantiation import instantiate_from_spec, to_spec
