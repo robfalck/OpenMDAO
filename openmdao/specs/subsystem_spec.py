@@ -82,7 +82,7 @@ class SubsystemSpec(BaseModel):
         Deserialize system using the registry to get the correct subclass.
 
         This allows proper deserialization of ComponentSpec subclasses
-        (OMExplicitComponentSpec, ExecCompSpec, etc.) based on their 'type' field.
+        (OMExplicitComponentSpec, ExecCompSpec, etc.) based on their 'system_type' field.
         """
         # If it's already an instance, return as-is
         if isinstance(v, (ComponentSpec, GroupSpec)):
@@ -90,7 +90,7 @@ class SubsystemSpec(BaseModel):
 
         # If it's a dict, look up the appropriate class from the registry
         if isinstance(v, dict):
-            type_name = v.get('type')
+            type_name = v.get('system_type')
             if type_name and type_name in _SYSTEM_SPEC_REGISTRY:
                 # Use the registered class for this type
                 spec_class = _SYSTEM_SPEC_REGISTRY[type_name]
@@ -104,10 +104,11 @@ class SubsystemSpec(BaseModel):
         """
         Serialize system using its actual class's model_dump.
 
-        This ensures that subclass-specific fields (like 'type') are included.
+        This ensures that subclass-specific fields (like 'system_type') are included,
+        while respecting the parent's exclude_defaults setting.
         """
         # Use the actual class's model_dump to preserve subclass fields
-        return system.model_dump()
+        return system.model_dump(exclude_defaults=_info.exclude_defaults)
     
     @field_validator('name')
     @classmethod
@@ -175,12 +176,20 @@ class SubsystemSpec(BaseModel):
     @model_validator(mode='after')
     def validate_promotion_consistency(self):
         """Validate that promotion specifications are consistent."""
-        if self.promotes is not None and (self.promotes_inputs is not None or 
+        if self.promotes is not None and (self.promotes_inputs is not None or
                                           self.promotes_outputs is not None):
             raise ValueError(
                 "Cannot specify 'promotes' together with 'promotes_inputs' or 'promotes_outputs'."
             )
         return self
+
+    @field_serializer('promotes', 'promotes_inputs', 'promotes_outputs')
+    def serialize_promotes_lists(self, v, _info):
+        """Serialize promotes lists respecting exclude_defaults."""
+        if not isinstance(v, list):
+            return v
+        return [item.model_dump(exclude_defaults=_info.exclude_defaults)
+                if hasattr(item, 'model_dump') else item for item in v]
 
 
 # Rebuild models to resolve forward references now that all imports are complete

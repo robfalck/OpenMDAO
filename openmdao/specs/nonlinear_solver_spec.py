@@ -1,5 +1,4 @@
 from typing import Literal, Optional
-from enum import Enum
 from pydantic import BaseModel, Field, field_validator, field_serializer
 
 from openmdao.specs.solver_registry import register_solver_spec, _SOLVER_SPEC_REGISTRY
@@ -170,6 +169,7 @@ class BroydenSolverOptionsSpec(NonlinearSolverOptionsSpec):
 
 class NonlinearRunOnceOptionsSpec(NonlinearSolverOptionsSpec):
     """Options specific to NonlinearRunOnce (only inherits base options)."""
+
     pass
 
 
@@ -293,7 +293,7 @@ class BoundsEnforceLSSpec(LinesearchSolverBaseSpec):
 
     solver_type: Literal['BoundsEnforceLS'] = 'BoundsEnforceLS'
 
-    options: BoundsEnforceLSOptionsSpec = Field(
+    options: BoundsEnforceLSOptionsSpec | dict = Field(
         default_factory=BoundsEnforceLSOptionsSpec,
         description='Options for BoundsEnforceLS.'
     )
@@ -309,7 +309,7 @@ class ArmijoGoldsteinLSSpec(LinesearchSolverBaseSpec):
 
     solver_type: Literal['ArmijoGoldsteinLS'] = 'ArmijoGoldsteinLS'
 
-    options: LinesearchSolverOptionsSpec = Field(
+    options: LinesearchSolverOptionsSpec | dict = Field(
         default_factory=LinesearchSolverOptionsSpec,
         description='Options for ArmijoGoldsteinLS.'
     )
@@ -333,15 +333,13 @@ class NewtonSolverSpec(NonlinearSolverBaseSpec):
     Newton with linesearch:
         NewtonSolverSpec(
             options=NewtonSolverOptionsSpec(solve_subsystems=False, maxiter=20),
-            linesearch=LinesearchSolverSpec(
-                solver_type='ArmijoGoldsteinLS',
-            )
+            linesearch=LinesearchSolverSpec()
         )
     """
 
     solver_type: Literal['NewtonSolver'] = 'NewtonSolver'
 
-    options: NewtonSolverOptionsSpec = Field(
+    options: NewtonSolverOptionsSpec | dict = Field(
         default_factory=lambda: NewtonSolverOptionsSpec(solve_subsystems=False),
         description='Options for NewtonSolver.'
     )
@@ -376,8 +374,13 @@ class NewtonSolverSpec(NonlinearSolverBaseSpec):
         """Serialize linesearch spec properly."""
         if v is None:
             return None
+        # Serialize with exclude_defaults but ensure solver_type is always included
         if hasattr(v, 'model_dump'):
-            return v.model_dump()
+            data = v.model_dump(exclude_defaults=_info.exclude_defaults)
+            # Ensure solver_type is always included (needed for deserialization routing)
+            if hasattr(v, 'solver_type'):
+                data['solver_type'] = v.solver_type
+            return data
         return v
 
 
@@ -407,7 +410,7 @@ class NonlinearBlockGSSpec(NonlinearSolverBaseSpec):
 
     solver_type: Literal['NonlinearBlockGS'] = 'NonlinearBlockGS'
 
-    options: NonlinearBlockGSOptionsSpec = Field(
+    options: NonlinearBlockGSOptionsSpec | dict = Field(
         default_factory=NonlinearBlockGSOptionsSpec,
         description='Options for NonlinearBlockGS.'
     )
@@ -431,7 +434,7 @@ class NonlinearBlockJacSpec(NonlinearSolverBaseSpec):
 
     solver_type: Literal['NonlinearBlockJac'] = 'NonlinearBlockJac'
 
-    options: NonlinearBlockJacOptionsSpec = Field(
+    options: NonlinearBlockJacOptionsSpec | dict = Field(
         default_factory=NonlinearBlockJacOptionsSpec,
         description='Options for NonlinearBlockJac.'
     )
@@ -463,7 +466,7 @@ class BroydenSolverSpec(NonlinearSolverBaseSpec):
 
     solver_type: Literal['BroydenSolver'] = 'BroydenSolver'
 
-    options: BroydenSolverOptionsSpec = Field(
+    options: BroydenSolverOptionsSpec | dict = Field(
         default_factory=BroydenSolverOptionsSpec,
         description='Options for BroydenSolver.'
     )
@@ -498,8 +501,13 @@ class BroydenSolverSpec(NonlinearSolverBaseSpec):
         """Serialize linesearch spec properly."""
         if v is None:
             return None
+        # Serialize with exclude_defaults but ensure solver_type is always included
         if hasattr(v, 'model_dump'):
-            return v.model_dump()
+            data = v.model_dump(exclude_defaults=_info.exclude_defaults)
+            # Ensure solver_type is always included (needed for deserialization routing)
+            if hasattr(v, 'solver_type'):
+                data['solver_type'] = v.solver_type
+            return data
         return v
 
 
@@ -521,7 +529,7 @@ class NonlinearRunOnceSpec(NonlinearSolverBaseSpec):
 
     solver_type: Literal['NonlinearRunOnce'] = 'NonlinearRunOnce'
 
-    options: NonlinearRunOnceOptionsSpec = Field(
+    options: NonlinearRunOnceOptionsSpec | dict = Field(
         default_factory=NonlinearRunOnceOptionsSpec,
         description='Options for NonlinearRunOnce.'
     )

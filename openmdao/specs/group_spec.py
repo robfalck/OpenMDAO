@@ -1,7 +1,7 @@
 import collections
-from typing import Literal, TYPE_CHECKING
+from typing import TYPE_CHECKING
 # from enum import Enum
-from pydantic import Field, model_validator, field_validator
+from pydantic import Field, model_validator, field_validator, field_serializer
 
 from openmdao.specs.system_spec import SystemSpec
 from openmdao.specs.connection_spec import ConnectionSpec
@@ -18,7 +18,7 @@ if TYPE_CHECKING:
 class GroupSpec(SystemSpec):
     """Specification for a group in isolation."""
 
-    type: Literal["group"] = "group"
+    system_type: str = "group"
 
     # Child subsystems - use string annotation to avoid circular import
     subsystems: list['SubsystemSpec'] = Field(
@@ -91,3 +91,11 @@ class GroupSpec(SystemSpec):
                                  "system '{tgt_system}'")
 
         return self
+
+    @field_serializer('subsystems', 'connections', 'promotes')
+    def serialize_lists(self, v, _info):
+        """Serialize list fields respecting exclude_defaults."""
+        if not isinstance(v, list):
+            return v
+        return [item.model_dump(exclude_defaults=_info.exclude_defaults)
+                if hasattr(item, 'model_dump') else item for item in v]

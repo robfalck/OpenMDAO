@@ -1,4 +1,3 @@
-from typing import Literal
 from collections.abc import Sequence
 from pydantic import Field, field_validator, model_validator, ConfigDict, \
     ValidationError
@@ -73,8 +72,8 @@ class ExecCompSpec(ComponentSpec[ExecCompOptionsSpec]):
     """
     
     model_config = ConfigDict(arbitrary_types_allowed=True)
-    
-    type: Literal['ExecComp'] = 'ExecComp'
+
+    system_type: str = 'ExecComp'
 
     path: str = "openmdao.api.ExecComp"
 

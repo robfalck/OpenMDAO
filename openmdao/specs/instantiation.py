@@ -191,9 +191,9 @@ def instantiate_from_spec(spec : SystemSpec | dict | str) -> Group | Component:
     
     # Convert dict to spec
     if isinstance(spec, dict):
-        spec_type = spec.get('type')
+        spec_type = spec.get('system_type')
         if spec_type is None:
-            raise ValueError("Spec dict must have a 'type' field")
+            raise ValueError("Spec dict must have a 'system_type' field")
         
         spec_class = _SYSTEM_SPEC_REGISTRY.get(spec_type)
         if spec_class is None:
@@ -222,7 +222,7 @@ def _instantiate_component(spec):
         component_class = getattr(module, class_name)
     else:
         raise ValueError(
-            f"Spec type '{spec.type}' requires a 'path' field to instantiate"
+            f"Spec type '{spec.system_type}' requires a 'path' field to instantiate"
         )
     
     # Build init kwargs - check if spec provides a custom method
@@ -341,7 +341,8 @@ def _extract_promote_names(promotes_specs):
     return result if result else None
 
 
-def _apply_promotes_call(group : Group | ParallelGroup, subsys_name : str, promotes_specs : PromotesSpec):
+def _apply_promotes_call(group : Group | ParallelGroup, subsys_name : str,
+                         promotes_specs : PromotesSpec):
     """
     Apply a set of PromotesSpec objects to a group via Group.promotes().
 

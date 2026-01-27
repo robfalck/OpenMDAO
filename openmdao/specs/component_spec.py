@@ -1,6 +1,6 @@
-from typing import Literal, Generic
+from typing import Generic
 
-from pydantic import Field, field_validator
+from pydantic import Field, field_validator, field_serializer
 
 from openmdao.specs.system_spec import SystemSpec
 from openmdao.specs.variable_spec import VariableSpec
@@ -72,11 +72,19 @@ class ComponentSpec(SystemSpec, Generic[ComponentOptionsT]):
         
         return result
 
+    @field_serializer('inputs', 'outputs')
+    def serialize_variables(self, v, _info):
+        """Serialize variable lists respecting exclude_defaults."""
+        if not isinstance(v, list):
+            return v
+        return [item.model_dump(exclude_defaults=_info.exclude_defaults)
+                if hasattr(item, 'model_dump') else item for item in v]
+
 
 @register_system_spec
 class OMExplicitComponentSpec(ComponentSpec[ComponentOptionsSpec]):
 
-    type: Literal['OMExplicitComponent'] = 'OMExplicitComponent'
+    system_type: str = 'OMExplicitComponent'
 
     path: str = Field(
         ...,
@@ -117,7 +125,7 @@ class OMExplicitComponentSpec(ComponentSpec[ComponentOptionsSpec]):
 @register_system_spec
 class OMImplicitComponentSpec(ComponentSpec[ComponentOptionsSpec]):
 
-    type: Literal['OMImplicitComponent'] = 'OMImplicitComponent'
+    system_type: str = 'OMImplicitComponent'
 
     path: str = Field(
         ...,
@@ -128,7 +136,7 @@ class OMImplicitComponentSpec(ComponentSpec[ComponentOptionsSpec]):
 @register_system_spec
 class OMJaxExplicitComponentSpec(ComponentSpec[ComponentOptionsSpec]):
 
-    type: Literal['JaxExplicitComponent'] = 'JaxExplicitComponent'
+    system_type: str = 'JaxExplicitComponent'
 
     path: str = Field(
         ...,
@@ -139,7 +147,7 @@ class OMJaxExplicitComponentSpec(ComponentSpec[ComponentOptionsSpec]):
 @register_system_spec
 class OMJaxImplicitComponentSpec(ComponentSpec[ComponentOptionsSpec]):
 
-    type: Literal['OMJaxImplicitComponent'] = 'OMJaxImplicitComponent'
+    system_type: str = 'OMJaxImplicitComponent'
 
     path: str = Field(
         ...,

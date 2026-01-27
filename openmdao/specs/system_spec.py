@@ -35,6 +35,12 @@ class SystemSpec(BaseModel):
     Field descriptions provide details for each attribute.
     """
 
+    system_type: str = Field(
+        ...,
+        description="Type identifier for this system (overridden by subclasses)",
+        frozen=True
+    )
+
     nonlinear_solver: NonlinearSolverBaseSpec | None = Field(
         default=None,
         description="Nonlinear solver for this system. "
@@ -108,9 +114,13 @@ class SystemSpec(BaseModel):
         """Serialize nonlinear solver spec properly."""
         if v is None:
             return None
-        # Use the spec's model_dump to ensure all fields are serialized
+        # Serialize with exclude_defaults but ensure solver_type is always included
         if hasattr(v, 'model_dump'):
-            return v.model_dump()
+            data = v.model_dump(exclude_defaults=_info.exclude_defaults)
+            # Ensure solver_type is always included (needed for deserialization routing)
+            if hasattr(v, 'solver_type'):
+                data['solver_type'] = v.solver_type
+            return data
         return v
 
     @field_serializer('linear_solver')
@@ -118,9 +128,18 @@ class SystemSpec(BaseModel):
         """Serialize linear solver spec properly."""
         if v is None:
             return None
-        # Use the spec's model_dump to ensure all fields are serialized
+        # Serialize with exclude_defaults but ensure solver_type is always included
         if hasattr(v, 'model_dump'):
-            return v.model_dump()
+            data = v.model_dump(exclude_defaults=_info.exclude_defaults)
+            # Ensure solver_type is always included (needed for deserialization routing)
+            if hasattr(v, 'solver_type'):
+                data['solver_type'] = v.solver_type
+            return data
+        return v
+
+    @field_serializer('system_type', when_used='unless-none')
+    def serialize_system_type(self, v):
+        """Serialize system_type field (needed for deserialization routing)."""
         return v
 
 # Rebuild SystemSpec to resolve all forward references

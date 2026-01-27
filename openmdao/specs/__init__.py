@@ -14,10 +14,9 @@ from .nonlinear_solver_spec import (
     NonlinearSolverBaseSpec, LinesearchSolverBaseSpec,
     LinesearchSolverSpec, BoundsEnforceLSSpec, ArmijoGoldsteinLSSpec,
     NewtonSolverOptionsSpec, NewtonSolverSpec, NonlinearBlockGSOptionsSpec,
-    NonlinearBlockGSSpec, NonlinearBlockJacSpec, NonlinearBlockJacOptionsSpec,
-    BroydenSolverOptionsSpec, BroydenSolverSpec, NonlinearRunOnceSpec,
-    LinesearchSolverOptionsSpec, BoundsEnforceLSOptionsSpec, NonlinearSolverOptionsSpec,
-    NonlinearBlockJacOptionsSpec, NonlinearRunOnceOptionsSpec
+    NonlinearBlockGSSpec, NonlinearBlockJacSpec, BroydenSolverOptionsSpec, BroydenSolverSpec,
+    NonlinearRunOnceSpec, LinesearchSolverOptionsSpec, BoundsEnforceLSOptionsSpec,
+    NonlinearSolverOptionsSpec, NonlinearBlockJacOptionsSpec, NonlinearRunOnceOptionsSpec
 )
 from .linear_solver_spec import (
     LinearSolverBaseSpec, DirectSolverSpec, LinearBlockGSSpec,

@@ -271,7 +271,7 @@ def main():
     print("\n1. Creating GroupSpec for Sellar problem (with promotes)...")
     sellar_spec = create_sellar_spec()
     print(f"   - Created spec with {len(sellar_spec.subsystems)} subsystems")
-    print(f"   - Type: {sellar_spec.type}")
+    print(f"   - Type: {sellar_spec.system_type}")
 
     # Display subsystem names
     print("\n   Subsystems:")
@@ -286,7 +286,7 @@ def main():
 
     # Serialize to JSON
     print("\n2. Serializing spec to JSON...")
-    spec_dict = sellar_spec.model_dump()
+    spec_dict = sellar_spec.model_dump(exclude_defaults=True)
     spec_json = json.dumps(spec_dict, indent=2)
     print(f"   - Serialized to {len(spec_json)} characters")
 
@@ -312,9 +312,7 @@ def main():
         print(f"     - {conn.src} -> {conn.tgt}")
 
     # Serialize connected version
-    # Note: Don't use exclude_defaults=True because we need the 'type' field
-    # for proper deserialization of ComponentSpec subclasses
-    conn_spec_dict = sellar_conn_spec.model_dump()
+    conn_spec_dict = sellar_conn_spec.model_dump(exclude_defaults=True)
     conn_output_file = 'sellar_spec_connected.json'
     with open(conn_output_file, 'w') as f:
         json.dump(conn_spec_dict, f, indent=2)
