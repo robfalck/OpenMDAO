@@ -174,6 +174,22 @@ class ExecCompSpec(ComponentSpec[ExecCompOptionsSpec]):
 
         return ([exprs_arg], options_dict)
 
+    def setup(self, comp):
+        """
+        Configure ExecComp by calling its setup() method.
+
+        ExecComp needs its setup() called to parse expressions and create variables.
+        We call ExecComp.setup(comp) directly to handle expression parsing and
+        variable creation. No additional configuration is needed after that.
+
+        Parameters
+        ----------
+        comp : ExecComp
+            The ExecComp instance to configure
+        """
+        from openmdao.components.exec_comp import ExecComp
+        ExecComp.setup(comp)
+
 # Example usage
 if __name__ == "__main__":
     # Example 1: Simple expression

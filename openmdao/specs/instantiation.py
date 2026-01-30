@@ -3,6 +3,7 @@ from typing import cast
 from openmdao.specs.system_spec import SystemSpec
 from openmdao.specs.group_spec import GroupSpec
 from openmdao.specs.component_spec import ComponentSpec
+from openmdao.specs.connection_spec import ConnectionSpec
 from openmdao.core.component import Component
 from openmdao.core.group import Group
 from openmdao.core.parallel_group import ParallelGroup
@@ -70,6 +71,38 @@ def _instantiate_solver(solver_spec):
         solver.linesearch = linesearch
 
     return solver
+
+
+def _wrap_setup_method(comp, spec):
+    """
+    Replace component's setup method with a spec-driven wrapper.
+
+    The wrapper bypasses the component's original setup() method and delegates
+    all configuration to spec.setup(). The spec is responsible for configuring
+    the component appropriately, including calling the component's original
+    setup() if needed (e.g., ExecComp for expression parsing).
+
+    Parameters
+    ----------
+    comp : Component
+        The component instance to modify
+    spec : ComponentSpec
+        The spec that will configure the component
+    """
+    from types import MethodType
+
+    def wrapper_setup(self):
+        """
+        Wrap setup method with one provided by the spec..
+
+        The spec is responsible for configuring the component.
+        """
+        # Let the spec configure the component
+        if hasattr(spec, 'setup') and callable(spec.setup):
+            spec.setup(self)
+
+    # Bind the wrapper to the component instance
+    comp.setup = MethodType(wrapper_setup, comp)
 
 
 def _apply_system_spec_properties(system, spec):
@@ -170,12 +203,12 @@ def _apply_system_spec_properties(system, spec):
 def instantiate_from_spec(spec : SystemSpec | dict | str) -> Group | Component:
     """
     Instantiate an OpenMDAO system from a specification.
-    
+
     Parameters
     ----------
     spec : ComponentSpec, GroupSpec, dict, or str
         System specification. Can be a spec object, dict, or path to JSON file.
-    
+
     Returns
     -------
     System
@@ -184,26 +217,26 @@ def instantiate_from_spec(spec : SystemSpec | dict | str) -> Group | Component:
     from pathlib import Path
     from openmdao.specs.group_spec import GroupSpec
     from openmdao.specs.systems_registry import _SYSTEM_SPEC_REGISTRY
-    
+
     # Convert file to spec
     if isinstance(spec, (str, Path)):
         spec = _load_spec_from_file(spec)
-    
+
     # Convert dict to spec
     if isinstance(spec, dict):
         spec_type = spec.get('system_type')
         if spec_type is None:
             raise ValueError("Spec dict must have a 'system_type' field")
-        
+
         spec_class = _SYSTEM_SPEC_REGISTRY.get(spec_type)
         if spec_class is None:
             raise ValueError(
                 f"Unknown spec type: {spec_type}. "
                 f"Known types: {list(_SYSTEM_SPEC_REGISTRY.keys())}"
             )
-        
+
         spec = cast(SystemSpec, spec_class.model_validate(spec))
-    
+
     # Handle different spec types
     if isinstance(spec, GroupSpec):
         return _instantiate_group(spec)
@@ -214,7 +247,7 @@ def instantiate_from_spec(spec : SystemSpec | dict | str) -> Group | Component:
 def _instantiate_component(spec):
     """Instantiate a component from spec."""
     import importlib
-    
+
     # Determine which class to instantiate
     if hasattr(spec, 'path') and spec.path:
         module_path, class_name = spec.path.rsplit('.', 1)
@@ -224,7 +257,7 @@ def _instantiate_component(spec):
         raise ValueError(
             f"Spec type '{spec.system_type}' requires a 'path' field to instantiate"
         )
-    
+
     # Build init kwargs - check if spec provides a custom method
     if hasattr(spec, 'to_init_kwargs'):
         result = spec.to_init_kwargs()
@@ -232,19 +265,21 @@ def _instantiate_component(spec):
         if isinstance(result, tuple):
             init_args, init_kwargs = result
             comp = component_class(*init_args, **init_kwargs)
-            return comp
         else:
             # Backward compatible: just kwargs
             init_kwargs = result
+            comp = component_class(**init_kwargs)
     elif hasattr(spec, 'options') and spec.options:
         options_dict = (spec.options if isinstance(spec.options, dict)
                        else spec.options.model_dump(exclude_defaults=True))
         init_kwargs = options_dict
+        comp = component_class(**init_kwargs)
     else:
         init_kwargs = {}
+        comp = component_class(**init_kwargs)
 
-    # Instantiate the component
-    comp = component_class(**init_kwargs)
+    # Wrap the setup method to use spec configuration
+    _wrap_setup_method(comp, spec)
 
     # Apply system-level properties from SystemSpec
     _apply_system_spec_properties(comp, spec)
@@ -253,8 +288,15 @@ def _instantiate_component(spec):
 
 
 def _instantiate_group(spec):
-    """Instantiate a group from spec."""
+    """
+    Instantiate a group from spec.
+
+    The group's setup() method is wrapped so that the spec configures
+    subsystems, connections, and promotions during setup rather than
+    during instantiation. This matches the pattern used for components.
+    """
     from openmdao.api import Group
+
     # Build init kwargs
     if hasattr(spec, 'to_init_kwargs'):
         init_kwargs = spec.to_init_kwargs()
@@ -267,50 +309,8 @@ def _instantiate_group(spec):
 
     group = Group(**init_kwargs)
 
-    # Add subsystems recursively
-    for subsys_spec in spec.subsystems:
-        subsys = instantiate_from_spec(subsys_spec.system)
-
-        # Convert PromotesSpec objects to simple names/tuples for add_subsystem()
-        promotes_list = _extract_promote_names(subsys_spec.promotes)
-        promotes_inputs_list = _extract_promote_names(subsys_spec.promotes_inputs)
-        promotes_outputs_list = _extract_promote_names(subsys_spec.promotes_outputs)
-
-        group.add_subsystem(
-            subsys_spec.name,
-            subsys,
-            promotes_inputs=promotes_inputs_list,
-            promotes_outputs=promotes_outputs_list,
-            promotes=promotes_list,
-            min_procs=subsys_spec.min_procs,
-            max_procs=subsys_spec.max_procs,
-            proc_weight=subsys_spec.proc_weight
-        )
-
-    # Add connections
-    for conn_spec in spec.connections:
-        src_indices = None
-        if conn_spec.src_indices.value is not None:
-            src_indices = conn_spec.src_indices.value
-
-        group.connect(conn_spec.src, conn_spec.tgt, src_indices=src_indices)
-
-    # Set input defaults
-    for indef_spec in spec.input_defaults:
-        group.set_input_defaults(name=indef_spec.name, val=indef_spec.val, units=indef_spec.units,
-                                 src_shape=indef_spec.src_shape)
-
-    # Add advanced promotions via Group.promotes() method calls
-    # Group by subsys_name to collect all promotes for each subsystem
-    promotes_by_subsys = {}
-    for pspec in spec.promotes:
-        if pspec.subsys_name is not None:
-            if pspec.subsys_name not in promotes_by_subsys:
-                promotes_by_subsys[pspec.subsys_name] = []
-            promotes_by_subsys[pspec.subsys_name].append(pspec)
-
-    for subsys_name, promotes_specs in promotes_by_subsys.items():
-        _apply_promotes_call(group, subsys_name, promotes_specs)
+    # Wrap the setup method to use spec configuration
+    _wrap_setup_method(group, spec)
 
     # Apply system-level properties from SystemSpec
     _apply_system_spec_properties(group, spec)
@@ -712,7 +712,7 @@ def _extract_promotions(group, subsys_name, io_type) -> list:
     return promotes_specs
 
 
-def _extract_connections(group) -> list:
+def _extract_connections(group) -> list[ConnectionSpec]:
     """
     Extract connections from a group.
 
@@ -726,38 +726,15 @@ def _extract_connections(group) -> list:
     list[ConnectionSpec]
         List of connection specs
     """
-    from openmdao.specs.connection_spec import ConnectionSpec
-
     connections = []
 
     # Extract from the connections dict
     if hasattr(group, '_conn_abs_in2out'):
         for tgt_abs, src_abs in group._conn_abs_in2out.items():
             # Convert absolute names to relative names within the group
-            src_rel = _make_relative(src_abs, group.name)
-            tgt_rel = _make_relative(tgt_abs, group.name)
+            src_rel = group._resolver.abs2rel(src_abs)
+            tgt_rel = group._resolver.abs2rel(tgt_abs)
 
             connections.append(ConnectionSpec(src=src_rel, tgt=tgt_rel))
 
     return connections
-
-
-def _make_relative(abs_name, group_name) -> str:
-    """
-    Convert an absolute name to relative within a group.
-
-    Parameters
-    ----------
-    abs_name : str
-        Absolute name like "group.subsys.var"
-    group_name : str
-        The group name
-
-    Returns
-    -------
-    str
-        Relative name like "subsys.var"
-    """
-    if group_name and abs_name.startswith(f"{group_name}."):
-        return abs_name[len(group_name) + 1:]
-    return abs_name

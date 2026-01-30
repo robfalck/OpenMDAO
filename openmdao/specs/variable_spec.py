@@ -18,10 +18,12 @@ class VariableSpec(BaseModel):
     units : str | None = Field(
         default=None,
         description='The units of the variable for within a component.')
-    shape : tuple[int, ...] | None = Field(
+    shape : tuple[int | str, ...] | None = Field(
         default=None,
         description='Shape of this variable, only required if val is '
-        'not an array. Default is None.')
+        'not an array. Default is None. If an element is a tuple, OpenMDAO will '
+        'use the value of the system option given by the name as the shape, first '
+        'verifying that the option provides an integer.')
     desc : str = Field(
         default='',
         description='A description of the variable.')

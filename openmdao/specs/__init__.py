@@ -2,6 +2,7 @@ from .system_spec import SystemSpec
 from .group_spec import GroupSpec
 from .component_spec import ComponentSpec, OMExplicitComponentSpec
 from .exec_comp_spec import ExecCompSpec
+from .balance_comp_spec import BalanceCompSpec, BalanceSpec, BalanceOptionsSpec
 from .partials_spec import PartialsSpec
 from .connection_spec import ConnectionSpec
 from .subsystem_spec import SubsystemSpec

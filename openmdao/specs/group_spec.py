@@ -99,3 +99,65 @@ class GroupSpec(SystemSpec):
             return v
         return [item.model_dump(exclude_defaults=_info.exclude_defaults)
                 if hasattr(item, 'model_dump') else item for item in v]
+
+    def setup(self, group):
+        """
+        Set up a Group instance from this spec.
+
+        This method is called during the group's setup phase to add
+        subsystems, connections, input defaults, and promotions.
+
+        Parameters
+        ----------
+        group : Group
+            The group instance to configure.
+        """
+        # Import here to avoid circular imports
+        from openmdao.specs.instantiation import (
+            instantiate_from_spec, _extract_promote_names, _apply_promotes_call
+        )
+
+        # Add subsystems recursively
+        for subsys_spec in self.subsystems:
+            subsys = instantiate_from_spec(subsys_spec.system)
+
+            # Convert PromotesSpec objects to simple names/tuples for add_subsystem()
+            promotes_list = _extract_promote_names(subsys_spec.promotes)
+            promotes_inputs_list = _extract_promote_names(subsys_spec.promotes_inputs)
+            promotes_outputs_list = _extract_promote_names(subsys_spec.promotes_outputs)
+
+            group.add_subsystem(
+                subsys_spec.name,
+                subsys,
+                promotes_inputs=promotes_inputs_list,
+                promotes_outputs=promotes_outputs_list,
+                promotes=promotes_list,
+                min_procs=subsys_spec.min_procs,
+                max_procs=subsys_spec.max_procs,
+                proc_weight=subsys_spec.proc_weight
+            )
+
+        # Add connections
+        for conn_spec in self.connections:
+            src_indices = None
+            if conn_spec.src_indices.value is not None:
+                src_indices = conn_spec.src_indices.value
+
+            group.connect(conn_spec.src, conn_spec.tgt, src_indices=src_indices)
+
+        # Set input defaults
+        for indef_spec in self.input_defaults:
+            group.set_input_defaults(name=indef_spec.name, val=indef_spec.val,
+                                    units=indef_spec.units, src_shape=indef_spec.src_shape)
+
+        # Add advanced promotions via Group.promotes() method calls
+        # Group by subsys_name to collect all promotes for each subsystem
+        promotes_by_subsys = {}
+        for pspec in self.promotes:
+            if pspec.subsys_name is not None:
+                if pspec.subsys_name not in promotes_by_subsys:
+                    promotes_by_subsys[pspec.subsys_name] = []
+                promotes_by_subsys[pspec.subsys_name].append(pspec)
+
+        for subsys_name, promotes_specs in promotes_by_subsys.items():
+            _apply_promotes_call(group, subsys_name, promotes_specs)
