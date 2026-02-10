@@ -10,6 +10,7 @@ class _Options(object):
     """
     A fake options class for use when there is no parser.
     """
+
     def __init__(self, **kwargs):
         self.__dict__.update(kwargs)
 
@@ -22,6 +23,7 @@ class FunctionFinder(ast.NodeVisitor):
     This class locates all of the functions and methods in a file and associates any
     method with its corresponding class.
     """
+
     def __init__(self, fname, cache):
         ast.NodeVisitor.__init__(self)
         self.fname = fname
@@ -75,7 +77,7 @@ def find_qualified_name(filename, line, cache, full=True):
     if filename not in cache:
         fcache = {}
 
-        with open(filename, 'r') as f:
+        with open(filename, 'r', encoding='utf-8') as f:
             contents = f.read()
             if len(contents) > 0 and contents[-1] != '\n':
                 contents += '\n'

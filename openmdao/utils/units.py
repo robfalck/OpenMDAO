@@ -22,6 +22,8 @@ from math import floor, pi
 
 import numpy as np
 
+from openmdao.utils.array_utils import array_connection_compatible
+
 
 ####################################
 # Class Definitions
@@ -654,14 +656,35 @@ def add_unit(name, unit, comment=''):
         The name of the unit being added. For example: 'Hz'.
     unit : str
         Definition of the unit w.r.t. some other unit.  For example: '1/s'.
+        This can reference prefixed units like 'km', which will be automatically
+        resolved.
     comment : str
         Optional comment to describe unit.
     """
     if comment:
         _UNIT_LIB.help.append((name, comment, unit))
     if isinstance(unit, str):
-        unit = eval(unit, {'__builtins__': None, 'pi': pi},  # nosec: scope limited
-                    _UNIT_LIB.unit_table)
+        try:
+            unit = eval(unit, {'__builtins__': None, 'pi': pi},  # nosec: scope limited
+                        _UNIT_LIB.unit_table)
+        except (TypeError, NameError, KeyError):
+            # Use _find_unit to parse and add any prefixed units to the unit_table.
+            regex = re.compile(r'(?<!\d)[A-Za-z]+[A-Za-z0-9]*')
+            potential_units = regex.findall(unit)
+            for item in potential_units:
+                if item != 'pi':  # Skip the constant pi
+                    _find_unit(item, error=False)
+
+            # Now try evaluating again
+            try:
+                unit = eval(unit, {'__builtins__': None, 'pi': pi},  # nosec: scope limited
+                            _UNIT_LIB.unit_table)
+            except Exception as eval_error:
+                raise ValueError(
+                    f"Could not evaluate unit definition '{unit}' for new unit '{name}'. "
+                    f'Original error: {eval_error}. '
+                ) from eval_error
+
     unit.set_name(name)
     if name in _UNIT_LIB.unit_table:
         if (_UNIT_LIB.unit_table[name]._factor != unit._factor or
@@ -1053,7 +1076,7 @@ def convert_units(val, old_units, new_units=None):
     return (val + offset) * factor
 
 
-def _has_val_mismatch(units1, val1, units2, val2, rtol=1e-10):
+def has_val_mismatch(units1, val1, units2, val2, rtol=1e-10):
     """
     Return True if values differ after unit conversion or if values differ when units are None.
 
@@ -1081,9 +1104,13 @@ def _has_val_mismatch(units1, val1, units2, val2, rtol=1e-10):
     val1 = np.asarray(val1)
     val2 = np.asarray(val2)
 
-    if val1.shape != val2.shape:
+    if not array_connection_compatible(val1.shape, val2.shape):
         return True
 
+    # shapes are compatible but may not be the same, so compare
+    # flattened values
+    val1 = val1.ravel()
+    val2 = val2.ravel()
     absdiff = np.abs(val2 - val1)
     denominator_basis = np.maximum(np.abs(val1), np.abs(val2))
     threshold = rtol * denominator_basis

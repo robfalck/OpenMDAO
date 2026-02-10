@@ -321,6 +321,19 @@ class TestModuleFunctions(unittest.TestCase):
         else:
             self.fail("Expecting Key Error")
 
+    def test_add_unit_non_base_units(self):
+        add_unit('DU', '1.495978707E8*km')
+        DU2AU = om.convert_units(1.0, 'DU', 'AU')
+        assert_near_equal(DU2AU, 1.0)
+
+    def test_add_double_prefix(self):
+        add_unit('kkm', '1000.*km')
+        kkm2m = om.convert_units(1.0, 'kkm', 'm')
+        assert_near_equal(kkm2m, 1_000_000.0)
+        # Make sure we have no trouble reading km
+        km2m = om.convert_units(1.0, 'km', 'm')
+        assert_near_equal(km2m, 1000.0)
+
     def test_connect_unitless_to_none(self):
         import warnings
         p = om.Problem()
@@ -385,8 +398,7 @@ class TestModuleFunctions(unittest.TestCase):
                               promotes_inputs=['x', 'y'])
 
         msg = ("\nCollected errors for problem 'incompatible_units':"
-               "\n   <model> <class Group>: Output units of 'Hz*s' for 'indeps.y' are incompatible with input "
-               "units of 'ft' for 'exec_comp.y'.")
+               "\n   <model> <class Group>: Can't implicitly connect 'y' to 'y': units 'Hz*s' of 'y' are incompatible with units 'ft' of 'y'.")
 
         with self.assertRaises(RuntimeError) as cm:
             p.setup()
@@ -421,8 +433,7 @@ class TestUnitless(unittest.TestCase):
             promotes_inputs=['x'])
 
         msg = ("\nCollected errors for problem 'unitless_connection_error':"
-               "\n   <model> <class Group>: Output units of 'unitless' for 'indeps.x' are incompatible with input "
-               "units of 'm' for 'exec_comp.x'.")
+               "\n   <model> <class Group>: Can't implicitly connect 'x' to 'x': units 'unitless' of 'x' are incompatible with units 'm' of 'x'.")
 
         with self.assertRaises(RuntimeError) as cm:
             p.setup()
