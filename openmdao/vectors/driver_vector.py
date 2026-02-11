@@ -187,3 +187,59 @@ class DriverVector(object):
         if name not in self._meta:
             raise KeyError(f"Variable '{name}' not found in DriverVector")
         return self._meta[name]
+
+    def set_into_model(self, driver):
+        """
+        Set design variable values into the model.
+
+        This method is designed for design variable vectors. It delegates to
+        set_design_var() which handles unscaling from driver space to model space.
+
+        Parameters
+        ----------
+        driver : Driver
+            The driver instance that owns this vector.
+        """
+        for name in self._meta.keys():
+            value = self[name]
+            driver.set_design_var(name, value, set_remote=True)
+
+    def get_from_model(self, driver, vector_type='constraint'):
+        """
+        Get values from the model and scale into this vector in-place.
+
+        This method is designed for constraint and objective vectors. It:
+        1. Retrieves unscaled values from model
+        2. Scales values via autoscaler (model → optimizer space)
+
+        Parameters
+        ----------
+        driver : Driver
+            The driver instance that owns this vector.
+        vector_type : str, optional
+            Type of vector: 'constraint' or 'objective'. Determines which
+            autoscaler method to call. Default is 'constraint'.
+        """
+        # Step 1: Get values from model into vector
+        for name, meta in self._meta.items():
+            # Determine which metadata dict to use
+            if vector_type == 'objective':
+                remote_dict = driver._remote_objs
+                metadata = driver._objs[name]
+            else:  # constraint
+                remote_dict = driver._remote_cons
+                metadata = driver._cons[name]
+
+            # Get unscaled value using existing logic
+            val = driver._get_voi_val(name, metadata, remote_dict,
+                                      driver_scaling=False, get_remote=True)
+
+            # Store in vector
+            self[name] = val
+
+        # Step 2: Scale if autoscaler present
+        if driver.autoscaler:
+            if vector_type == 'objective':
+                driver.autoscaler.scale_objs(self)
+            else:
+                driver.autoscaler.scale_cons(self)

@@ -1511,5 +1511,131 @@ class TestLinearOnlyDVs(unittest.TestCase):
             prob.run_driver()
 
 
+class TestCachedDriverVectors(unittest.TestCase):
+    """Test cached DriverVector instances and autoscaler integration."""
+
+    def setUp(self):
+        """Create a simple test problem for cached vector tests."""
+        self.prob = om.Problem()
+        model = self.prob.model
+
+        # Create a simple Sellar model
+        model = self.prob.model = SellarDerivatives()
+
+        # Add design variables and constraints to model
+        model.add_design_var('z')
+        model.add_objective('obj')
+        model.add_constraint('con1', lower=0.0)
+        model.add_constraint('con2', upper=0.0)
+
+        self.prob.driver = om.ScipyOptimizeDriver(optimizer='SLSQP', disp=False)
+
+        self.prob.setup()
+        self.prob.run_model()
+
+    def test_cached_vectors_created(self):
+        """Test that cached vectors are created after setup."""
+        self.assertIsNotNone(self.prob.driver._dv_vector)
+        self.assertIsNotNone(self.prob.driver._cons_vector)
+        self.assertIsNotNone(self.prob.driver._objs_vector)
+
+    def test_cached_vectors_are_driver_vectors(self):
+        """Test that cached vectors are DriverVector instances."""
+        from openmdao.vectors.driver_vector import DriverVector
+
+        self.assertIsInstance(self.prob.driver._dv_vector, DriverVector)
+        self.assertIsInstance(self.prob.driver._cons_vector, DriverVector)
+        self.assertIsInstance(self.prob.driver._objs_vector, DriverVector)
+
+    def test_cached_vectors_have_metadata(self):
+        """Test that cached vectors contain proper metadata."""
+        dv_meta = self.prob.driver._dv_vector.get_metadata()
+        self.assertIn('z', dv_meta)
+        self.assertIn('start_idx', dv_meta['z'])
+        self.assertIn('end_idx', dv_meta['z'])
+
+        cons_meta = self.prob.driver._cons_vector.get_metadata()
+        self.assertIn('con1', cons_meta)
+        self.assertIn('con2', cons_meta)
+
+        objs_meta = self.prob.driver._objs_vector.get_metadata()
+        self.assertIn('obj', objs_meta)
+
+    def test_default_autoscaler_assigned(self):
+        """Test that default autoscaler is assigned during setup."""
+        from openmdao.drivers.autoscalers.default_autoscaler import DefaultAutoscaler
+
+        self.assertIsNotNone(self.prob.driver.autoscaler)
+        self.assertIsInstance(self.prob.driver.autoscaler, DefaultAutoscaler)
+
+    def test_set_into_model(self):
+        """Test that set_into_model correctly updates model values."""
+        driver = self.prob.driver
+
+        # Get initial design variable value
+        initial_z = self.prob['z'].copy()
+
+        # Modify the cached vector
+        new_z_value = np.array([6.0, 3.0])
+        driver._dv_vector['z'] = new_z_value
+
+        # Use set_into_model to update the model
+        driver._dv_vector.set_into_model(driver)
+
+        # Verify values were set
+        assert_near_equal(self.prob['z'], new_z_value, 1e-8)
+
+    def test_get_from_model_constraints(self):
+        """Test that get_from_model retrieves constraint values correctly."""
+        driver = self.prob.driver
+
+        # Get constraint values via get_from_model
+        driver._cons_vector.get_from_model(driver, vector_type='constraint')
+
+        # Verify the vector has the right structure
+        cons_meta = driver._cons_vector.get_metadata()
+        self.assertGreater(len(cons_meta), 0)
+
+        # Verify we can access constraint values
+        con1_value = driver._cons_vector['con1']
+        self.assertEqual(len(con1_value), 1)
+
+    def test_get_from_model_objectives(self):
+        """Test that get_from_model retrieves objective values correctly."""
+        driver = self.prob.driver
+
+        # Get objective values via get_from_model
+        driver._objs_vector.get_from_model(driver, vector_type='objective')
+
+        # Verify the vector has the right structure
+        objs_meta = driver._objs_vector.get_metadata()
+        self.assertIn('obj', objs_meta)
+
+        # Verify we can access objective values
+        obj_value = driver._objs_vector['obj']
+        self.assertEqual(len(obj_value), 1)
+
+    def test_cached_vectors_can_be_reused(self):
+        """Test that cached vectors can be reused across iterations."""
+        driver = self.prob.driver
+
+        # Get initial constraint values
+        driver._cons_vector.get_from_model(driver, vector_type='constraint')
+        con1_initial = driver._cons_vector['con1'].copy()
+
+        # Modify design variables
+        new_z_value = np.array([7.0, 3.5])
+        driver._dv_vector['z'] = new_z_value
+        driver._dv_vector.set_into_model(driver)
+        self.prob.run_model()
+
+        # Get constraint values again using same vector
+        driver._cons_vector.get_from_model(driver, vector_type='constraint')
+        con1_new = driver._cons_vector['con1'].copy()
+
+        # Values should have changed (con1 depends on y1 which depends on z)
+        self.assertFalse(np.allclose(con1_initial, con1_new))
+
+
 if __name__ == "__main__":
     unittest.main()

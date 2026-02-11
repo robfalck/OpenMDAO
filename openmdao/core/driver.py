@@ -287,6 +287,12 @@ class Driver(object, metaclass=DriverMetaclass):
 
         # Optimization-specific attributes
         self._autoscaler = None
+
+        # Cached DriverVector instances for efficient model interface
+        self._dv_vector = None
+        self._cons_vector = None
+        self._objs_vector = None
+
         self._cons = {}
         self._objs = {}
         self._lin_dvs = {}
@@ -479,7 +485,11 @@ class Driver(object, metaclass=DriverMetaclass):
         problem : <Problem>
             Pointer to the containing problem.
         """
-        # Setup autoscaler if present (optimization-specific)
+        # Setup autoscaler (assign default if not present for unit conversion)
+        if self.autoscaler is None:
+            from openmdao.drivers.autoscalers.default_autoscaler import DefaultAutoscaler
+            self.autoscaler = DefaultAutoscaler()
+
         if self.autoscaler:
             self.autoscaler.setup(self)
 
@@ -609,6 +619,14 @@ class Driver(object, metaclass=DriverMetaclass):
 
         self._remote_responses = self._remote_cons.copy()
         self._remote_responses.update(self._remote_objs)
+
+        # Create cached DriverVector instances for efficient model interface
+        # These are created after all metadata is populated but before coloring
+        self._dv_vector = self.get_design_var_vector(driver_scaling=True, get_remote=True)
+        self._cons_vector = self.get_response_vector(objectives=False, constraints=True,
+                                                      driver_scaling=True, get_remote=True)
+        self._objs_vector = self.get_response_vector(objectives=True, constraints=False,
+                                                      driver_scaling=True, get_remote=True)
 
         # set up simultaneous deriv coloring
         if coloring_mod._use_total_sparsity:
