@@ -623,8 +623,10 @@ class ScipyOptimizeDriver(Driver):
                 self._desvar_array_cache = np.empty(x_new.shape, dtype=x_new.dtype)
 
             self._desvar_array_cache[:] = x_new
+            self._dv_vector.asarray()[:] = x_new
 
-            self._scipy_update_design_vars(x_new)
+            # self._scipy_update_design_vars(x_new)
+            self._dv_vector.set_into_model(self)
 
             with RecordingDebugging(self._get_name(), self.iter_count, self):
                 self.iter_count += 1
@@ -632,9 +634,11 @@ class ScipyOptimizeDriver(Driver):
                     self._run_solve_nonlinear()
 
             # Get the objective function evaluations
-            for obj in self.get_objective_values().values():
-                f_new = obj
-                break
+            self._objs_vector.get_from_model(self, vector_type='constraint')
+            f_new = self._objs_vector.asarray()
+            # for obj in self.get_objective_values().values():
+            #     f_new = obj
+            #     break
 
             self._con_cache = self.get_constraint_values()
 

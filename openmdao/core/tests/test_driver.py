@@ -588,6 +588,7 @@ class TestDriver(unittest.TestCase):
     def test_units_with_scaling(self):
         prob = om.Problem()
         model = prob.model
+        prob.driver = om.ScipyOptimizeDriver()
 
         ivc = om.IndepVarComp()
         ivc.add_output('x', 35.0, units='degF')

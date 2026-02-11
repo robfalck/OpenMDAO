@@ -490,8 +490,7 @@ class Driver(object, metaclass=DriverMetaclass):
             from openmdao.drivers.autoscalers.default_autoscaler import DefaultAutoscaler
             self.autoscaler = DefaultAutoscaler()
 
-        if self.autoscaler:
-            self.autoscaler.setup(self)
+        self.autoscaler.setup(self)
 
         model = problem.model
 
@@ -621,7 +620,6 @@ class Driver(object, metaclass=DriverMetaclass):
         self._remote_responses.update(self._remote_objs)
 
         # Create cached DriverVector instances for efficient model interface
-        # These are created after all metadata is populated but before coloring
         self._dv_vector = self.get_design_var_vector(driver_scaling=True, get_remote=True)
         self._cons_vector = self.get_response_vector(objectives=False, constraints=True,
                                                       driver_scaling=True, get_remote=True)
