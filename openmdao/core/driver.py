@@ -23,6 +23,7 @@ from openmdao.utils.options_dictionary import OptionsDictionary
 import openmdao.utils.coloring as coloring_mod
 from openmdao.utils.array_utils import sizes2offsets
 from openmdao.vectors.vector import _full_slice, _flat_full_indexer
+from openmdao.vectors.driver_vector import DriverVector
 from openmdao.utils.indexer import indexer
 from openmdao.utils.om_warnings import issue_warning, DerivativesWarning, \
     DriverWarning, OMDeprecationWarning, warn_deprecation
@@ -284,6 +285,18 @@ class Driver(object, metaclass=DriverMetaclass):
         self._nl_dvs = None
         self._in_find_feasible = False
 
+        # Optimization-specific attributes
+        self._autoscaler = None
+        self._cons = {}
+        self._objs = {}
+        self._lin_dvs = {}
+        self._nl_dvs = {}
+        self._remote_dvs = {}
+        self._remote_cons = {}
+        self._remote_objs = {}
+        self._dist_driver_vars = {}
+        self._in_find_feasible = False
+
         # Driver options
         self.options = OptionsDictionary(parent_name=type(self).__name__)
 
@@ -383,6 +396,16 @@ class Driver(object, metaclass=DriverMetaclass):
         """
         return type(self).__name__
 
+    @property
+    def autoscaler(self):
+        """Get the Autoscaler for this driver."""
+        return self._autoscaler
+
+    @autoscaler.setter
+    def autoscaler(self, a):
+        """Set the Autoscaler for this driver."""
+        self._autoscaler = a
+
     def add_recorder(self, recorder):
         """
         Add a recorder to the driver.
@@ -407,7 +430,16 @@ class Driver(object, metaclass=DriverMetaclass):
 
         This is optionally implemented by subclasses of Driver.
         """
-        pass
+        # Optimization-specific options
+        self.options.declare('singular_jac_behavior', default='warn',
+                             values=['error', 'warn', 'ignore'],
+                             desc='Defines behavior of a zero row/col check after first call to '
+                                  'compute_totals: '
+                                  'error - raise an error. '
+                                  'warn - raise a warning. '
+                                  "ignore - don't perform check.")
+        self.options.declare('singular_jac_tol', default=1e-16,
+                             desc='Tolerance for zero row/column check.')
 
     def _setup_comm(self, comm):
         """
@@ -447,6 +479,10 @@ class Driver(object, metaclass=DriverMetaclass):
         problem : <Problem>
             Pointer to the containing problem.
         """
+        # Setup autoscaler if present (optimization-specific)
+        if self.autoscaler:
+            self.autoscaler.setup(self)
+
         model = problem.model
 
         self._total_jac = None
@@ -998,6 +1034,91 @@ class Driver(object, metaclass=DriverMetaclass):
                                      driver_scaling=driver_scaling)
                 for n, dvmeta in self._designvars.items()}
 
+    def get_design_var_vector(self, driver_scaling=True, get_remote=True):
+        """
+        Return design variable values as a single concatenated vector.
+
+        This method assembles all design variable values into a single flat numpy array
+        with consistent ordering (alphabetical by name). It provides efficient access to
+        all design variables in vector form, which is useful for optimization algorithms,
+        sensitivity analysis, and gradient computations.
+
+        Parameters
+        ----------
+        driver_scaling : bool, optional
+            When True, return values that are scaled according to either the adder and
+            scaler or the ref and ref0 values that were specified when add_design_var
+            was called on the model. Default is True.
+        get_remote : bool, optional
+            If True, retrieve the value even if it is on a remote process. Note that if
+            the variable is remote on ANY process, this function must be called on EVERY
+            process in the Problem's MPI communicator. If False, only retrieve the value
+            if it is on the current process, or only the part of the value that's on the
+            current process for a distributed variable. Default is True.
+
+        Returns
+        -------
+        DriverVector
+            A DriverVector instance providing name-based indexing into design variable values.
+            Supports operations like:
+            - vec['x'] to get design variable by name
+            - vec.asarray() to get underlying numpy array
+            - vec.get_metadata() to access metadata
+            - Standard dict-like iteration: vec.keys(), vec.items(), etc.
+
+        Notes
+        -----
+        Design variables are ordered alphabetically by name for consistency.
+
+        For distributed design variables, the full vector is gathered when get_remote=True.
+
+        Examples
+        --------
+        >>> vec = prob.driver.get_design_var_vector()
+        >>> x_val = vec['x']  # Get design variable by name
+        >>> print(f"Total design space dimension: {vec.asarray().size}")
+        >>> for name, value in vec.items():
+        ...     print(f"{name}: {value}")
+        """
+        # Sort design variable names alphabetically for consistent ordering
+        sorted_names = sorted(self._designvars.keys())
+
+        # Calculate total size
+        total_size = sum(self._designvars[n]['size'] for n in sorted_names)
+
+        # Pre-allocate the vector
+        vector = np.zeros(total_size)
+
+        # Build vector and metadata
+        metadata = {}
+        offset = 0
+
+        for name in sorted_names:
+            dvmeta = self._designvars[name]
+
+            # Get the value for this design variable
+            val = self._get_voi_val(name, dvmeta, self._remote_dvs,
+                                   driver_scaling=driver_scaling, get_remote=get_remote)
+
+            # Calculate size and place in vector
+            size = val.size
+            vector[offset:offset + size] = val.flat
+
+            # Record metadata for this variable
+            metadata[name] = {
+                'start_idx': offset,
+                'end_idx': offset + size,
+                'size': size,
+                'global_size': dvmeta['global_size'],
+                'distributed': name in self._dist_driver_vars,
+                'indices': dvmeta['indices'],
+                'source': dvmeta['source'],
+            }
+
+            offset += size
+
+        return DriverVector(vector, metadata)
+
     def set_design_var(self, name, value, set_remote=True):
         """
         Set the value of a design variable.
@@ -1069,6 +1190,33 @@ class Driver(object, metaclass=DriverMetaclass):
                 adder = meta['total_adder']
                 if adder is not None:
                     desvar[loc_idxs] -= adder
+
+    def _filter_constraints(self, ctype='all', lintype='all'):
+        """
+        Filter constraints based on type and linearity.
+
+        Parameters
+        ----------
+        ctype : str
+            'all', 'eq', or 'ineq' - filters by equality vs inequality
+        lintype : str
+            'all', 'linear', or 'nonlinear' - filters by linearity
+
+        Returns
+        -------
+        iterator
+            Iterator of (name, meta) tuples for filtered constraints
+        """
+        it = self._cons.items()
+        if lintype == 'linear':
+            it = filter_by_meta(it, 'linear')
+        elif lintype == 'nonlinear':
+            it = filter_by_meta(it, 'linear', exclude=True)
+        if ctype == 'eq':
+            it = filter_by_meta(it, 'equals', chk_none=True)
+        elif ctype == 'ineq':
+            it = filter_by_meta(it, 'equals', chk_none=True, exclude=True)
+        return it
 
     def get_objective_values(self, driver_scaling=True):
         """
@@ -1157,6 +1305,170 @@ class Driver(object, metaclass=DriverMetaclass):
                                                    driver_scaling=driver_scaling)
 
         return con_dict
+
+    def get_response_vector(self, objectives=True, constraints=True, active_only=False,
+                           ctype='all', lintype='all', driver_scaling=True, get_remote=True,
+                           feas_atol=1.e-6, feas_rtol=1.e-6):
+        """
+        Return objectives and/or constraints as a single concatenated vector.
+
+        This method assembles objective and constraint values into a single flat numpy array
+        with consistent ordering (alphabetical by name). It provides efficient access to
+        responses in vector form for optimization algorithms and sensitivity analysis.
+
+        Parameters
+        ----------
+        objectives : bool, optional
+            If True, include objectives in the response vector. Default is True.
+        constraints : bool, optional
+            If True, include constraints in the response vector. Default is True.
+        active_only : bool, optional
+            If True and constraints=True, only include constraints that are active (at or near
+            their bounds). Equality constraints are always considered active. Default is False.
+        ctype : str, optional
+            Type of constraints to include. 'all' includes both equality and inequality constraints,
+            'eq' includes only equality constraints, 'ineq' includes only inequality constraints.
+            Ignored if constraints=False. Default is 'all'.
+        lintype : str, optional
+            Linearity type of constraints to include. 'all' includes both linear and nonlinear
+            constraints, 'linear' includes only linear constraints, 'nonlinear' includes only
+            nonlinear constraints. Ignored if constraints=False. Default is 'all'.
+        driver_scaling : bool, optional
+            When True, return values that are scaled according to either the adder and scaler or
+            the ref and ref0 values. Default is True.
+        get_remote : bool, optional
+            If True, retrieve values even if on a remote process. Note that if any variable is
+            remote on ANY process, this function must be called on EVERY process in the Problem's
+            MPI communicator. Default is True.
+        feas_atol : float, optional
+            Absolute tolerance for determining constraint activity. Only used if active_only=True.
+            Default is 1e-6.
+        feas_rtol : float, optional
+            Relative tolerance for determining constraint activity. Only used if active_only=True.
+            Default is 1e-6.
+
+        Returns
+        -------
+        DriverVector
+            A DriverVector instance providing name-based indexing into response values.
+            Supports operations like:
+            - vec['constraint_name'] to get constraint by name
+            - vec.asarray() to get underlying numpy array
+            - vec.get_metadata() to access metadata including active indices for constraints
+            - Standard dict-like iteration: vec.keys(), vec.items(), etc.
+
+        Notes
+        -----
+        Responses are ordered alphabetically by name for consistency. Objectives are listed before
+        constraints in the combined vector.
+
+        For active_only=True, the method uses tolerances to determine which constraints are active
+        (at or near their bounds). The determination is based on driver-scaled constraint values.
+
+        Examples
+        --------
+        >>> # Get all objectives and constraints
+        >>> vec = prob.driver.get_response_vector()
+        >>> obj_val = vec['obj_name']
+        >>> con_val = vec['con_name']
+
+        >>> # Get only active constraints and objectives
+        >>> vec = prob.driver.get_response_vector(active_only=True)
+        >>> active_meta = vec.get_metadata('con_name')
+        >>> print(f"Active indices: {active_meta['active_indices']}")
+
+        >>> # Get only equality constraints
+        >>> vec = prob.driver.get_response_vector(objectives=False, ctype='eq')
+        """
+        # Build list of responses to include
+        response_list = []  # List of (name, meta, resp_type, remote_vois)
+        active_cons = None  # Will be populated if active_only=True
+
+        # Add objectives if requested
+        if objectives:
+            for name, obj_meta in sorted(self._objs.items()):
+                response_list.append((name, obj_meta, 'objective', self._remote_objs))
+
+        # Add constraints if requested
+        if constraints:
+            con_iter = self._filter_constraints(ctype=ctype, lintype=lintype)
+            con_names_metas = list(con_iter)
+
+            # Apply active filtering if requested
+            if active_only:
+                active_cons, _ = self._get_active_cons_and_dvs(feas_atol=feas_atol,
+                                                               feas_rtol=feas_rtol,
+                                                               assume_dvs_active=False)
+                # Filter to only active constraints
+                con_names_metas = [(n, m) for n, m in con_names_metas if n in active_cons]
+
+            for name, con_meta in sorted(con_names_metas):
+                response_list.append((name, con_meta, 'constraint', self._remote_cons))
+
+        # Calculate total size
+        total_size = 0
+        if active_only and active_cons is not None:
+            for name, meta, resp_type, _ in response_list:
+                if resp_type == 'constraint':
+                    # Size is only the active indices
+                    total_size += len(active_cons[name]['indices'])
+                else:
+                    # Objectives always use full size
+                    total_size += meta['size']
+        else:
+            total_size = sum(meta['size'] for _, meta, _, _ in response_list)
+
+        # Pre-allocate the vector
+        vector = np.zeros(total_size)
+
+        # Build vector and metadata
+        metadata = {}
+        offset = 0
+
+        for name, meta, resp_type, remote_vois in response_list:
+            # Get the value for this response
+            val = self._get_voi_val(name, meta, remote_vois, driver_scaling=driver_scaling,
+                                   get_remote=get_remote)
+
+            # Handle active constraint filtering
+            if active_only and resp_type == 'constraint' and name in active_cons:
+                active_idxs = active_cons[name]['indices']
+                active_bounds = active_cons[name]['active_bounds']
+                # Extract only active indices
+                val = val.flat[active_idxs]
+                size = len(active_idxs)
+            else:
+                size = val.size
+                active_idxs = None
+                active_bounds = None
+
+            # Place value in vector
+            vector[offset:offset + size] = val.flat
+
+            # Record metadata for this response
+            meta_entry = {
+                'start_idx': offset,
+                'end_idx': offset + size,
+                'size': size,
+                'global_size': meta['global_size'],
+                'type': resp_type,
+                'distributed': name in self._dist_driver_vars,
+                'indices': meta['indices'],
+                'source': meta['source'],
+            }
+
+            # Add constraint-specific metadata
+            if resp_type == 'constraint':
+                meta_entry['linear'] = meta.get('linear', False)
+                meta_entry['equals'] = meta.get('equals', None)
+                if active_only and active_idxs is not None:
+                    meta_entry['active_indices'] = active_idxs
+                    meta_entry['active_bounds'] = active_bounds
+
+            metadata[name] = meta_entry
+            offset += size
+
+        return DriverVector(vector, metadata)
 
     def _get_ordered_nl_responses(self):
         """
@@ -1938,16 +2250,14 @@ class Driver(object, metaclass=DriverMetaclass):
                                      list(des_vars),
                                      driver_scaling=True)
 
-        grad_f = {inp: totals[obj_name, inp] for inp in des_vars.keys()}
+        # Use new vector methods for cleaner code
+        dv_vec = self.get_design_var_vector(driver_scaling=True, get_remote=True)
+        dv_meta = dv_vec.get_metadata()
 
-        n = sum([grad_f_val.size for grad_f_val in grad_f.values()])
-
-        grad_f_vec = np.zeros((n))
-        offset = 0
-        for grad_f_val in grad_f.values():
-            inp_size = grad_f_val.size
-            grad_f_vec[offset:offset + inp_size] = grad_f_val
-            offset += inp_size
+        # Build objective gradient vector using metadata for consistent ordering
+        grad_f_vec = np.zeros(dv_vec.asarray().size)
+        for name, meta in dv_meta.items():
+            grad_f_vec[meta['start_idx']:meta['end_idx']] = totals[obj_name, name].flat
 
         active_jac_blocks = []
 
@@ -1961,32 +2271,49 @@ class Driver(object, metaclass=DriverMetaclass):
             active_idxs = active_meta['indices']
 
             size = des_vars[dv_name]['size']
-            con_grad = {(dv_name, inp): np.eye(size)[active_idxs, ...] if inp == dv_name
-                        else np.zeros((size, dv_meta['size']))[active_idxs, ...]
-                        for (inp, dv_meta) in des_vars.items()}
+            con_grad_blocks = []
+            for inp_name, inp_meta in dv_meta.items():
+                if inp_name == dv_name:
+                    block = np.eye(size)[active_idxs, :]
+                else:
+                    block = np.zeros((len(active_idxs), inp_meta['size']))
 
-            if use_sparse_solve:
-                active_jac_blocks.append([sp.csr_matrix(cg) for cg in con_grad.values()])
-            else:
-                active_jac_blocks.append(list(con_grad.values()))
+                if use_sparse_solve:
+                    con_grad_blocks.append(sp.csr_matrix(block))
+                else:
+                    con_grad_blocks.append(block)
+
+            active_jac_blocks.append(con_grad_blocks)
 
         for (con_name, active_meta) in active_cons.items():
             # If the constraint is a design variable, the constraint gradient
             # wrt des vars is just an identity matrix sized by the number of
             # active elements in the design variable.
             active_idxs = active_meta['indices']
+            con_grad_blocks = []
+
             if con_name in des_vars.keys():
                 size = des_vars[con_name]['size']
-                con_grad = {(con_name, inp): np.eye(size)[active_idxs, ...] if inp == con_name
-                            else np.zeros((size, dv_meta['size']))[active_idxs, ...]
-                            for (inp, dv_meta) in des_vars.items()}
+                for inp_name, inp_meta in dv_meta.items():
+                    if inp_name == con_name:
+                        block = np.eye(size)[active_idxs, :]
+                    else:
+                        block = np.zeros((len(active_idxs), inp_meta['size']))
+
+                    if use_sparse_solve:
+                        con_grad_blocks.append(sp.csr_matrix(block))
+                    else:
+                        con_grad_blocks.append(block)
             else:
-                con_grad = {(con_name, inp): totals[con_name, inp][active_idxs, ...]
-                            for inp in des_vars.keys()}
-            if use_sparse_solve:
-                active_jac_blocks.append([sp.csr_matrix(cg) for cg in con_grad.values()])
-            else:
-                active_jac_blocks.append(list(con_grad.values()))
+                for inp_name, inp_meta in dv_meta.items():
+                    block = totals[con_name, inp_name][active_idxs, ...]
+
+                    if use_sparse_solve:
+                        con_grad_blocks.append(sp.csr_matrix(block))
+                    else:
+                        con_grad_blocks.append(block)
+
+            active_jac_blocks.append(con_grad_blocks)
 
         if use_sparse_solve:
             active_cons_mat = sp.block_array(active_jac_blocks)

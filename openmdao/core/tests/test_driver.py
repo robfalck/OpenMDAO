@@ -1148,6 +1148,327 @@ class TestDriverMPI(unittest.TestCase):
         assert_near_equal(y_star, -7.3333, tolerance=1.0E-3)
 
 
+@use_tempdirs
+class TestVectorMethods(unittest.TestCase):
+    """Test the get_design_var_vector and get_response_vector methods."""
+
+    def test_get_design_var_vector_basic(self):
+        """Test basic functionality of get_design_var_vector."""
+        prob = om.Problem()
+        prob.model = model = SellarDerivatives()
+
+        model.add_design_var('z')
+        model.add_design_var('x')
+        model.add_objective('obj')
+        model.add_constraint('con1', lower=0)
+        prob.set_solver_print(level=0)
+
+        prob.setup()
+        prob.run_model()
+
+        # Get DriverVector
+        vec = prob.driver.get_design_var_vector()
+        dv_dict = prob.driver.get_design_var_values()
+
+        # Verify sizes match
+        expected_size = sum(v.size for v in dv_dict.values())
+        self.assertEqual(vec.asarray().size, expected_size)
+
+        # Verify values in correct order (alphabetical: x, z) using name-based indexing
+        names = sorted(dv_dict.keys())
+        for name in names:
+            val = dv_dict[name]
+            assert_near_equal(vec[name], np.asarray(val).flat[:])
+
+            # Verify metadata
+            meta = vec.get_metadata(name)
+            self.assertIn('start_idx', meta)
+            self.assertIn('end_idx', meta)
+            self.assertEqual(meta['size'], val.size)
+
+    def test_get_design_var_vector_scaling(self):
+        """Test driver_scaling parameter of get_design_var_vector."""
+        prob = om.Problem()
+        prob.model = model = SellarDerivatives()
+
+        model.add_design_var('z', ref=50.0, ref0=0.0)  # Apply scaling
+        model.add_design_var('x', ref=2.0)
+        model.add_objective('obj')
+        prob.set_solver_print(level=0)
+
+        prob.setup()
+        prob.run_model()
+
+        # Get scaled and unscaled versions
+        vec_scaled = prob.driver.get_design_var_vector(driver_scaling=True)
+        vec_unscaled = prob.driver.get_design_var_vector(driver_scaling=False)
+
+        # They should be different due to scaling
+        self.assertFalse(np.allclose(vec_scaled.asarray(), vec_unscaled.asarray()))
+
+        # Verify consistency with dict methods
+        dv_dict_scaled = prob.driver.get_design_var_values(driver_scaling=True)
+        dv_dict_unscaled = prob.driver.get_design_var_values(driver_scaling=False)
+
+        expected_scaled = np.concatenate([np.asarray(dv_dict_scaled[n]).flat for n in sorted(dv_dict_scaled.keys())])
+        expected_unscaled = np.concatenate([np.asarray(dv_dict_unscaled[n]).flat for n in sorted(dv_dict_unscaled.keys())])
+
+        assert_near_equal(vec_scaled.asarray(), expected_scaled)
+        assert_near_equal(vec_unscaled.asarray(), expected_unscaled)
+
+    def test_get_design_var_vector_array(self):
+        """Test get_design_var_vector with array design variables."""
+        prob = om.Problem()
+        dvs = prob.model.add_subsystem('dv', om.IndepVarComp())
+        dvs.add_output('x_array', np.array([1.0, 2.0, 3.0]))
+        dvs.add_output('y', 5.0)
+        prob.model.add_subsystem('obj', om.ExecComp('f = sum(x_array) + y',
+                                                    x_array=np.array([1.0, 2.0, 3.0])))
+        prob.model.connect('dv.x_array', 'obj.x_array')
+        prob.model.connect('dv.y', 'obj.y')
+
+        prob.model.dv.add_design_var('x_array')
+        prob.model.dv.add_design_var('y')
+        prob.model.add_objective('obj.f')
+
+        prob.setup()
+        prob.run_model()
+
+        vec = prob.driver.get_design_var_vector()
+
+        # x_array has 3 elements, y has 1, total should be 4
+        self.assertEqual(vec.asarray().size, 4)
+
+        # Check metadata for each variable using get_metadata
+        meta_x_array = vec.get_metadata('dv.x_array')
+        meta_y = vec.get_metadata('dv.y')
+        self.assertEqual(meta_x_array['size'], 3)
+        self.assertEqual(meta_y['size'], 1)
+        self.assertEqual(meta_x_array['end_idx'], 3)
+        self.assertEqual(meta_y['start_idx'], 3)
+
+    def test_get_response_vector_basic(self):
+        """Test basic functionality of get_response_vector."""
+        prob = om.Problem()
+        prob.model = model = SellarDerivatives()
+
+        model.add_design_var('z')
+        model.add_design_var('x')
+        model.add_objective('obj')
+        model.add_constraint('con1', lower=0)
+        model.add_constraint('con2', lower=0)
+        prob.set_solver_print(level=0)
+
+        prob.setup()
+        prob.run_model()
+
+        # Get DriverVector
+        vec = prob.driver.get_response_vector()
+
+        # Verify metadata has correct types
+        self.assertEqual(vec.get_metadata('obj')['type'], 'objective')
+        self.assertEqual(vec.get_metadata('con1')['type'], 'constraint')
+        self.assertEqual(vec.get_metadata('con2')['type'], 'constraint')
+
+        # Verify objectives come before constraints in vector
+        obj_end = vec.get_metadata('obj')['end_idx']
+        con1_start = vec.get_metadata('con1')['start_idx']
+        self.assertEqual(obj_end, con1_start)  # They should be contiguous
+
+    def test_get_response_vector_objectives_only(self):
+        """Test get_response_vector with objectives_only."""
+        prob = om.Problem()
+        prob.model = model = SellarDerivatives()
+
+        model.add_design_var('z')
+        model.add_objective('obj')
+        model.add_constraint('con1', lower=0)
+        prob.set_solver_print(level=0)
+
+        prob.setup()
+        prob.run_model()
+
+        # Get objectives only
+        vec_objs = prob.driver.get_response_vector(objectives=True, constraints=False)
+
+        # Get all responses
+        vec_all = prob.driver.get_response_vector(objectives=True, constraints=True)
+
+        # Objectives part should be the same
+        obj_size = vec_objs.get_metadata('obj')['size']
+        assert_near_equal(vec_objs['obj'], vec_all['obj'])
+
+        # Should not have constraints in objectives-only version
+        self.assertNotIn('con1', vec_objs)
+
+    def test_get_response_vector_constraints_only(self):
+        """Test get_response_vector with constraints_only."""
+        prob = om.Problem()
+        prob.model = model = SellarDerivatives()
+
+        model.add_design_var('z')
+        model.add_objective('obj')
+        model.add_constraint('con1', lower=0)
+        model.add_constraint('con2', lower=0)
+        prob.set_solver_print(level=0)
+
+        prob.setup()
+        prob.run_model()
+
+        # Get constraints only
+        vec_cons = prob.driver.get_response_vector(objectives=False, constraints=True)
+
+        # Should have constraints but not objectives
+        self.assertIn('con1', vec_cons)
+        self.assertIn('con2', vec_cons)
+        self.assertNotIn('obj', vec_cons)
+
+    def test_get_response_vector_ctype_filter(self):
+        """Test ctype filtering (equality vs inequality)."""
+        prob = om.Problem()
+        prob.model.add_subsystem('p1', om.IndepVarComp('x', 1.0), promotes=['*'])
+        prob.model.add_subsystem('p2', om.IndepVarComp('y', 1.0), promotes=['*'])
+        prob.model.add_subsystem('comp', om.ExecComp('z = x + y; w = x - y; v = x * 2'), promotes=['*'])
+
+        prob.model.add_design_var('x')
+        prob.model.add_objective('z')
+        prob.model.add_constraint('w', equals=0)  # Equality constraint
+        prob.model.add_constraint('v', lower=0)   # Inequality constraint
+
+        prob.setup()
+        prob.run_model()
+
+        # Get only equality constraints
+        vec_eq = prob.driver.get_response_vector(objectives=False, ctype='eq')
+        self.assertIn('w', vec_eq)
+        self.assertNotIn('v', vec_eq)
+
+        # Get only inequality constraints
+        vec_ineq = prob.driver.get_response_vector(objectives=False, ctype='ineq')
+        self.assertIn('v', vec_ineq)
+        self.assertNotIn('w', vec_ineq)
+
+        # Get all constraints
+        vec_all = prob.driver.get_response_vector(objectives=False, ctype='all')
+        self.assertIn('w', vec_all)
+        self.assertIn('v', vec_all)
+
+    def test_get_response_vector_scaling(self):
+        """Test driver_scaling parameter of get_response_vector."""
+        prob = om.Problem()
+        prob.model = model = SellarDerivatives()
+
+        model.add_design_var('z')
+        model.add_objective('obj', ref=10.0)  # Apply scaling
+        model.add_constraint('con1', lower=0, ref=1.0)
+        prob.set_solver_print(level=0)
+
+        prob.setup()
+        prob.run_model()
+
+        # Get scaled and unscaled versions
+        vec_scaled = prob.driver.get_response_vector(driver_scaling=True)
+        vec_unscaled = prob.driver.get_response_vector(driver_scaling=False)
+
+        # They should be different due to scaling
+        self.assertFalse(np.allclose(vec_scaled.asarray(), vec_unscaled.asarray()))
+
+    def test_get_response_vector_active_only(self):
+        """Test active_only parameter of get_response_vector."""
+        prob = om.Problem()
+        prob.model = model = SellarDerivatives()
+
+        model.add_design_var('z')
+        model.add_design_var('x')
+        model.add_objective('obj')
+        model.add_constraint('con1', lower=0)
+        model.add_constraint('con2', lower=0)
+        prob.set_solver_print(level=0)
+
+        prob.setup()
+        prob.run_model()
+
+        # Get all constraints
+        vec_all = prob.driver.get_response_vector(constraints=True, active_only=False)
+
+        # Get only active constraints
+        vec_active = prob.driver.get_response_vector(constraints=True, active_only=True)
+
+        # Objectives should be identical
+        obj_size_all = vec_all.get_metadata('obj')['size']
+        obj_size_active = vec_active.get_metadata('obj')['size']
+        self.assertEqual(obj_size_all, obj_size_active)
+        assert_near_equal(vec_all['obj'], vec_active['obj'])
+
+        # Active version should have metadata about active indices
+        for con_name in ['con1', 'con2']:
+            meta = vec_active.get_metadata()
+            if con_name in meta:
+                # Should have active_indices and active_bounds
+                self.assertIn('active_indices', meta[con_name])
+                self.assertIn('active_bounds', meta[con_name])
+
+    def test_get_response_vector_empty(self):
+        """Test get_response_vector with no objectives or constraints."""
+        prob = om.Problem()
+        prob.model.add_subsystem('p', om.IndepVarComp('x', 1.0), promotes=['*'])
+        prob.model.add_design_var('x')
+
+        prob.setup()
+        prob.run_model()
+
+        # Get empty response vector
+        vec = prob.driver.get_response_vector(objectives=False, constraints=False)
+
+        self.assertEqual(vec.asarray().size, 0)
+        self.assertEqual(len(vec), 0)
+
+    def test_metadata_consistency(self):
+        """Test that metadata indices are consistent and non-overlapping."""
+        prob = om.Problem()
+        prob.model = model = SellarDerivatives()
+
+        model.add_design_var('z')
+        model.add_design_var('x')
+        model.add_objective('obj')
+        model.add_constraint('con1', lower=0)
+        prob.set_solver_print(level=0)
+
+        prob.setup()
+        prob.run_model()
+
+        # Test design variables
+        vec = prob.driver.get_design_var_vector()
+        meta = vec.get_metadata()
+
+        # Verify no overlaps and correct ordering
+        prev_end = 0
+        for name in sorted(meta.keys()):
+            info = meta[name]
+            self.assertEqual(info['start_idx'], prev_end)
+            self.assertEqual(info['end_idx'] - info['start_idx'], info['size'])
+            prev_end = info['end_idx']
+
+        self.assertEqual(prev_end, vec.asarray().size)
+
+        # Test responses
+        vec = prob.driver.get_response_vector()
+        meta = vec.get_metadata()
+
+        # Verify no overlaps and correct ordering
+        # Responses are ordered: objectives first (alphabetically), then constraints (alphabetically)
+        prev_end = 0
+        objs = sorted([name for name, info in meta.items() if info['type'] == 'objective'])
+        cons = sorted([name for name, info in meta.items() if info['type'] == 'constraint'])
+        for name in objs + cons:
+            info = meta[name]
+            self.assertEqual(info['start_idx'], prev_end)
+            self.assertEqual(info['end_idx'] - info['start_idx'], info['size'])
+            prev_end = info['end_idx']
+
+        self.assertEqual(prev_end, vec.asarray().size)
+
+
 class TestLinearOnlyDVs(unittest.TestCase):
     def build_model(self, driver):
 
