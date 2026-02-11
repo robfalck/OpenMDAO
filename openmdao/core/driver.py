@@ -1477,6 +1477,8 @@ class Driver(object, metaclass=DriverMetaclass):
             if resp_type == 'constraint':
                 meta_entry['linear'] = meta.get('linear', False)
                 meta_entry['equals'] = meta.get('equals', None)
+                meta_entry['lower'] = meta.get('lower', None)
+                meta_entry['upper'] = meta.get('upper', None)
                 if active_only and active_idxs is not None:
                     meta_entry['active_indices'] = active_idxs
                     meta_entry['active_bounds'] = active_bounds
