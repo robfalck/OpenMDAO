@@ -997,7 +997,7 @@ class Driver(object, metaclass=DriverMetaclass):
                                      driver_scaling=driver_scaling)
                 for n, dvmeta in self._designvars.items()}
 
-    def set_design_var(self, name, value, set_remote=True):
+    def set_design_var(self, name, value, set_remote=True, unscale=True):
         """
         Set the value of a design variable.
 
@@ -1012,6 +1012,9 @@ class Driver(object, metaclass=DriverMetaclass):
         set_remote : bool
             If True, set the global value of the variable (value must be of the global size).
             If False, set the local value of the variable (value must be of the local size).
+        unscale : bool
+            If True, unscale the variable to the model space using classic scalers and adders.
+            If using an Autoscaler, one should assume that the value has already been unscaled.
         """
         problem = self._problem()
         meta = self._designvars[name]
@@ -1060,7 +1063,7 @@ class Driver(object, metaclass=DriverMetaclass):
                 desvar[loc_idxs] = np.atleast_1d(value)
 
             # Undo driver scaling when setting design var values into model.
-            if self._has_scaling:
+            if self._has_scaling and unscale:
                 scaler = meta['total_scaler']
                 if scaler is not None:
                     desvar[loc_idxs] *= 1.0 / scaler
