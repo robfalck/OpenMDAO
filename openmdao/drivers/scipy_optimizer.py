@@ -46,9 +46,7 @@ if Version(scipy_version) >= Version("1.14"):
     _constraint_optimizers |= {'COBYQA'}
 
 _eq_constraint_optimizers = {'SLSQP', 'trust-constr'}
-_global_optimizers = {'differential_evolution', 'basinhopping'}
-if Version(scipy_version) >= Version("1.2"):  # Only available in newer versions
-    _global_optimizers |= {'shgo', 'dual_annealing'}
+_global_optimizers = {'differential_evolution', 'basinhopping', 'shgo', 'dual_annealing'}
 
 # Global optimizers and optimizers in minimize
 _all_optimizers = _optimizers | _global_optimizers
@@ -67,7 +65,6 @@ if Version(scipy_version) >= Version("1.4"):
     _supports_new_style.add('differential_evolution')
 if Version(scipy_version) >= Version("1.14"):
     _supports_new_style.add('COBYQA')
-_use_new_style = True  # Recommended to set to True
 
 CITATIONS = """
 @article{Hwang_maud_2018
@@ -116,8 +113,6 @@ class ScipyOptimizeDriver(OptimizationDriverBase):
         Dictionary of solver-specific options. See the scipy.optimize.minimize documentation.
     _check_jac : bool
         Used internally to control when to perform singular checks on computed total derivs.
-    _con_cache : dict
-        Cached result of constraint evaluations because scipy asks for them in a separate function.
     _con_idx : dict
         Used for constraint bookkeeping in the presence of 2-sided constraints.
     _grad_cache : {}
@@ -130,8 +125,6 @@ class ScipyOptimizeDriver(OptimizationDriverBase):
         Copy of _designvars.
     _lincongrad_cache : np.ndarray
         Pre-calculated gradients of linear constraints.
-    _desvar_array_cache : np.ndarray
-        Cached array for setting design variables.
     """
 
     def __init__(self, **kwargs):
@@ -160,12 +153,10 @@ class ScipyOptimizeDriver(OptimizationDriverBase):
 
         self._scipy_optimize_result = None
         self._grad_cache = None
-        self._con_cache = None
         self._con_idx = {}
         self._obj_and_nlcons = None
         self._dvlist = None
         self._lincongrad_cache = None
-        self._desvar_array_cache = None
         self.fail = False
         self.iter_count = 0
         self._check_jac = False
@@ -264,7 +255,6 @@ class ScipyOptimizeDriver(OptimizationDriverBase):
         self.iter_count = 0
         self._total_jac = None
         self._total_jac_linear = None
-        self._desvar_array_cache = None
 
         self._check_for_missing_objective()
         self._check_for_invalid_desvar_values()
@@ -275,8 +265,8 @@ class ScipyOptimizeDriver(OptimizationDriverBase):
                 self._run_solve_nonlinear()
             self.iter_count += 1
 
-        self._con_cache = self.get_constraint_values()
         desvar_vals = self.get_design_var_values()
+        self.get_vector_from_model('design_var', in_place=True)
         self._dvlist = list(self._designvars)
 
         # maxiter and disp get passed into scipy with all the other options.
@@ -331,7 +321,7 @@ class ScipyOptimizeDriver(OptimizationDriverBase):
 
                     bounds.append((p_low, p_high))
 
-        if use_bounds and (opt in _supports_new_style) and _use_new_style:
+        if use_bounds and (opt in _supports_new_style):
             # For 'trust-constr' it is better to use the new type bounds, because it seems to work
             # better (for the current examples in the tests) with the "keep_feasible" option
             try:
@@ -388,7 +378,7 @@ class ScipyOptimizeDriver(OptimizationDriverBase):
 
                 # In scipy constraint optimizers take constraints in two separate formats
 
-                if opt in _supports_new_style and _use_new_style:
+                if opt in _supports_new_style:
                     # Type of constraints is list of NonlinearConstraint and/or LinearConstraint
                     try:
                         from scipy.optimize import NonlinearConstraint, LinearConstraint
@@ -614,30 +604,31 @@ class ScipyOptimizeDriver(OptimizationDriverBase):
         """
         model = self._problem().model
 
+        # Set x_new into the design_var vector (x_new is in optimizer-scaled space)
+        self._vectors['design_var'].set_data(x_new)
+
         try:
 
             # Pass in new inputs
             if MPI:
                 model.comm.Bcast(x_new, root=0)
 
-            if self._desvar_array_cache is None:
-                self._desvar_array_cache = np.empty(x_new.shape, dtype=x_new.dtype)
-
-            self._desvar_array_cache[:] = x_new
-
-            self._scipy_update_design_vars(x_new)
+            # Unscale the design variables and set them into model.
+            self.set_design_vars(unscale=True)
 
             with RecordingDebugging(self._get_name(), self.iter_count, self):
                 self.iter_count += 1
                 with model._relevance.nonlinear_active('iter'):
                     self._run_solve_nonlinear()
 
-            # Get the objective function evaluations
-            for obj in self.get_objective_values().values():
-                f_new = obj
-                break
-
-            self._con_cache = self.get_constraint_values()
+            # Store the optimizer-scaled objective and constraints in _vectors
+            f_new = self.get_vector_from_model('objective',
+                                               driver_scaling=True,
+                                               in_place=True).asarray()
+            
+            self.get_vector_from_model('constraint',
+                                       driver_scaling=True,
+                                       in_place=True)
 
         except Exception:
             if self._exc_info is None:  # only record the first one
@@ -677,8 +668,8 @@ class ScipyOptimizeDriver(OptimizationDriverBase):
         if self.options['optimizer'] in ['differential_evolution', 'COBYQA']:
             # the DE opt will not have called this, so we do it here to update DV/resp values
             self._objfunc(x_new)
-
-        return self._con_cache[name][idx]
+        
+        return self._vectors['constraint'][name][idx]
 
     def _confunc(self, x_new, name, dbl, idx):
         """
@@ -706,15 +697,17 @@ class ScipyOptimizeDriver(OptimizationDriverBase):
         if self._exc_info is not None:
             self._reraise()
 
-        cons = self._con_cache
-        meta = self._cons[name]
+        con_vec = self._vectors['constraint']
+
+        val = con_vec[name][idx]
+        meta = con_vec.get_metadata(name)
 
         # Equality constraints
         equals = meta['equals']
         if equals is not None:
             if isinstance(equals, np.ndarray):
                 equals = equals[idx]
-            return cons[name][idx] - equals
+            return val - equals
 
         # Note, scipy defines constraints to be satisfied when positive,
         # which is the opposite of OpenMDAO.
@@ -727,9 +720,9 @@ class ScipyOptimizeDriver(OptimizationDriverBase):
             lower = lower[idx]
 
         if dbl or (lower <= -INF_BOUND):
-            return upper - cons[name][idx]
+            return upper - val
         else:
-            return cons[name][idx] - lower
+            return val - lower
 
     def _gradfunc(self, x_new):
         """

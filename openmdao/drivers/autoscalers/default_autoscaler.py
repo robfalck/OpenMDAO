@@ -2,58 +2,82 @@ from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from openmdao.core.driver import Driver
-    from openmdao.vectors.driver_vector import DriverVector
+    from openmdao.vectors.optimizer_vector import OptimizerVector
 
 
-class DefaultAutoscaler:
-
-    def __init__(self):
-        pass
+class AutoscalerBase:
 
     def setup(self, driver: 'Driver'):
-        self._driver = driver
+        self._var_meta : dict[str, dict[str, dict]] = {
+            'design_var': driver._designvars,
+            'constraint': driver._cons,
+            'objective': driver._objs
+        }
 
-    def unscale_desvars(self, desvars: 'DriverVector'):
+
+class DefaultAutoscaler(AutoscalerBase):
+
+    def apply_unscaling(self, vec: 'OptimizerVector', name: str):
         """
-        Unscale the design variables from the optimizer space to the model space.
+        Unscale the optmization variables from the optimizer space to the model space.
 
-        This will be called at every iteration and should therefore be as efficient as possible.
-        Several implementations of autoscaling effectively compute it as
-        "x_model = M @ x_optimizer".
-        In large problems, M will need to be sparse or be a linear operator to save memory.
+        This method will generally be applied to each design variable at every iteration.
 
         Parameters
         ----------
-        desvars : DriverVector
-            A vector of design variables in driver-scaled (optimizer) space.
+        vec : OptimizationVector
+            A vector of the scaled optimization variables.
+        name : str
+            The name of the optimization variable to be unscaled.
+        
+        Returns
+        -------
+        np.array
+            The unscaled value of the variable specified by name.
         """
-        vector_data = desvars.asarray()
-        for name, meta in desvars.get_metadata().items():
-            dv_meta = self._driver._designvars[name]
-            scaler = dv_meta['total_scaler']
-            adder = dv_meta['total_adder']
+        meta = self._var_meta[vec.voi_type][name]
+        scaler = meta['total_scaler']
+        adder = meta['total_adder']
 
-            start_idx = meta['start_idx']
-            end_idx = meta['end_idx']
+        # Unscale: x_model = x_optimizer / scaler - adder
+        # IMPORTANT: copy the vector here.
+        out = vec[name].copy()
+        if scaler is not None:
+            out /= scaler
+        if adder is not None:
+            out -= adder
+        
+        return out
+    
+    def apply_scaling(self, vec: 'OptimizerVector'):
+        """
+        Scale the vector from the model space to the optimizer space.
 
-            # Unscale: x_model = x_optimizer / scaler - adder
-            if scaler is not None:
-                vector_data[start_idx:end_idx] /= scaler
+        Scaling is applied to the optimizer vector in-place.
+        """
+        for name in vec:
+            meta = self._var_meta[vec.voi_type][name]
+            scaler = meta['total_scaler']
+            adder = meta['total_adder']
+
+            # Scale: x_optimizer = (x_model + adder) * scaler
             if adder is not None:
-                vector_data[start_idx:end_idx] -= adder
+                vec[name] += adder
+            if scaler is not None:
+                vec[name] *= scaler
 
-    def unscale_lagrange_multipliers(self, lambdas: 'DriverVector'):
+    def unscale_lagrange_multipliers(self, lambdas: 'OptimizerVector'):
         """
         Unscale the lagrange multipliers from the optimizer space to the model space.
 
         Parameters
         ----------
-        lambdas : DriverVector
+        lambdas : OptimizerVector
             A vector of Lagrange multipliers.
         """
         pass
 
-    def scale_desvars(self, desvars: 'DriverVector'):
+    def scale_desvars(self, desvars: 'OptimizerVector'):
         """
         Scale the design variables from the model space to the optimizer space.
 
@@ -61,7 +85,7 @@ class DefaultAutoscaler:
 
         Parameters
         ----------
-        desvars: DriverVector
+        desvars: OptimizerVector
             A vector of the design variables in model (unscaled) space.
         """
         vector_data = desvars.asarray()
@@ -79,13 +103,13 @@ class DefaultAutoscaler:
             if scaler is not None:
                 vector_data[start_idx:end_idx] *= scaler
 
-    def scale_cons(self, cons: 'DriverVector'):
+    def scale_cons(self, cons: 'OptimizerVector'):
         """
         Scale the constraint variables from the model space to the optimizer space.
 
         Parameters
         ----------
-        cons: DriverVector
+        cons: OptimizerVector
             A vector of the constraint variables in model (unscaled) space.
         """
         vector_data = cons.asarray()
@@ -103,13 +127,13 @@ class DefaultAutoscaler:
             if scaler is not None:
                 vector_data[start_idx:end_idx] *= scaler
 
-    def scale_objs(self, objs: 'DriverVector'):
+    def scale_objs(self, objs: 'OptimizerVector'):
         """
         Scale the objective variables from the model space to the optimizer space.
 
         Parameters
         ----------
-        objs: DriverVector
+        objs: OptimizerVector
             A vector of the objective variables in model (unscaled) space.
         """
         vector_data = objs.asarray()

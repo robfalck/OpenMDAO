@@ -1,5 +1,7 @@
 """Lightweight vector wrapper for driver-level design variables and responses."""
 
+from typing import Any, Literal
+
 import numpy as np
 
 
@@ -12,9 +14,21 @@ class OptimizerVector(object):
 
     Parameters
     ----------
+    voi_type : str ('design_var', 'constraint', 'objective', or 'lagrange_multiplier')
+        A string specifying the type of optimization variable in the vector.
     data : ndarray
         Flat numpy array containing variable values.
     metadata : dict
+        Metadata dict mapping variable names to index information. Each entry should contain
+        'start_idx', 'end_idx', and 'size' keys.
+
+    Attributes
+    ----------
+    voi_type : str ('design_var', 'constraint', 'objective', or 'lagrange_multiplier')
+        A string specifying the type of optimization variable in the vector.
+    _data : ndarray
+        Flat numpy array containing variable values.
+    _metadata : dict
         Metadata dict mapping variable names to index information. Each entry should contain
         'start_idx', 'end_idx', and 'size' keys.
 
@@ -27,10 +41,11 @@ class OptimizerVector(object):
     ...     print(f"{name}: {value}")
     """
 
-    def __init__(self, data=None, metadata=None):
+    def __init__(self, voi_type, data, metadata):
         """Initialize OpimizerVector with data array and metadata."""
-        self._data = data
-        self._meta = metadata
+        self.voi_type: Literal['design_var', 'constraint', 'objective'] = voi_type
+        self._data: np.ndarray = data
+        self._meta: dict[str, Any] = metadata
 
     def __getitem__(self, name):
         """
@@ -73,7 +88,7 @@ class OptimizerVector(object):
             If variable name not found.
         """
         if name not in self._meta:
-            raise KeyError(f"Variable '{name}' not found in OpimizerVector")
+            raise KeyError(f"Variable '{name}' not found in OptimizerVector")
         info = self._meta[name]
         self._data[info['start_idx']:info['end_idx']] = np.asarray(value).flat
 
@@ -150,7 +165,10 @@ class OptimizerVector(object):
         for name in self._meta:
             yield name, self[name]
 
-    def asarray(self):
+    def set_data(self, val):
+        self._data[:] = val.ravel()
+
+    def asarray(self) -> np.ndarray:
         """
         Return underlying flat numpy array.
 

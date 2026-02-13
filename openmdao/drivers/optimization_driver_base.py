@@ -1,20 +1,16 @@
 """
 Base class for optimization drivers.
 """
-from enum import Enum
+
+from typing import Optional, Literal
 
 import numpy as np
 import scipy as sp
 
 from openmdao.core.driver import Driver
+from openmdao.drivers.autoscalers import DefaultAutoscaler
 from openmdao.vectors.optimizer_vector import OptimizerVector
 
-
-class VOIType(str, Enum):
-
-    DESIGN_VAR = 'design_var'
-    CONSTRAINT = 'constraint'
-    OBJECTIVE = 'objective'
 
 class OptimizationDriverBase(Driver):
     """
@@ -27,20 +23,20 @@ class OptimizationDriverBase(Driver):
     ----------
     _vectors : dict
         Dictionary containing OptimizerVector instances with keys:
-        - 'design_vars': OptimizerVector for design variables
-        - 'constraints': OptimizerVector for constraints
-        - 'objectives': OptimizerVector for objectives
+        - 'design_var': OptimizerVector for design variables
+        - 'constraint': OptimizerVector for constraints
+        - 'objective': OptimizerVector for objectives
     """
 
     def __init__(self, **kwargs):
         """Initialize OptimizationDriverBase."""
         super().__init__(**kwargs)
-        self._vectors: dict[str, OptimizerVector] = {
-            VOIType.DESIGN_VAR: OptimizerVector(),
-            VOIType.CONSTRAINT: OptimizerVector(),
-            VOIType.OBJECTIVE: OptimizerVector(),
+        self._vectors: dict[str, Optional[OptimizerVector]] = {
+            'design_var': None,
+            'constraint': None,
+            'objective': None,
         }
-        self._autoscaler = None
+        self._autoscaler = DefaultAutoscaler()
 
     @property
     def autoscaler(self):
@@ -71,19 +67,23 @@ class OptimizationDriverBase(Driver):
         if self.autoscaler is None:
             from openmdao.drivers.autoscalers.default_autoscaler import DefaultAutoscaler
             self._autoscaler = DefaultAutoscaler()
+        
+        self._autoscaler.setup(driver=self)
 
         # Allocate the vectors for the optimizer.
-        self._vectors[VOIType.DESIGN_VAR] = self.get_vector_from_model(
-            voi_type=VOIType.DESIGN_VAR, driver_scaling=True)
+        self._vectors['design_var'] = self.get_vector_from_model(
+            voi_type='design_var', driver_scaling=True)
         
-        self._vectors[VOIType.CONSTRAINT] = self.get_vector_from_model(
-            voi_type=VOIType.CONSTRAINT, driver_scaling=True)
+        self._vectors['constraint'] = self.get_vector_from_model(
+            voi_type='constraint', driver_scaling=True)
 
-        self._vectors[VOIType.OBJECTIVE] = self.get_vector_from_model(
-            voi_type=VOIType.OBJECTIVE, driver_scaling=True)
+        self._vectors['objective'] = self.get_vector_from_model(
+            voi_type='objective', driver_scaling=True)
 
-    def get_vector_from_model(self, voi_type: VOIType, driver_scaling=True,
-                              out: OptimizerVector | None=None):
+    def get_vector_from_model(self,
+                              voi_type: Literal['design_var', 'constraint', 'objective'],
+                              driver_scaling=True,
+                              in_place=False):
         """
         Get a new OptimizerVector from the model, or populate the data in an existing one.
 
@@ -91,13 +91,13 @@ class OptimizationDriverBase(Driver):
 
         Parameters
         ----------
-        voi_type: VOIType
-            The kind of variable interest being retrieved.
+        voi_type: str
+            The kind of variable being retrieved ('design_var', 'constraint', or 'objective')
         driver_scaling: bool
             If True, return vector values in the optimizer-scaled space.
-        out: OptimizerVector or None
-            If None, return a new OptimizerVector. Otherwise, provides an existing
-            OptimizerVector and its underlying data is populated in-place.
+        in_place: bool
+            If True, populate the associated VOI vector in self._vectors in-place and
+            return a reference to that vector, otherwise return a newly allocated OptimizerVector.
         
         Returns
         -------
@@ -106,9 +106,11 @@ class OptimizationDriverBase(Driver):
             is set into the given OptimizerVector's underlying data in-place and a reference
             to out is returned.
         """
-        varmeta_map = {VOIType.DESIGN_VAR: self._designvars,
-                       VOIType.CONSTRAINT: self._cons,
-                       VOIType.OBJECTIVE: self._objs}
+        varmeta_map = {'design_var': self._designvars,
+                       'constraint': self._cons,
+                       'objective': self._objs}
+        
+        out = self._vectors[voi_type] if in_place else None
 
         # Build metadata for OptimizerVector with flat array indexing
         vecmeta = {}
@@ -116,7 +118,8 @@ class OptimizationDriverBase(Driver):
         idx = 0
 
         for name, meta in varmeta_map[voi_type].items():
-            size = meta['size']
+            
+            size = meta['global_size'] if meta['distributed'] else meta['size']
             start_idx = idx
             end_idx = idx + size
 
@@ -125,19 +128,17 @@ class OptimizationDriverBase(Driver):
                     'start_idx': idx,
                     'end_idx': idx + size,
                     'size': size,
-                    'total_scaler': meta.get('total_scaler'),
-                    'total_adder': meta.get('total_adder')
                 }
 
                 # Meta that only applies to constraints and/or design vars
                 if 'linear' in meta:
-                    vecmeta['linear'] = meta.get('linear', False)
+                    vecmeta[name]['linear'] = meta.get('linear')
                 if 'equals' in meta:
-                    vecmeta['equals'] = meta.get('equals')
+                    vecmeta[name]['equals'] = meta.get('equals')
                 if 'lower' in meta:
-                    vecmeta['equals'] = meta.get('equals')
+                    vecmeta[name]['lower'] = meta.get('lower')
                 if 'upper' in meta:
-                    vecmeta['equals'] = meta.get('equals')
+                    vecmeta[name]['upper'] = meta.get('upper')
 
                 # Internally we never request voi with driver_scaling, instead
                 # applying the autoscaler.
@@ -155,14 +156,15 @@ class OptimizationDriverBase(Driver):
         if out is None:
             # Create flat array
             flat_array = np.concatenate(dv_array) if dv_array else np.array([])
-            out = OptimizerVector(flat_array, vecmeta)
+            out = OptimizerVector(voi_type, flat_array, vecmeta)
 
         # Apply autoscaler to the vector
-        
+        if driver_scaling:
+            self._autoscaler.apply_scaling(out)
 
         return out
         
-    def set_design_vars(self):
+    def set_design_vars(self, unscale=True):
         """
         Set design variable values into the model from a dictionary.
 
@@ -170,8 +172,16 @@ class OptimizationDriverBase(Driver):
         ----------
         values_dict : dict
             Dictionary mapping design variable names to values.
+        unscale : bool
+            Specifies that design variables need to be unscaled before setting them in the model.
         """
-        for name, value in self._vectors[VOIType.DESIGN_VAR].items():
+        desvar_vec = self._vectors['design_var']
+
+        for name, value in desvar_vec.items():
+            # Unscale
+            if unscale:
+                value = self._autoscaler.apply_unscaling(desvar_vec, name)
+            # If we already applied unscaling, don't unscale in set_design_var
             self.set_design_var(name, value, set_remote=True, unscale=False)
 
     def _unscale_lagrange_multipliers(self, multipliers, assume_dv=False):
