@@ -66,87 +66,102 @@ class DefaultAutoscaler(AutoscalerBase):
             if scaler is not None:
                 vec[name] *= scaler
 
-    def unscale_lagrange_multipliers(self, lambdas: 'OptimizerVector'):
+    def unscale_lagrange_multipliers(self, desvar_multipliers, con_multipliers):
         """
-        Unscale the lagrange multipliers from the optimizer space to the model space.
-
+        Unscale the Lagrange multipliers from optimizer space to model space.
+        
+        This method transforms Lagrange multipliers of active constraints (including
+        active design variable bounds) from the scaled optimization space back to 
+        physical (model) space.
+        
+        At optimality, we assume the KKT stationarity condition holds:
+        
+            ∇ₓf(x) + ∇ₓg(x)^T λ = 0
+        
+        where:
+            - ∇ₓf is the gradient of the objective
+            - ∇ₓg(x)^T is the Jacobian of all active constraints (each row is ∇ₓg_i^T)
+            - λ is the vector of Lagrange multipliers
+        
+        The constraint vector g(x) includes:
+            - Active design variables (on their bounds, to within some tolerance)
+            - Equality constraints (always active)
+            - Active inequality constraints (on their bounds, to within some tolerance)
+        
+        Scaling Transformations
+        -----------------------
+        Define scaling transformations that map from unscaled (physical) space to
+        scaled (optimizer) space:
+        
+            x_scaled = T_x(x)         (design variables)
+            g_scaled = T_g(g(x))      (constraints)
+            f_scaled = T_f(f(x))      (objective)
+        
+        Applying the chain rule to the scaled stationarity condition:
+        
+            ∇ₓ_scaled f_scaled + ∇ₓ_scaled g_scaled^T λ_scaled = 0
+        
+        The gradients in scaled space are:
+        
+            ∇ₓ_scaled f_scaled = (dTf/df) * ∇ₓf * (dTₓ/dx)^(-1)
+            ∇ₓ_scaled g_scaled = (dTg/dg) * ∇ₓg * (dTₓ/dx)^(-1)
+        
+        Substituting into the scaled stationarity condition and multiplying by (dTₓ/dx)^T:
+        
+            (dTf/df) * ∇ₓf + (dTg/dg) * ∇ₓg^T * λ_scaled = 0
+        
+        Dividing by (dTf/df) and comparing with the unscaled condition ∇ₓf + ∇ₓg^T λ = 0:
+        
+            λ = (dTg/dg) / (dTf/df) * λ_scaled
+        
+        For the Default autoscaler, we have
+        
+            T_x(x) = (x + adder_x) * scaler_x
+            T_g(g) = (g + adder_g) * scaler_g
+            T_f(f) = (f + adder_f) * scaler_f
+        
+        The derivatives are:
+        
+            dT_x/dx = scaler_x
+            dT_g/dg = scaler_g
+            dT_f/df = scaler_f
+        
+        Therefore:
+        
+            λ_constraint = (scaler_g / scaler_f) * λ_constraint_scaled
+    
+            λ_bound = (scaler_x / scaler_f) * λ_bound_scaled
+        
+        The adder terms do not appear in the multiplier transformation
+        because they are constant offsets that vanish under differentiation.
+        
         Parameters
         ----------
-        lambdas : OptimizerVector
-            A vector of Lagrange multipliers.
+        desvar_multipliers : dict[str, np.ndarray]
+            A dict of optimizer-scaled Lagrange multipliers keyed by each active design variable.
+        con_multipliers : dict[str, np.ndarray]
+            A dict of optimizer-scaled Lagrange multipliers keyed by each active constraint.
+        
+        Returns
+        -------
+        desvar_multipliers : dict[str, np.ndarray]
+            A reference to the desvar_multipliers given on input. The values of the multipliers
+            were unscaled in-place.
+        con_multipliers : dict[str, np.ndarray]
+            A reference to the con_multipliers given on input. The values of the multipliers
+            were unscaled in-place.
         """
-        pass
+        obj_meta = list(self._var_meta['objective'].values())[0]
+        obj_scaler = obj_meta['total_scaler'] or 1.0
 
-    def scale_desvars(self, desvars: 'OptimizerVector'):
-        """
-        Scale the design variables from the model space to the optimizer space.
+        if desvar_multipliers:
+            for name, mult in desvar_multipliers.items():
+                scaler = self._var_meta['design_var'][name]['total_scaler'] or 1.0
+                mult *= scaler / obj_scaler
 
-        This will be called to initialize the optimizers design variable vector.
+        if con_multipliers:
+            for name, mult in con_multipliers.items():
+                scaler = self._var_meta['constraint'][name]['total_scaler'] or 1.0
+                mult *= scaler / obj_scaler
 
-        Parameters
-        ----------
-        desvars: OptimizerVector
-            A vector of the design variables in model (unscaled) space.
-        """
-        vector_data = desvars.asarray()
-        for name, meta in desvars.get_metadata().items():
-            dv_meta = self._driver._designvars[name]
-            scaler = dv_meta['total_scaler']
-            adder = dv_meta['total_adder']
-
-            start_idx = meta['start_idx']
-            end_idx = meta['end_idx']
-
-            # Scale: x_optimizer = (x_model + adder) * scaler
-            if adder is not None:
-                vector_data[start_idx:end_idx] += adder
-            if scaler is not None:
-                vector_data[start_idx:end_idx] *= scaler
-
-    def scale_cons(self, cons: 'OptimizerVector'):
-        """
-        Scale the constraint variables from the model space to the optimizer space.
-
-        Parameters
-        ----------
-        cons: OptimizerVector
-            A vector of the constraint variables in model (unscaled) space.
-        """
-        vector_data = cons.asarray()
-        for name, meta in cons.get_metadata().items():
-            con_meta = self._driver._cons[name]
-            scaler = con_meta['total_scaler']
-            adder = con_meta['total_adder']
-
-            start_idx = meta['start_idx']
-            end_idx = meta['end_idx']
-
-            # Scale: c_optimizer = (c_model + adder) * scaler
-            if adder is not None:
-                vector_data[start_idx:end_idx] += adder
-            if scaler is not None:
-                vector_data[start_idx:end_idx] *= scaler
-
-    def scale_objs(self, objs: 'OptimizerVector'):
-        """
-        Scale the objective variables from the model space to the optimizer space.
-
-        Parameters
-        ----------
-        objs: OptimizerVector
-            A vector of the objective variables in model (unscaled) space.
-        """
-        vector_data = objs.asarray()
-        for name, meta in objs.get_metadata().items():
-            obj_meta = self._driver._objs[name]
-            scaler = obj_meta['total_scaler']
-            adder = obj_meta['total_adder']
-
-            start_idx = meta['start_idx']
-            end_idx = meta['end_idx']
-
-            # Scale: f_optimizer = (f_model + adder) * scaler
-            if adder is not None:
-                vector_data[start_idx:end_idx] += adder
-            if scaler is not None:
-                vector_data[start_idx:end_idx] *= scaler
+        return desvar_multipliers, con_multipliers

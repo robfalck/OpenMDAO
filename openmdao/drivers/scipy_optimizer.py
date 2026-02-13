@@ -640,7 +640,7 @@ class ScipyOptimizeDriver(OptimizationDriverBase):
         # print(rank, '   xnew', x_new)
         # print(rank, '   fnew', f_new)
 
-        return f_new
+        return f_new[0]
 
     def _con_val_func(self, x_new, name, dbl, idx):
         """
