@@ -604,14 +604,14 @@ class ScipyOptimizeDriver(OptimizationDriverBase):
         """
         model = self._problem().model
 
-        # Set x_new into the design_var vector (x_new is in optimizer-scaled space)
-        self._vectors['design_var'].set_data(x_new)
-
         try:
 
             # Pass in new inputs
             if MPI:
                 model.comm.Bcast(x_new, root=0)
+
+            # Set x_new into the design_var vector (x_new is in optimizer-scaled space)
+            self._vectors['design_var'].set_data(x_new)
 
             # Unscale the design variables and set them into model.
             self.set_design_vars(unscale=True)
