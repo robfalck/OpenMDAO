@@ -8,7 +8,7 @@ import numpy as np
 import scipy as sp
 
 from openmdao.core.driver import Driver
-from openmdao.drivers.autoscalers import DefaultAutoscaler
+from openmdao.drivers.autoscalers import Autoscaler
 from openmdao.vectors.optimizer_vector import OptimizerVector
 
 
@@ -36,7 +36,7 @@ class OptimizationDriverBase(Driver):
             'constraint': None,
             'objective': None,
         }
-        self._autoscaler = DefaultAutoscaler()
+        self._autoscaler = Autoscaler()
 
     @property
     def autoscaler(self):
@@ -65,8 +65,8 @@ class OptimizationDriverBase(Driver):
         super()._setup_driver(problem)
 
         if self.autoscaler is None:
-            from openmdao.drivers.autoscalers.default_autoscaler import DefaultAutoscaler
-            self._autoscaler = DefaultAutoscaler()
+            from openmdao.drivers.autoscalers.autoscaler import Autoscaler
+            self._autoscaler = Autoscaler()
         
         self._autoscaler.setup(driver=self)
 
@@ -79,6 +79,10 @@ class OptimizationDriverBase(Driver):
 
         self._vectors['objective'] = self.get_vector_from_model(
             voi_type='objective', driver_scaling=True)
+    
+    def run(self):
+        self._autoscaler.pre_run(driver=self)
+        return False
 
     def get_vector_from_model(self,
                               voi_type: Literal['design_var', 'constraint', 'objective'],

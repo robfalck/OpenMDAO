@@ -3,13 +3,15 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from openmdao.core.driver import Driver
 
-from openmdao.drivers.autoscalers.default_autoscaler import DefaultAutoscaler
+from openmdao.core.constants import INF_BOUND
+from openmdao.drivers.autoscalers.autoscaler import Autoscaler
+from openmdao.utils.om_warnings import issue_warning
 
 import numpy as np
 
 
 
-class PJRNAutoscaler(DefaultAutoscaler):
+class PJRNAutoscaler(Autoscaler):
     """
     Projected Jacobian Rows Normalization (PJRN) autoscaler.
     
@@ -31,9 +33,26 @@ class PJRNAutoscaler(DefaultAutoscaler):
     
     This class only overrides the setup() method to compute PJRN scaling factors.
     All scaling/unscaling operations are inherited from DefaultAutoscaler.
+
+    Parameters
+    ----------
+    allow_unbounded_desvars : bool
+        By default, the PJRNAutoscaler requires each design variable have bounds and
+        will error if any design variables are specified without bounds. Setting this
+        argument to True will result in the autoscaler assuming that the bounds of 
+        each design varaible are equal to the are equal to the max(abs(val)).
+    igore_existing_scaling : bool
+        If True, compute scaling parameters ignore existing scaling via scaler/adder/ref0/ref
+        and units.
     """
 
-    def setup(self, driver: 'Driver'):
+    def __init__(self, allow_unbounded_desvars=False, ignore_existing_scaling=False):
+        super().__init__()
+
+        self._allow_unbounded_desvars = allow_unbounded_desvars
+        self._ignore_existing_scaling = ignore_existing_scaling
+
+    def pre_run(self, driver: 'Driver'):
         """
         Set up the PJRN autoscaler.
         
@@ -46,14 +65,12 @@ class PJRNAutoscaler(DefaultAutoscaler):
         driver : Driver
             The OpenMDAO driver containing the optimization problem.
         """
-        super().setup(driver)
-        
         # Compute the design variable scaling matrix (K_x)
         self._compute_desvar_scaling()
         
         # Compute total derivatives (Jacobian)
         # This gets derivatives of objectives and constraints w.r.t. design variables
-        totals = self._driver.compute_totals(
+        totals = driver._compute_totals(
             return_format='dict',
             driver_scaling=False  # We want unscaled derivatives
         )
@@ -78,20 +95,35 @@ class PJRNAutoscaler(DefaultAutoscaler):
         We store K_x^{-1} = (x_U - x_L) for use in the projection step.
         """
         self._desvar_scaler_inv = {}
+        unbounded_desvars = []
         
         for name, meta in self._var_meta['design_var'].items():
-            lower = meta.get('lower')
-            upper = meta.get('upper')
+            lower = meta.get('lower', -INF_BOUND)
+            upper = meta.get('upper', INF_BOUND)
             
-            if lower is not None and upper is not None:
+            if np.all(lower > -INF_BOUND) and np.all(upper < INF_BOUND):
                 # Compute K_x^{-1} (inverse of scaler)
                 # This is the range: upper - lower
                 self._desvar_scaler_inv[name] = upper - lower
             else:
                 # For unbounded variables, use identity scaling
                 # In practice, artificial bounds should be used
+                unbounded_desvars.append(name)
                 size = meta.get('size', 1)
                 self._desvar_scaler_inv[name] = np.ones(size)
+        
+        if unbounded_desvars:
+            msg = ('The following design variables have no bounds but they '
+                   'are required by PJRNAutoscaler:') + '\n- ' + '\n- '.join(unbounded_desvars)
+            import textwrap
+            msg = textwrap.indent(msg, '  ', lambda s: s.strip().startswith('-'))
+            
+            if self._allow_unbounded_desvars:
+                msg += ('\nProceeding with using 1.0 as the scaler for '
+                        'these design variables (allow_unbounded_desvars=True)')
+                issue_warning(msg)
+            else:
+                raise ValueError(msg)
 
     def _compute_objective_scaling(self, totals):
         """

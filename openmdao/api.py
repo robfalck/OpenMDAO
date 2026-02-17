@@ -100,6 +100,10 @@ from openmdao.drivers.sampling.pyDOE_generators import \
     FullFactorialGenerator as FullFactorialAnalysisGenerator, \
     GeneralizedSubsetGenerator as GeneralizedSubsetAnalysisGenerator
 
+# Autoscalers
+from openmdao.drivers.autoscalers.autoscaler import Autoscaler
+from openmdao.drivers.autoscalers.pjrn_autoscaler import PJRNAutoscaler
+
 # System-Building Tools
 from openmdao.utils.options_dictionary import OptionsDictionary
 

@@ -5,17 +5,108 @@ if TYPE_CHECKING:
     from openmdao.vectors.optimizer_vector import OptimizerVector
 
 
-class AutoscalerBase:
+class Autoscaler:
+    """
+    Base class of autoscalers that transform optimizer variables between model and optimizer spaces.
+
+    Autoscalers apply scaling transformations to design variables, constraints, and objectives,
+    converting between physical (model) space and optimizer (scaled) space. They also handle
+    transformation of Lagrange multipliers from optimizer space back to physical space.
+
+    By default, this autoscaler performs an affine scaling:
+        x_scaled = (x_model + total_adder) * total_scaler
+
+    Variables `total_scaler` and `total_adder` are computed as a function of the
+    scaler/adder/ref/ref0 provided with design variables, objectives, and constraints.
+
+    They also take into account any unit conversions between the model and the optimization
+    variables, since users are allowed the specify design vars/constraints/objectives in 
+    different units compared to the associated model variables.
+
+    If implementing specialized autoscaler algorithms that derive from this class,
+    the developer could choose to utilize or ignore the scaling applied with the optimizer
+    variables via scaler/adder/ref0/ref. However, the optimizer variable units will need
+    to be accounted for.
+
+    Subclasses must implement the following methods:
+
+    Methods
+    -------
+    setup(driver)
+        Initialize the autoscaler with driver metadata.
+        Called once during driver setup.
+
+    apply_scaling(vec)
+        Scale a vector from model space to optimizer space.
+        Modifies vec in-place.
+
+    apply_unscaling(vec, name)
+        Return an unscaled copy of a single variable from optimizer space to model space.
+        Does not modify vec; returns a new array.
+
+    unscale_lagrange_multipliers(desvar_multipliers, con_multipliers)
+        Unscale Lagrange multipliers from optimizer space to physical space.
+        Modifies the input dictionaries in-place.
+
+    Notes
+    -----
+    The OptimizerVector interface provides access to:
+    - Full flat array via `.asarray()` - for vectorized operations
+    - Variable-by-variable access via `[name]` - for element-wise operations
+    - Metadata via `.get_metadata()` - for scaling parameters
+
+    This flexible interface allows autoscalers to choose any implementation strategy,
+    from simple loops to complex matrix operations.
+
+    Examples
+    --------
+    Implementing a custom autoscaler for large-scale problems:
+
+    >>> class VectorizedAutoscaler(Autoscaler):
+    ...     def setup(self, driver):
+    ...         # Pre-compute full scaler/adder arrays
+    ...         self.dv_scalers = np.ones(total_size)
+    ...         self.dv_adders = np.zeros(total_size)
+    ...         # ... populate with driver metadata ...
+    ...
+    ...     def apply_scaling(self, vec):
+    ...         data = vec.asarray()
+    ...         data += self.dv_adders
+    ...         data *= self.dv_scalers
+
+    See Also
+    --------
+    DefaultAutoscaler : Simple element-wise scaling implementation
+    """
 
     def setup(self, driver: 'Driver'):
+        """
+        Perform setup of autoscaler during final setup of the problem.
+
+        Parameters
+        ----------
+        driver : Driver
+            The driver associated with this autoscaler.
+        """
         self._var_meta : dict[str, dict[str, dict]] = {
             'design_var': driver._designvars,
             'constraint': driver._cons,
             'objective': driver._objs
         }
 
+    def pre_run(self, driver: 'Driver'):
+        """
+        Perform any last minute setup of the autoscaler at the start of the driver's execution.
 
-class DefaultAutoscaler(AutoscalerBase):
+        The model is fully setup at this point and may be run, allowing the autoscaler to
+        set itself up based on the outputs of the model.
+
+        Parameters
+        ----------
+        driver : Driver
+            The driver that is running this autoscaler.
+        """
+        pass
 
     def apply_unscaling(self, vec: 'OptimizerVector', name: str):
         """
@@ -81,7 +172,7 @@ class DefaultAutoscaler(AutoscalerBase):
         where:
             - ∇ₓf is the gradient of the objective
             - ∇ₓg(x)^T is the Jacobian of all active constraints (each row is ∇ₓg_i^T)
-            - λ is the vector of Lagrange multipliers
+            - λ is the vector of Lagrange multipliers (in optimizer-scaled)
         
         The constraint vector g(x) includes:
             - Active design variables (on their bounds, to within some tolerance)

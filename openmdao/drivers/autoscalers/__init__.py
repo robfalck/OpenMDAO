@@ -1,1 +1,1 @@
-from openmdao.drivers.autoscalers.default_autoscaler import DefaultAutoscaler
+from openmdao.drivers.autoscalers.autoscaler import Autoscaler

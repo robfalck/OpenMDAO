@@ -1,7 +1,7 @@
 """Tests for DefaultAutoscaler."""
 import unittest
 import numpy as np
-from openmdao.drivers.autoscalers.default_autoscaler import DefaultAutoscaler
+from openmdao.drivers.autoscalers.autoscaler import Autoscaler
 from openmdao.vectors.optimizer_vector import OptimizerVector
 
 
@@ -22,7 +22,7 @@ class TestDefaultAutoscalerBasic(unittest.TestCase):
         driver = MockDriver()
 
         # Create autoscaler and setup
-        autoscaler = DefaultAutoscaler()
+        autoscaler = Autoscaler()
         autoscaler.setup(driver)
 
         # Create design variable vector in model space
@@ -48,7 +48,7 @@ class TestDefaultAutoscalerBasic(unittest.TestCase):
         driver = MockDriver()
 
         # Create autoscaler and setup
-        autoscaler = DefaultAutoscaler()
+        autoscaler = Autoscaler()
         autoscaler.setup(driver)
 
         # Create design variable vector in optimizer space
@@ -74,7 +74,7 @@ class TestDefaultAutoscalerBasic(unittest.TestCase):
                 self._objs = {}
 
         driver = MockDriver()
-        autoscaler = DefaultAutoscaler()
+        autoscaler = Autoscaler()
         autoscaler.setup(driver)
 
         meta = {'x': {'start_idx': 0, 'end_idx': 1, 'size': 1}}
@@ -97,7 +97,7 @@ class TestDefaultAutoscalerBasic(unittest.TestCase):
                 self._objs = {}
 
         driver = MockDriver()
-        autoscaler = DefaultAutoscaler()
+        autoscaler = Autoscaler()
         autoscaler.setup(driver)
 
         meta = {'x': {'start_idx': 0, 'end_idx': 1, 'size': 1}}
@@ -120,7 +120,7 @@ class TestDefaultAutoscalerBasic(unittest.TestCase):
                 self._objs = {}
 
         driver = MockDriver()
-        autoscaler = DefaultAutoscaler()
+        autoscaler = Autoscaler()
         autoscaler.setup(driver)
 
         meta = {'x': {'start_idx': 0, 'end_idx': 1, 'size': 1}}
@@ -143,7 +143,7 @@ class TestDefaultAutoscalerBasic(unittest.TestCase):
                 self._objs = {}
 
         driver = MockDriver()
-        autoscaler = DefaultAutoscaler()
+        autoscaler = Autoscaler()
         autoscaler.setup(driver)
 
         meta = {'x': {'start_idx': 0, 'end_idx': 1, 'size': 1}}
@@ -174,7 +174,7 @@ class TestDefaultAutoscalerBasic(unittest.TestCase):
                 self._objs = {}
 
         driver = MockDriver()
-        autoscaler = DefaultAutoscaler()
+        autoscaler = Autoscaler()
         autoscaler.setup(driver)
 
         meta = {
@@ -202,7 +202,7 @@ class TestDefaultAutoscalerBasic(unittest.TestCase):
                 self._objs = {}
 
         driver = MockDriver()
-        autoscaler = DefaultAutoscaler()
+        autoscaler = Autoscaler()
         autoscaler.setup(driver)
 
         meta = {'x': {'start_idx': 0, 'end_idx': 1, 'size': 1}}
@@ -230,7 +230,7 @@ class TestDefaultAutoscalerBasic(unittest.TestCase):
                 self._objs = {}
 
         driver = MockDriver()
-        autoscaler = DefaultAutoscaler()
+        autoscaler = Autoscaler()
         autoscaler.setup(driver)
 
         meta = {
@@ -258,7 +258,7 @@ class TestDefaultAutoscalerBasic(unittest.TestCase):
                 }
 
         driver = MockDriver()
-        autoscaler = DefaultAutoscaler()
+        autoscaler = Autoscaler()
         autoscaler.setup(driver)
 
         meta = {
@@ -288,7 +288,7 @@ class TestLagrangeMultiplierUnscaling(unittest.TestCase):
                 }
 
         driver = MockDriver()
-        autoscaler = DefaultAutoscaler()
+        autoscaler = Autoscaler()
         autoscaler.setup(driver)
 
         # Design variable multiplier in optimizer space
@@ -314,7 +314,7 @@ class TestLagrangeMultiplierUnscaling(unittest.TestCase):
                 }
 
         driver = MockDriver()
-        autoscaler = DefaultAutoscaler()
+        autoscaler = Autoscaler()
         autoscaler.setup(driver)
 
         # Constraint multiplier in optimizer space
@@ -342,7 +342,7 @@ class TestLagrangeMultiplierUnscaling(unittest.TestCase):
                 }
 
         driver = MockDriver()
-        autoscaler = DefaultAutoscaler()
+        autoscaler = Autoscaler()
         autoscaler.setup(driver)
 
         # Multipliers in optimizer space
@@ -370,7 +370,7 @@ class TestLagrangeMultiplierUnscaling(unittest.TestCase):
                 }
 
         driver = MockDriver()
-        autoscaler = DefaultAutoscaler()
+        autoscaler = Autoscaler()
         autoscaler.setup(driver)
 
         desvar_mults = {'x': np.array([8.0])}
@@ -394,7 +394,7 @@ class TestLagrangeMultiplierUnscaling(unittest.TestCase):
                 }
 
         driver = MockDriver()
-        autoscaler = DefaultAutoscaler()
+        autoscaler = Autoscaler()
         autoscaler.setup(driver)
 
         desvar_mults = {'x': np.array([8.0])}
@@ -429,7 +429,7 @@ class TestLagrangeMultiplierUnscaling(unittest.TestCase):
                 }
 
         driver = MockDriver()
-        autoscaler = DefaultAutoscaler()
+        autoscaler = Autoscaler()
         autoscaler.setup(driver)
 
         desvar_mults = {
@@ -467,7 +467,7 @@ class TestLagrangeMultiplierUnscaling(unittest.TestCase):
                 }
 
         driver = MockDriver()
-        autoscaler = DefaultAutoscaler()
+        autoscaler = Autoscaler()
         autoscaler.setup(driver)
 
         desvar_mults = {}
@@ -494,7 +494,7 @@ class TestScalingWithArrayValues(unittest.TestCase):
                 self._objs = {}
 
         driver = MockDriver()
-        autoscaler = DefaultAutoscaler()
+        autoscaler = Autoscaler()
         autoscaler.setup(driver)
 
         meta = {'x': {'start_idx': 0, 'end_idx': 2, 'size': 2}}
@@ -519,7 +519,7 @@ class TestScalingWithArrayValues(unittest.TestCase):
                 self._objs = {}
 
         driver = MockDriver()
-        autoscaler = DefaultAutoscaler()
+        autoscaler = Autoscaler()
         autoscaler.setup(driver)
 
         meta = {'x': {'start_idx': 0, 'end_idx': 2, 'size': 2}}
