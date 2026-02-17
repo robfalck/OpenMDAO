@@ -896,6 +896,135 @@ class TestDriver(unittest.TestCase):
 
         self.assertEqual(str(cm.exception), 'Problem has no design variables.')
 
+    def test_get_voi_val_with_units(self):
+        """Verify _get_voi_val applies unit conversion correctly."""
+        prob = om.Problem()
+        model = prob.model
+
+        # Component must have units specified
+        comp = om.ExecComp('y = 2*x', x={'units': 'm'}, y={'units': 'm'})
+        model.add_subsystem('comp', comp, promotes=['*'])
+
+        prob.driver = om.ScipyOptimizeDriver(optimizer='SLSQP', disp=False)
+
+        # Add design variable: internal units are m, driver units are ft
+        # 1 m = 3.28084 ft, so unit_scaler = 3.28084, unit_adder = 0
+        prob.model.add_design_var('x', lower=0, upper=10, units='ft')
+        prob.model.add_objective('y')
+
+        prob.setup()
+        prob.set_val('x', 3.0)  # 3 meters
+        prob.run_model()
+
+        # Get the value using driver method
+        dv_val = prob.driver.get_design_var_values()
+
+        # The value should be converted to feet
+        # x_model = 3.0 m
+        # x_driver = 3.0 * 3.28084 = 9.84252 ft
+        expected = 3.0 * 3.28084
+        np.testing.assert_almost_equal(dv_val['x'], expected, decimal=4,
+                                       err_msg="Design var value should be in driver units (feet)")
+
+    def test_set_design_var_with_units(self):
+        """Verify set_design_var reverses unit conversion correctly."""
+        prob = om.Problem()
+        model = prob.model
+
+        # Component must have units specified
+        comp = om.ExecComp('y = 2*x', x={'units': 'm'}, y={'units': 'm'})
+        model.add_subsystem('comp', comp, promotes=['*'])
+
+        prob.driver = om.ScipyOptimizeDriver(optimizer='SLSQP', disp=False)
+
+        # Add design variable: internal units are m, driver units are ft
+        prob.model.add_design_var('x', lower=0, upper=10, units='ft')
+        prob.model.add_objective('y')
+
+        prob.setup()
+        prob.set_val('x', 1.0)  # Set an initial value and run to initialize driver
+        prob.run_model()
+
+        # Set design variable via driver using driver units (feet)
+        prob.driver.set_design_var('x', 9.84252)  # ~3 meters in feet
+
+        # Get the model value to verify it's in meters
+        model_val = prob.model.get_val('x')
+        np.testing.assert_almost_equal(model_val, 3.0, decimal=2,
+                                       err_msg="Model value should be in source units (meters)")
+
+    def test_round_trip_with_units(self):
+        """Verify round trip: get -> set -> get preserves values with units."""
+        prob = om.Problem()
+        model = prob.model
+
+        # Component must have units specified
+        comp = om.ExecComp('y = 2*x', x={'units': 'm'}, y={'units': 'm'})
+        model.add_subsystem('comp', comp, promotes=['*'])
+
+        prob.driver = om.ScipyOptimizeDriver(optimizer='SLSQP', disp=False)
+
+        prob.model.add_design_var('x', lower=0, upper=10, units='ft')
+        prob.model.add_objective('y')
+
+        prob.setup()
+
+        # Set initial value
+        prob.set_val('x', 2.5)  # meters
+        prob.run_model()
+
+        # Get value using driver
+        val1 = prob.driver.get_design_var_values()['x']
+
+        # Set it back
+        prob.driver.set_design_var('x', val1)
+        prob.run_model()
+
+        # Get it again
+        val2 = prob.driver.get_design_var_values()['x']
+
+        # Should be the same
+        self.assertAlmostEqual(val1, val2, places=6,
+                               msg="Values should match after round trip")
+
+    def test_jacobian_scaling_with_units(self):
+        """Verify Jacobian scaling includes both unit and declared scaling."""
+        prob = om.Problem()
+        model = prob.model
+
+        comp = om.ExecComp('y = 2*x', x={'units': 'm'}, y={'units': 'm'})
+        model.add_subsystem('comp', comp, promotes=['*'])
+
+        prob.driver = om.ScipyOptimizeDriver(optimizer='SLSQP', disp=False)
+
+        # Design variable: internal m, driver ft (conversion factor ~3.28084)
+        # Scaling: ref=10 ft, so scaler = 1/10 = 0.1
+        prob.model.add_design_var('x', lower=0, upper=100, units='ft', ref=10)
+
+        # Constraint: internal m, driver ft, scaling ref=50 ft, so scaler = 1/50 = 0.02
+        prob.model.add_constraint('y', lower=0, upper=200, units='ft', ref=50)
+
+        prob.setup()
+
+        # Compute jacobian without scaling
+        totals = prob.compute_totals(of=['y'], wrt=['x'], driver_scaling=False)
+        unscaled_jac = totals[('y', 'x')][0, 0]
+
+        # Compute jacobian with scaling
+        totals_scaled = prob.compute_totals(of=['y'], wrt=['x'], driver_scaling=True)
+        scaled_jac = totals_scaled[('y', 'x')][0, 0]
+
+        # The relationship should be:
+        # scaled_jac = unscaled_jac * (unit_scaler_y * declared_scaler_y) / (unit_scaler_x * declared_scaler_x)
+        # Note: unscaled jac is dy/dx where both are in m
+        # Scaled: jac = d(y_ft*0.02)/d(x_ft*0.1)
+        #             = d(y_m*3.28084*0.02)/d(x_m*3.28084*0.1)
+        #             = (dy_m/dx_m) * (3.28084*0.02) / (3.28084*0.1)
+        #             = unscaled_jac * 0.02 / 0.1 = unscaled_jac * 0.2
+
+        expected_scaled_jac = unscaled_jac * (3.28084 * 0.02) / (3.28084 * 0.1)
+        self.assertAlmostEqual(scaled_jac, expected_scaled_jac, places=5,
+                               msg="Jacobian scaling should include unit conversion")
 
 @use_tempdirs
 class TestCheckRelevance(unittest.TestCase):

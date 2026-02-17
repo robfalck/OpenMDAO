@@ -934,15 +934,24 @@ class Driver(object, metaclass=DriverMetaclass):
             else:
                 val = get(src_name, flat=True)[indices.as_array()]
 
-        if self._has_scaling and driver_scaling:
-            # Scale design variable values
-            adder = meta['total_adder']
-            if adder is not None:
-                val += adder
+        if driver_scaling:
+            # Step 1: Apply unit conversion (source units -> driver units)
+            unit_adder = meta.get('unit_adder')
+            unit_scaler = meta.get('unit_scaler')
+            if unit_adder is not None:
+                val = val + unit_adder
+            if unit_scaler is not None:
+                val = val * unit_scaler
 
-            scaler = meta['total_scaler']
-            if scaler is not None:
-                val *= scaler
+            # Step 2: Apply user-declared scaling (driver units -> optimizer space)
+            if self._has_scaling:
+                adder = meta['total_adder']
+                if adder is not None:
+                    val += adder
+
+                scaler = meta['total_scaler']
+                if scaler is not None:
+                    val *= scaler
 
         return val
 
@@ -1061,6 +1070,7 @@ class Driver(object, metaclass=DriverMetaclass):
                 desvar[loc_idxs] = np.atleast_1d(value)
 
             # Undo driver scaling when setting design var values into model.
+            # Step 1: Undo user-declared scaling (optimizer space -> driver units)
             if self._has_scaling:
                 scaler = meta['total_scaler']
                 if scaler is not None:
@@ -1069,6 +1079,14 @@ class Driver(object, metaclass=DriverMetaclass):
                 adder = meta['total_adder']
                 if adder is not None:
                     desvar[loc_idxs] -= adder
+
+            # Step 2: Undo unit conversion (driver units -> source units)
+            unit_scaler = meta.get('unit_scaler')
+            unit_adder = meta.get('unit_adder')
+            if unit_scaler is not None:
+                desvar[loc_idxs] *= 1.0 / unit_scaler
+            if unit_adder is not None:
+                desvar[loc_idxs] -= unit_adder
 
     def get_objective_values(self, driver_scaling=True):
         """
@@ -1828,6 +1846,31 @@ class Driver(object, metaclass=DriverMetaclass):
 
         return active_cons, active_dvs
 
+    def _compute_combined_scaler(self, meta):
+        """
+        Compute the combined scaler (unit_scaler * declared_scaler).
+
+        Parameters
+        ----------
+        meta : dict
+            Metadata dict for a design variable, constraint, or objective.
+
+        Returns
+        -------
+        float or None
+            The combined scaler (unit_scaler * total_scaler), or None if both are None.
+        """
+        unit_scaler = meta.get('unit_scaler')
+        declared_scaler = meta.get('total_scaler')
+
+        if unit_scaler is not None and declared_scaler is not None:
+            return declared_scaler * unit_scaler
+        elif unit_scaler is not None:
+            return unit_scaler
+        elif declared_scaler is not None:
+            return declared_scaler
+        return None
+
     def _unscale_lagrange_multipliers(self, multipliers, assume_dv=False):
         """
         Unscale the Lagrange multipliers from optimizer scaling to physical/model scaling.
@@ -1866,15 +1909,15 @@ class Driver(object, metaclass=DriverMetaclass):
         if obj_ref0 is None:
             obj_ref0 = 0.0
 
-        obj_scaler = obj_meta['total_scaler'] or 1.0
+        obj_scaler = self._compute_combined_scaler(obj_meta) or 1.0
 
         unscaled_multipliers = {}
 
         for name, val in multipliers.items():
             if name in self._designvars and assume_dv:
-                scaler = self._designvars[name]['total_scaler']
+                scaler = self._compute_combined_scaler(self._designvars[name])
             else:
-                scaler = self._responses[name]['total_scaler']
+                scaler = self._compute_combined_scaler(self._responses[name])
             scaler = scaler or 1.0
 
             unscaled_multipliers[name] = val * scaler / obj_scaler

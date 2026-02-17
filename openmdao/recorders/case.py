@@ -1192,6 +1192,12 @@ class Case(object):
                 if use_indices and meta['indices'] is not None:
                     val = val.ravel()[meta['indices']]
                 if scaled:
+                    # Apply unit conversion first (source units -> driver units)
+                    if meta.get('unit_adder') is not None:
+                        val = val + meta['unit_adder']
+                    if meta.get('unit_scaler') is not None:
+                        val = val * meta['unit_scaler']
+                    # Then apply user-declared scaling (driver units -> optimizer space)
                     if meta['total_adder'] is not None:
                         val += meta['total_adder']
                     if meta['total_scaler'] is not None:

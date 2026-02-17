@@ -1741,10 +1741,29 @@ class _TotalJacInfo(object):
 
         if self.return_format in ('dict', 'array'):
             for prom_out, odict in J.items():
-                oscaler = responses[prom_out].get('total_scaler')
+                resp_meta = responses[prom_out]
+                # Compute combined scaler (unit_scaler * declared_scaler)
+                resp_unit_scaler = resp_meta.get('unit_scaler')
+                resp_declared_scaler = resp_meta.get('total_scaler')
+
+                if resp_unit_scaler is not None and resp_declared_scaler is not None:
+                    oscaler = resp_declared_scaler * resp_unit_scaler
+                elif resp_unit_scaler is not None:
+                    oscaler = resp_unit_scaler
+                else:
+                    oscaler = resp_declared_scaler
 
                 for prom_in, val in odict.items():
-                    iscaler = desvars[prom_in].get('total_scaler')
+                    dv_meta = desvars[prom_in]
+                    dv_unit_scaler = dv_meta.get('unit_scaler')
+                    dv_declared_scaler = dv_meta.get('total_scaler')
+
+                    if dv_unit_scaler is not None and dv_declared_scaler is not None:
+                        iscaler = dv_declared_scaler * dv_unit_scaler
+                    elif dv_unit_scaler is not None:
+                        iscaler = dv_unit_scaler
+                    else:
+                        iscaler = dv_declared_scaler
 
                     # Scale response side
                     if oscaler is not None:
@@ -1757,8 +1776,30 @@ class _TotalJacInfo(object):
         elif self.return_format == 'flat_dict':
             for tup, val in J.items():
                 prom_out, prom_in = tup
-                oscaler = responses[prom_out]['total_scaler']
-                iscaler = desvars[prom_in]['total_scaler']
+                resp_meta = responses[prom_out]
+                dv_meta = desvars[prom_in]
+
+                # Compute combined scaler for response (unit_scaler * declared_scaler)
+                resp_unit_scaler = resp_meta.get('unit_scaler')
+                resp_declared_scaler = resp_meta.get('total_scaler')
+
+                if resp_unit_scaler is not None and resp_declared_scaler is not None:
+                    oscaler = resp_declared_scaler * resp_unit_scaler
+                elif resp_unit_scaler is not None:
+                    oscaler = resp_unit_scaler
+                else:
+                    oscaler = resp_declared_scaler
+
+                # Compute combined scaler for design var (unit_scaler * declared_scaler)
+                dv_unit_scaler = dv_meta.get('unit_scaler')
+                dv_declared_scaler = dv_meta.get('total_scaler')
+
+                if dv_unit_scaler is not None and dv_declared_scaler is not None:
+                    iscaler = dv_declared_scaler * dv_unit_scaler
+                elif dv_unit_scaler is not None:
+                    iscaler = dv_unit_scaler
+                else:
+                    iscaler = dv_declared_scaler
 
                 # Scale response side
                 if oscaler is not None:

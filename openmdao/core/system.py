@@ -2364,6 +2364,9 @@ class System(object, metaclass=SystemMetaclass):
             units = meta['units']
             meta['total_adder'] = meta['adder']
             meta['total_scaler'] = meta['scaler']
+            # Initialize unit conversion factors (stored separately from declared scaling)
+            meta['unit_scaler'] = None
+            meta['unit_adder'] = None
 
             if units is not None:
                 # If derivatives are not being calculated, then you reach here before source
@@ -2388,28 +2391,24 @@ class System(object, metaclass=SystemMetaclass):
                           "were specified."
                     raise RuntimeError(msg.format(self.msginfo, name, var_units, units))
 
-                # Derivation of the total scaler and total adder for design variables:
-                # Given base design variable value y
-                # First we apply the desired unit conversion
-                # y_in_desired_units = unit_scaler * (y + unit_adder)
-                # Then we apply the user-declared scaling
-                # y_opt = declared_scaler * (y_in_desired_units + declared_adder)
-                # Thus
-                # y_opt = declared_scaler * (unit_scaler * (y + unit_adder) + declared_adder)
-                # And collecting terms
-                # y_opt = [declared_scaler * unit_scaler]
-                #         * (y + unit_adder + declared_adder/unit_scaler)
-                # So the total_scaler and total_adder for the optimizer are:
-                # total_scaler = declared_scaler * unit_scaler
-                # total_adder = unit_adder + declared_adder / unit_scaler
+                # Unit conversion and user-declared scaling are now handled separately.
+                # Transformation pipeline (for _get_voi_val, driver_scaling=True):
+                # 1. y_in_units = (y + unit_adder) * unit_scaler
+                # 2. y_opt = (y_in_units + total_adder) * total_scaler
+                #
+                # Where total_scaler and total_adder are ONLY user-declared scaling.
 
                 unit_scaler, unit_adder = unit_conversion(var_units, units)
                 declared_adder, declared_scaler = determine_adder_scaler(None, None,
                                                                          meta['adder'],
                                                                          meta['scaler'])
 
-                meta['total_adder'] = unit_adder + declared_adder / unit_scaler
-                meta['total_scaler'] = declared_scaler * unit_scaler
+                # Store unit conversion factors separately
+                meta['unit_scaler'] = unit_scaler
+                meta['unit_adder'] = unit_adder
+                # total_scaler and total_adder now contain ONLY user-declared scaling
+                meta['total_scaler'] = declared_scaler
+                meta['total_adder'] = declared_adder
 
             if meta['total_scaler'] is not None or meta['total_adder'] is not None:
                 has_scaling = True
@@ -2421,6 +2420,9 @@ class System(object, metaclass=SystemMetaclass):
             units = meta['units']
             meta['total_scaler'] = meta['scaler']
             meta['total_adder'] = meta['adder']
+            # Initialize unit conversion factors (stored separately from declared scaling)
+            meta['unit_scaler'] = None
+            meta['unit_adder'] = None
 
             if units is not None:
                 # If derivatives are not being calculated, then you reach here before source
@@ -2451,8 +2453,12 @@ class System(object, metaclass=SystemMetaclass):
                 declared_adder, declared_scaler =\
                     determine_adder_scaler(None, None, meta['adder'], meta['scaler'])
 
-                meta['total_scaler'] = declared_scaler * unit_scaler
-                meta['total_adder'] = unit_adder + declared_adder / unit_scaler
+                # Store unit conversion factors separately
+                meta['unit_scaler'] = unit_scaler
+                meta['unit_adder'] = unit_adder
+                # total_scaler and total_adder now contain ONLY user-declared scaling
+                meta['total_scaler'] = declared_scaler
+                meta['total_adder'] = declared_adder
 
             if meta['total_scaler'] is not None or meta['total_adder'] is not None:
                 has_scaling = True
@@ -3400,6 +3406,8 @@ class System(object, metaclass=SystemMetaclass):
             'cache_linear_solution': cache_linear_solution,
             'total_scaler': scaler,
             'total_adder': adder,
+            'unit_scaler': None,  # Will be set in _setup_driver_units if units conversion needed
+            'unit_adder': None,   # Will be set in _setup_driver_units if units conversion needed
             'indices': indices,
             'flat_indices': flat_indices,
             'parallel_deriv_color': parallel_deriv_color,
@@ -3583,6 +3591,8 @@ class System(object, metaclass=SystemMetaclass):
             adder = None
         resp['adder'] = adder
         resp['total_adder'] = adder
+        resp['unit_scaler'] = None  # Will be set in _setup_driver_units if units conversion needed
+        resp['unit_adder'] = None   # Will be set in _setup_driver_units if units conversion needed
 
         resp['ref'] = ref
         resp['ref0'] = ref0
