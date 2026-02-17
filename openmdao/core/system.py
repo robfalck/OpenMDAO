@@ -2407,7 +2407,8 @@ class System(object, metaclass=SystemMetaclass):
                 declared_adder, declared_scaler = determine_adder_scaler(None, None,
                                                                          meta['adder'],
                                                                          meta['scaler'])
-
+                meta['unit_adder'] = unit_adder
+                meta['unit_scaler'] = unit_scaler
                 meta['total_adder'] = unit_adder + declared_adder / unit_scaler
                 meta['total_scaler'] = declared_scaler * unit_scaler
 
@@ -2451,6 +2452,8 @@ class System(object, metaclass=SystemMetaclass):
                 declared_adder, declared_scaler =\
                     determine_adder_scaler(None, None, meta['adder'], meta['scaler'])
 
+                meta['unit_adder'] = unit_adder
+                meta['unit_scaler'] = unit_scaler
                 meta['total_scaler'] = declared_scaler * unit_scaler
                 meta['total_adder'] = unit_adder + declared_adder / unit_scaler
 
