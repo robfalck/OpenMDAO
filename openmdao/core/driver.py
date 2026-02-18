@@ -1106,9 +1106,19 @@ class Driver(object, metaclass=DriverMetaclass):
         dict
            Dictionary containing values of each objective.
         """
-        return {n: self._get_voi_val(n, obj, self._remote_objs,
-                                     driver_scaling=driver_scaling)
-                for n, obj in self._objs.items()}
+        if driver_scaling:
+            # For OptimizationDriverBase drivers, use autoscaler for combined scaling
+            if hasattr(self, 'get_vector_from_model'):
+                # Use the OptimizationDriverBase method to get properly scaled vector
+                obj_vec = self.get_vector_from_model('objective', driver_scaling=True)
+                return obj_vec._to_dict()
+            else:
+                raise RuntimeError("driver_scaling=True is only supported for drivers derived from "
+                                   "OptimizationDriverBase.")
+        else:
+            return {n: self._get_voi_val(n, obj, self._remote_objs,
+                                         driver_scaling=False)
+                    for n, obj in self._objs.items()}
 
     def get_constraint_values(self, ctype='all', lintype='all', driver_scaling=True,
                               viol=False):
@@ -1140,21 +1150,30 @@ class Driver(object, metaclass=DriverMetaclass):
         dict
            Dictionary containing values of each constraint.
         """
-        con_dict = {}
-        it = self._cons.items()
-        if lintype == 'linear':
-            it = filter_by_meta(it, 'linear')
-        elif lintype == 'nonlinear':
-            it = filter_by_meta(it, 'linear', exclude=True)
-        if ctype == 'eq':
-            it = filter_by_meta(it, 'equals', chk_none=True)
-        elif ctype == 'ineq':
-            it = filter_by_meta(it, 'equals', chk_none=True, exclude=True)
+        if driver_scaling and viol:
+            # For violation calculations with scaling, we need the scaled values
+            if hasattr(self, 'get_vector_from_model'):
+                # Get all constraint values (scaled)
+                con_vec = self.get_vector_from_model('constraint', driver_scaling=True)
+                con_dict_scaled = con_vec._to_dict()
+            else:
+                raise RuntimeError("driver_scaling=True is only supported for drivers derived from "
+                                   "OptimizationDriverBase.")
 
-        for name, meta in it:
-            if viol:
-                con_val = self._get_voi_val(name, meta, self._remote_cons,
-                                            driver_scaling=True)
+            # Now filter by ctype and lintype and compute violations
+            con_dict = {}
+            it = self._cons.items()
+            if lintype == 'linear':
+                it = filter_by_meta(it, 'linear')
+            elif lintype == 'nonlinear':
+                it = filter_by_meta(it, 'linear', exclude=True)
+            if ctype == 'eq':
+                it = filter_by_meta(it, 'equals', chk_none=True)
+            elif ctype == 'ineq':
+                it = filter_by_meta(it, 'equals', chk_none=True, exclude=True)
+
+            for name, meta in it:
+                con_val = con_dict_scaled[name]
                 size = con_val.size
                 con_dict[name] = np.zeros(size)
                 if meta['equals'] is not None:
@@ -1165,18 +1184,61 @@ class Driver(object, metaclass=DriverMetaclass):
                     con_dict[name][lower_viol_idxs] = con_val[lower_viol_idxs] - meta['lower']
                     con_dict[name][upper_viol_idxs] = con_val[upper_viol_idxs] - meta['upper']
 
-                # We got the voi value in driver-scaled units.
-                # Unscale if necessary.
-                if not driver_scaling:
-                    scaler = meta['total_scaler']
-                    if scaler is not None:
-                        con_dict[name] /= scaler
+            return con_dict
 
+        elif driver_scaling:
+            # Get constraint values with scaling (using autoscaler if available)
+            if hasattr(self, 'get_vector_from_model'):
+                con_vec = self.get_vector_from_model('constraint', driver_scaling=True)
+                con_dict = con_vec._to_dict()
+
+                # Filter by ctype and lintype
+                filtered_dict = {}
+                it = con_dict.items()
+                if lintype == 'linear':
+                    it = filter_by_meta([(n, self._cons[n]) for n in con_dict.keys()],
+                                        'linear')
+                    it = [(n, con_dict[n]) for n, _ in it]
+                elif lintype == 'nonlinear':
+                    it = filter_by_meta([(n, self._cons[n]) for n in con_dict.keys()],
+                                        'linear', exclude=True)
+                    it = [(n, con_dict[n]) for n, _ in it]
+
+                if ctype == 'eq':
+                    it = filter_by_meta([(n, self._cons[n]) for n, v in it], 'equals',
+                                        chk_none=True)
+                    it = [(n, con_dict[n]) for n, _ in it]
+                elif ctype == 'ineq':
+                    it = filter_by_meta([(n, self._cons[n]) for n, v in it], 'equals',
+                                        chk_none=True, exclude=True)
+                    it = [(n, con_dict[n]) for n, _ in it]
+
+                for name, val in it:
+                    filtered_dict[name] = val
+
+                return filtered_dict
             else:
-                con_dict[name] = self._get_voi_val(name, meta, self._remote_cons,
-                                                   driver_scaling=driver_scaling)
+                raise RuntimeError("driver_scaling=True is only supported for drivers derived from "
+                                   "OptimizationDriverBase.")
 
-        return con_dict
+        else:
+            # No driver scaling - use old method
+            con_dict = {}
+            it = self._cons.items()
+            if lintype == 'linear':
+                it = filter_by_meta(it, 'linear')
+            elif lintype == 'nonlinear':
+                it = filter_by_meta(it, 'linear', exclude=True)
+            if ctype == 'eq':
+                it = filter_by_meta(it, 'equals', chk_none=True)
+            elif ctype == 'ineq':
+                it = filter_by_meta(it, 'equals', chk_none=True, exclude=True)
+
+            for name, meta in it:
+                con_dict[name] = self._get_voi_val(name, meta, self._remote_cons,
+                                                   driver_scaling=False)
+
+            return con_dict
 
     def _get_ordered_nl_responses(self):
         """
