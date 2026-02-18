@@ -338,3 +338,96 @@ class Autoscaler:
                 mult *= scaler / obj_scaler
 
         return desvar_multipliers, con_multipliers
+
+    def scale_jac(self, jac_dict):
+        """
+        Scale a Jacobian dictionary from model space to optimizer space.
+
+        Applies the scaling transformation to convert a Jacobian computed in the model's
+        coordinate system to the optimizer's scaled coordinate system.
+
+        The scaling transformation for the Jacobian is:
+            J_scaled = (dT_f/df) * J_model * (dT_x/dx)^-1
+                     = scaler_f * J_model / scaler_x
+
+        This accounts for how the scaling transformations affect the derivatives.
+
+        Parameters
+        ----------
+        jac_dict : dict
+            Dictionary of Jacobian blocks. Can be either:
+            - Nested dict where jac_dict[output_name][input_name] = array
+            - Flat dict where jac_dict[(output_name, input_name)] = array
+
+        Notes
+        -----
+        The method modifies the Jacobian dictionary in-place, scaling each partial
+        derivative block according to the output and input scalers.
+
+        When a scaler is None (identity transformation), it's treated as 1.0 for
+        multiplication and division.
+        """
+        for key, jac_block in jac_dict.items():
+            # Handle both nested dict and flat dict formats
+            if isinstance(key, tuple):
+                # Flat dict format: key is (output_name, input_name)
+                out_name, in_name = key
+            else:
+                # Nested dict format: key is output_name, need to iterate inner dicts
+                out_name = key
+                for in_name, block in jac_block.items():
+                    # Determine output scaler
+                    if out_name in self._var_meta['objective']:
+                        out_scaler = self._combined_scalers['objective'][out_name]['scaler']
+                    elif out_name in self._var_meta['constraint']:
+                        out_scaler = self._combined_scalers['constraint'][out_name]['scaler']
+                    else:
+                        # Unknown output, skip scaling this row
+                        continue
+
+                    out_scaler = out_scaler if out_scaler is not None else 1.0
+
+                    # Determine input scaler
+                    if in_name in self._var_meta['design_var']:
+                        in_scaler = self._combined_scalers['design_var'][in_name]['scaler']
+                    else:
+                        # Unknown input, skip scaling this entry
+                        continue
+
+                    in_scaler = in_scaler if in_scaler is not None else 1.0
+
+                    # Scale the Jacobian block in-place: J_scaled = J_model * out_scaler / in_scaler
+                    # Use in-place operations to preserve view relationship with underlying array
+                    if out_scaler != 1.0:
+                        block[:] = (out_scaler * block.T).T
+                    if in_scaler != 1.0:
+                        block *= 1.0 / in_scaler
+                continue
+
+            # Handle flat dict format (key is a tuple)
+            # Determine output scaler
+            if out_name in self._var_meta['objective']:
+                out_scaler = self._combined_scalers['objective'][out_name]['scaler']
+            elif out_name in self._var_meta['constraint']:
+                out_scaler = self._combined_scalers['constraint'][out_name]['scaler']
+            else:
+                # Unknown output, skip scaling this entry
+                continue
+
+            out_scaler = out_scaler if out_scaler is not None else 1.0
+
+            # Determine input scaler
+            if in_name in self._var_meta['design_var']:
+                in_scaler = self._combined_scalers['design_var'][in_name]['scaler']
+            else:
+                # Unknown input, skip scaling this entry
+                continue
+
+            in_scaler = in_scaler if in_scaler is not None else 1.0
+
+            # Scale the Jacobian block in-place: J_scaled = J_model * out_scaler / in_scaler
+            # Must use in-place operations to preserve view relationship with underlying array
+            if out_scaler != 1.0:
+                jac_block[:] = (out_scaler * jac_block.T).T
+            if in_scaler != 1.0:
+                jac_block *= 1.0 / in_scaler

@@ -4,6 +4,7 @@ Helper class for total jacobian computation.
 import sys
 import time
 import pprint
+import weakref
 from contextlib import contextmanager
 from collections import defaultdict
 from itertools import repeat
@@ -122,6 +123,11 @@ class _TotalJacInfo(object):
         if driver is None:
             driver = problem.driver
         self.model = model = problem.model
+
+        # Store a weak reference to the driver for use in scaling
+        self._driver = None
+        if driver is not None:
+            self._driver = weakref.ref(driver)
 
         # reset the of and wrt caches just in case we've previously built a total jac with
         # linear constraints (which will have different ofs and wrts than the nl total jac).
@@ -1476,9 +1482,15 @@ class _TotalJacInfo(object):
                             self.model._problem_meta['parallel_deriv_color'] = None
                             self.model._problem_meta['seed_vars'] = None
 
-                # Driver scaling.
+                # Driver scaling via autoscaler.
                 if self.has_scaling:
-                    self._do_driver_scaling(self.J_dict)
+                    # Use the driver's autoscaler to apply combined scaling
+                    driver = self._driver() if self._driver is not None else None
+                    if driver is not None and hasattr(driver, '_autoscaler'):
+                        driver._autoscaler.scale_jac(self.J_dict)
+                    else:
+                        # Should not happen if has_scaling is True, but just in case
+                        raise RuntimeError("Driver with autoscaler expected for Jacobian scaling")
 
                 # if some of the wrt vars are distributed in fwd mode, we bcast from the rank
                 # where each part of the distrib var exists

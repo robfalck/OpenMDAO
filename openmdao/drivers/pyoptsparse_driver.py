@@ -690,12 +690,13 @@ class pyOptSparseDriver(OptimizationDriverBase):
         Parameters
         ----------
         dv_dict : dict
-            Dictionary of design variable values.
+            Dictionary of design variable values in optimizer-scaled space.
 
         Returns
         -------
         func_dict : dict
-            Dictionary of all functional variables evaluated at design point.
+            Dictionary of all functional variables (objectives and nonlinear constraints)
+            evaluated at design point, in optimizer-scaled space.
 
         fail : int
             0 for successful function evaluation
@@ -712,16 +713,23 @@ class pyOptSparseDriver(OptimizationDriverBase):
             signal.signal(sigusr, self._signal_handler)
 
         try:
-            for name in self._designvars:
-                self.set_design_var(name, dv_dict[name])
+            # Populate design_var vector from incoming scaled dictionary,
+            # then unscale and set into model
+            self._vectors['design_var']._from_dict(dv_dict)
+            self.set_design_vars(unscale=True)
 
             # print("Setting DV")
             # print(dv_dict)
 
             # Check if we caught a termination signal while SNOPT was running.
             if self._user_termination_flag:
-                func_dict = self.get_objective_values()
-                func_dict.update(self.get_constraint_values(lintype='nonlinear'))
+                # Get objective and constraint vectors (with scaling applied)
+                self.get_vector_from_model('objective', driver_scaling=True, in_place=True)
+                self.get_vector_from_model('constraint', driver_scaling=True, in_place=True)
+
+                # Build result dict: objectives + nonlinear constraints only
+                func_dict = self._vectors['objective']._to_dict()
+                func_dict.update(self._vectors['constraint']._to_dict(linear=False))
                 return func_dict, 2
 
             # Execute the model
@@ -755,16 +763,20 @@ class pyOptSparseDriver(OptimizationDriverBase):
                 self._exc_info = sys.exc_info()
             fail = 1
 
-        func_dict = self.get_objective_values()
-        func_dict.update(self.get_constraint_values(lintype='nonlinear'))
+        # Get objective and constraint vectors (with scaling applied)
+        self.get_vector_from_model('objective', driver_scaling=True, in_place=True)
+        self.get_vector_from_model('constraint', driver_scaling=True, in_place=True)
 
         if fail > 0 and self._fill_NANs:
-            for name in func_dict:
-                func_dict[name].fill(np.nan)
+            self._vectors['objective'].asarray()[:] = np.nan
+            self._vectors['constraint'].asarray()[:] = np.nan
 
         # print("Functions calculated")
         # print(dv_dict)
-        # print(func_dict, flush=True)
+
+        # Build result dict: objectives + nonlinear constraints only
+        func_dict = self._vectors['objective']._to_dict()
+        func_dict.update(self._vectors['constraint']._to_dict(linear=False))
 
         self._in_user_function = False
         return func_dict, fail

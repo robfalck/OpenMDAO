@@ -280,6 +280,91 @@ class OptimizerVector(object):
         indices = self._filters[cache_key]
         return self._data[indices]
 
+    def _from_dict(self, var_dict):
+        """
+        Populate this OptimizerVector from a dictionary of variables in-place.
+
+        This method populates the underlying flat array by extracting values from a
+        dictionary interface (as used by pyOptSparseDriver), ordering them according to
+        the metadata index information.
+
+        Parameters
+        ----------
+        var_dict : dict
+            Dictionary mapping variable names (str) to numpy array values.
+            Keys must exactly match the keys in this vector's metadata.
+
+        Raises
+        ------
+        KeyError
+            If a key in metadata is not present in var_dict.
+        ValueError
+            If the size of a variable in var_dict doesn't match the size in metadata.
+
+        Examples
+        --------
+        >>> vec = OptimizerVector('design_var', np.zeros(3), metadata)
+        >>> dv_dict = {'x': np.array([1.0, 2.0]), 'y': np.array([3.0])}
+        >>> vec._from_dict(dv_dict)
+        >>> vec.asarray()
+        array([1., 2., 3.])
+        """
+        for name, meta in self._meta.items():
+            if name not in var_dict:
+                raise KeyError(f"Variable '{name}' in metadata not found in var_dict")
+
+            value = np.asarray(var_dict[name]).ravel()
+            expected_size = meta['end_idx'] - meta['start_idx']
+
+            if value.size != expected_size:
+                raise ValueError(
+                    f"Size mismatch for variable '{name}': expected {expected_size}, "
+                    f"got {value.size}"
+                )
+
+            self._data[meta['start_idx']:meta['end_idx']] = value
+
+    def _to_dict(self, **filters):
+        """
+        Convert this OptimizerVector to a dictionary of variables.
+
+        Returns a dictionary mapping variable names to their numpy array values, extracting
+        them from the underlying flat array according to the metadata index information.
+        When filters are provided, only variables whose metadata matches ALL specified
+        criteria are included in the returned dictionary.
+
+        Parameters
+        ----------
+        **filters : dict
+            Optional filter criteria based on metadata keys. For example:
+            - linear=False : only nonlinear constraints
+            - linear=True : only linear constraints
+            Multiple criteria are combined with AND logic.
+
+        Returns
+        -------
+        dict
+            Dictionary mapping variable names (str) to numpy array values. Each value is
+            a copy, not a view, so modifications to the dictionary won't affect this vector.
+            When filters are provided, only matching variables are included.
+
+        Examples
+        --------
+        >>> vec = OptimizerVector('design_var', np.array([1., 2., 3.]), metadata)
+        >>> dv_dict = vec._to_dict()  # All variables
+        >>> dv_dict['x']
+        array([1., 2.])
+
+        >>> # Get only nonlinear constraints
+        >>> con_dict = vec._to_dict(linear=False)
+        """
+        result = {}
+        for name, meta in self._meta.items():
+            # Check if all filter criteria match this variable's metadata
+            if all(meta.get(key) == value for key, value in filters.items()):
+                result[name] = self[name].copy()  # Use copy to return independent array
+        return result
+
     @property
     def metadata(self):
         """
