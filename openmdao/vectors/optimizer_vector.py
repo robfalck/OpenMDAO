@@ -204,7 +204,7 @@ class OptimizerVector(object):
             Empty array if no variables match.
         """
         ranges = []
-        for name, meta in self._meta.items():
+        for meta in self._meta.values():
             # Check if all filter criteria match this variable's metadata
             if all(meta.get(key) == value for key, value in filters.items()):
                 ranges.append((meta['start_idx'], meta['end_idx']))
