@@ -1007,7 +1007,7 @@ class Driver(object, metaclass=DriverMetaclass):
                                      driver_scaling=driver_scaling)
                 for n, dvmeta in self._designvars.items()}
 
-    def set_design_var(self, name, value, set_remote=True):
+    def set_design_var(self, name, value, set_remote=True, unscale=True):
         """
         Set the value of a design variable.
 
@@ -1022,6 +1022,8 @@ class Driver(object, metaclass=DriverMetaclass):
         set_remote : bool
             If True, set the global value of the variable (value must be of the global size).
             If False, set the local value of the variable (value must be of the local size).
+        unscale : bool
+            If True, apply unscaling to value before setting it into the model.
         """
         problem = self._problem()
         meta = self._designvars[name]
@@ -1070,8 +1072,8 @@ class Driver(object, metaclass=DriverMetaclass):
                 desvar[loc_idxs] = np.atleast_1d(value)
 
             # Undo driver scaling when setting design var values into model.
-            # Step 1: Undo user-declared scaling (optimizer space -> driver units)
-            if self._has_scaling:
+            if unscale and self._has_scaling:
+                # Step 1: Undo user-declared scaling (optimizer space -> driver units)
                 scaler = meta['total_scaler']
                 if scaler is not None:
                     desvar[loc_idxs] *= 1.0 / scaler
@@ -1080,13 +1082,13 @@ class Driver(object, metaclass=DriverMetaclass):
                 if adder is not None:
                     desvar[loc_idxs] -= adder
 
-            # Step 2: Undo unit conversion (driver units -> source units)
-            unit_scaler = meta.get('unit_scaler')
-            unit_adder = meta.get('unit_adder')
-            if unit_scaler is not None:
-                desvar[loc_idxs] *= 1.0 / unit_scaler
-            if unit_adder is not None:
-                desvar[loc_idxs] -= unit_adder
+                # Step 2: Undo unit conversion (driver units -> source units)
+                unit_scaler = meta.get('unit_scaler')
+                unit_adder = meta.get('unit_adder')
+                if unit_scaler is not None:
+                    desvar[loc_idxs] *= 1.0 / unit_scaler
+                if unit_adder is not None:
+                    desvar[loc_idxs] -= unit_adder
 
     def get_objective_values(self, driver_scaling=True):
         """
