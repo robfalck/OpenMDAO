@@ -115,6 +115,7 @@ class TestDriver(unittest.TestCase):
     def test_scaled_derivs(self):
 
         prob = om.Problem()
+        prob.driver = om.ScipyOptimizeDriver()
         prob.model = model = SellarDerivatives()
 
         model.add_design_var('z')
@@ -128,6 +129,7 @@ class TestDriver(unittest.TestCase):
         base = prob.compute_totals(of=['obj', 'con1'], wrt=['z'])
 
         prob = om.Problem()
+        prob.driver = om.ScipyOptimizeDriver()
         prob.model = model = SellarDerivatives()
 
         model.add_design_var('z', ref=2.0, ref0=0.0)

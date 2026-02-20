@@ -1487,7 +1487,7 @@ class _TotalJacInfo(object):
                     # Use the driver's autoscaler to apply combined scaling
                     driver = self._driver() if self._driver is not None else None
                     if driver is not None and hasattr(driver, '_autoscaler'):
-                        driver._autoscaler.scale_jac(self.J_dict)
+                        driver._autoscaler.apply_jac_scaling(self.J_dict)
                     else:
                         # Should not happen if has_scaling is True, but just in case
                         raise RuntimeError("Driver with autoscaler expected for Jacobian scaling")

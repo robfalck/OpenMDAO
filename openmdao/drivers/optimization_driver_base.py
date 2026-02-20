@@ -164,7 +164,7 @@ class OptimizationDriverBase(Driver):
 
         # Apply autoscaler to the vector
         if driver_scaling:
-            self._autoscaler.apply_scaling(out)
+            self._autoscaler.apply_vec_scaling(out)
 
         return out
         
@@ -184,7 +184,7 @@ class OptimizationDriverBase(Driver):
         for name, value in desvar_vec.items():
             # Unscale
             if unscale:
-                value = self._autoscaler.apply_unscaling(desvar_vec, name)
+                value = self._autoscaler.apply_vec_unscaling(desvar_vec, name)
             # If we already applied unscaling, don't unscale in set_design_var
             self.set_design_var(name, value, set_remote=True, unscale=False)
 
@@ -333,7 +333,7 @@ class OptimizationDriverBase(Driver):
             offset += active_size
 
         if not driver_scaling:
-            self._autoscaler.unscale_lagrange_multipliers(dv_multipliers, con_multipliers)
+            self._autoscaler.apply_mult_unscaling(dv_multipliers, con_multipliers)
 
         for key, val in dv_multipliers.items():
             active_dvs[key]['multipliers'] = val

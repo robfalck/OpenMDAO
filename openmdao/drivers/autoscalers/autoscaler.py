@@ -130,6 +130,10 @@ class Autoscaler:
         """
         Combine unit conversion and user-declared scaling into single scaler/adder.
 
+        This routine will be useful for those scaling algorithms which effectively
+        decompose scaling into a single scalar and single adder per each variable,
+        such as OpenMDAO's default user-specified scaling.
+
         Combines the two-step transformation:
             y_scaled = ((y + unit_adder) * unit_scaler + total_adder) * total_scaler
 
@@ -185,7 +189,7 @@ class Autoscaler:
 
         return combined_scaler, combined_adder
 
-    def apply_unscaling(self, vec: 'OptimizerVector', name: str):
+    def apply_vec_unscaling(self, vec: 'OptimizerVector', name: str):
         """
         Unscale the optmization variables from the optimizer space to the model space.
 
@@ -218,7 +222,7 @@ class Autoscaler:
 
         return out
     
-    def apply_scaling(self, vec: 'OptimizerVector'):
+    def apply_vec_scaling(self, vec: 'OptimizerVector'):
         """
         Scale the vector from the model space to the optimizer space.
 
@@ -236,7 +240,7 @@ class Autoscaler:
             if scaler is not None:
                 vec[name] *= scaler
 
-    def unscale_lagrange_multipliers(self, desvar_multipliers, con_multipliers):
+    def apply_mult_unscaling(self, desvar_multipliers, con_multipliers):
         """
         Unscale the Lagrange multipliers from optimizer space to model space.
         
@@ -339,7 +343,7 @@ class Autoscaler:
 
         return desvar_multipliers, con_multipliers
 
-    def scale_jac(self, jac_dict):
+    def apply_jac_scaling(self, jac_dict):
         """
         Scale a Jacobian dictionary from model space to optimizer space.
 

@@ -31,7 +31,7 @@ class TestDefaultAutoscalerBasic(unittest.TestCase):
         dv_vector = OptimizerVector('design_var', model_value.copy(), meta)
 
         # Scale: optimizer = (model + adder) * scaler = (3.0 + 1.0) * 2.0 = 8.0
-        autoscaler.apply_scaling(dv_vector)
+        autoscaler.apply_vec_scaling(dv_vector)
         scaled_value = dv_vector.asarray()[0]
         self.assertAlmostEqual(scaled_value, 8.0, places=10)
 
@@ -57,7 +57,7 @@ class TestDefaultAutoscalerBasic(unittest.TestCase):
         dv_vector = OptimizerVector('design_var', optimizer_value.copy(), meta)
 
         # Unscale: model = optimizer / scaler - adder = 8.0 / 2.0 - 1.0 = 3.0
-        unscaled = autoscaler.apply_unscaling(dv_vector, 'x')
+        unscaled = autoscaler.apply_vec_unscaling(dv_vector, 'x')
         self.assertAlmostEqual(unscaled[0], 3.0, places=10)
 
         # Original vector should be unchanged (apply_unscaling returns a copy)
@@ -82,7 +82,7 @@ class TestDefaultAutoscalerBasic(unittest.TestCase):
         dv_vector = OptimizerVector('design_var', original_value.copy(), meta)
 
         # With None values, scaling should have no effect
-        autoscaler.apply_scaling(dv_vector)
+        autoscaler.apply_vec_scaling(dv_vector)
         scaled_value = dv_vector.asarray()[0]
         self.assertAlmostEqual(scaled_value, 3.0, places=10)
 
@@ -105,7 +105,7 @@ class TestDefaultAutoscalerBasic(unittest.TestCase):
         dv_vector = OptimizerVector('design_var', model_value.copy(), meta)
 
         # Scale: optimizer = (model + None) * scaler = 3.0 * 2.0 = 6.0
-        autoscaler.apply_scaling(dv_vector)
+        autoscaler.apply_vec_scaling(dv_vector)
         scaled_value = dv_vector.asarray()[0]
         self.assertAlmostEqual(scaled_value, 6.0, places=10)
 
@@ -128,7 +128,7 @@ class TestDefaultAutoscalerBasic(unittest.TestCase):
         dv_vector = OptimizerVector('design_var', model_value.copy(), meta)
 
         # Scale: optimizer = (model + adder) * None = (3.0 + 1.0) = 4.0
-        autoscaler.apply_scaling(dv_vector)
+        autoscaler.apply_vec_scaling(dv_vector)
         scaled_value = dv_vector.asarray()[0]
         self.assertAlmostEqual(scaled_value, 4.0, places=10)
 
@@ -155,7 +155,7 @@ class TestDefaultAutoscalerBasic(unittest.TestCase):
         initial_id = id(data_ref)
 
         # Scale
-        autoscaler.apply_scaling(dv_vector)
+        autoscaler.apply_vec_scaling(dv_vector)
 
         # Verify data is modified in-place
         final_id = id(dv_vector.asarray())
@@ -185,7 +185,7 @@ class TestDefaultAutoscalerBasic(unittest.TestCase):
         dv_vector = OptimizerVector('design_var', data, meta)
 
         # Scale
-        autoscaler.apply_scaling(dv_vector)
+        autoscaler.apply_vec_scaling(dv_vector)
 
         # x1: (3.0 + 0.0) * 2.0 = 6.0
         # x2: (10.0 + 5.0) * 1.0 = 15.0
@@ -211,11 +211,11 @@ class TestDefaultAutoscalerBasic(unittest.TestCase):
         original_data = dv_vector.asarray().copy()
 
         # Scale: (3.0 + 1.0) * 2.0 = 8.0
-        autoscaler.apply_scaling(dv_vector)
+        autoscaler.apply_vec_scaling(dv_vector)
         self.assertAlmostEqual(dv_vector.asarray()[0], 8.0, places=10)
 
         # Unscale: 8.0 / 2.0 - 1.0 = 3.0
-        unscaled = autoscaler.apply_unscaling(dv_vector, 'x')
+        unscaled = autoscaler.apply_vec_unscaling(dv_vector, 'x')
         np.testing.assert_array_almost_equal(unscaled, original_data, decimal=10)
 
     def test_apply_scaling_constraints(self):
@@ -241,7 +241,7 @@ class TestDefaultAutoscalerBasic(unittest.TestCase):
         cons_vector = OptimizerVector('constraint', data, meta)
 
         # Scale
-        autoscaler.apply_scaling(cons_vector)
+        autoscaler.apply_vec_scaling(cons_vector)
 
         # c1: (5.0 + 2.0) * 0.5 = 3.5
         # c2: (10.0 + None) * 1.0 = 10.0
@@ -268,7 +268,7 @@ class TestDefaultAutoscalerBasic(unittest.TestCase):
         objs_vector = OptimizerVector('objective', data, meta)
 
         # Scale: (100.0 + (-5.0)) * 10.0 = 950.0
-        autoscaler.apply_scaling(objs_vector)
+        autoscaler.apply_vec_scaling(objs_vector)
         self.assertAlmostEqual(objs_vector.asarray()[0], 950.0, places=10)
 
 
@@ -296,7 +296,7 @@ class TestLagrangeMultiplierUnscaling(unittest.TestCase):
         con_mults = {}
 
         # Unscale: λ = (scaler_x / scaler_f) * λ_scaled = (2.0 / 4.0) * 8.0 = 4.0
-        desvar_unscaled, con_unscaled = autoscaler.unscale_lagrange_multipliers(desvar_mults, con_mults)
+        desvar_unscaled, con_unscaled = autoscaler.apply_mult_unscaling(desvar_mults, con_mults)
 
         self.assertAlmostEqual(desvar_mults['x'][0], 4.0, places=10)
         self.assertEqual(len(con_mults), 0)
@@ -322,7 +322,7 @@ class TestLagrangeMultiplierUnscaling(unittest.TestCase):
         con_mults = {'c': np.array([10.0])}
 
         # Unscale: λ = (scaler_c / scaler_f) * λ_scaled = (0.5 / 2.0) * 10.0 = 2.5
-        desvar_unscaled, con_unscaled = autoscaler.unscale_lagrange_multipliers(desvar_mults, con_mults)
+        desvar_unscaled, con_unscaled = autoscaler.apply_mult_unscaling(desvar_mults, con_mults)
 
         self.assertAlmostEqual(con_mults['c'][0], 2.5, places=10)
         self.assertEqual(len(desvar_mults), 0)
@@ -350,7 +350,7 @@ class TestLagrangeMultiplierUnscaling(unittest.TestCase):
         con_mults = {'c': np.array([10.0])}
 
         # Unscale
-        desvar_unscaled, con_unscaled = autoscaler.unscale_lagrange_multipliers(desvar_mults, con_mults)
+        desvar_unscaled, con_unscaled = autoscaler.apply_mult_unscaling(desvar_mults, con_mults)
 
         # Design var: λ = (2.0 / 4.0) * 8.0 = 4.0
         self.assertAlmostEqual(desvar_mults['x'][0], 4.0, places=10)
@@ -377,7 +377,7 @@ class TestLagrangeMultiplierUnscaling(unittest.TestCase):
         con_mults = {}
 
         # Unscale: λ = (1.0 / 1.0) * 8.0 = 8.0
-        desvar_unscaled, con_unscaled = autoscaler.unscale_lagrange_multipliers(desvar_mults, con_mults)
+        desvar_unscaled, con_unscaled = autoscaler.apply_mult_unscaling(desvar_mults, con_mults)
 
         self.assertAlmostEqual(desvar_mults['x'][0], 8.0, places=10)
 
@@ -405,7 +405,7 @@ class TestLagrangeMultiplierUnscaling(unittest.TestCase):
         desvar_id = id(desvar_ref)
 
         # Unscale
-        desvar_unscaled, con_unscaled = autoscaler.unscale_lagrange_multipliers(desvar_mults, con_mults)
+        desvar_unscaled, con_unscaled = autoscaler.apply_mult_unscaling(desvar_mults, con_mults)
 
         # Verify in-place modification
         self.assertIs(desvar_unscaled, desvar_mults)
@@ -442,7 +442,7 @@ class TestLagrangeMultiplierUnscaling(unittest.TestCase):
         }
 
         # Unscale
-        desvar_unscaled, con_unscaled = autoscaler.unscale_lagrange_multipliers(desvar_mults, con_mults)
+        desvar_unscaled, con_unscaled = autoscaler.apply_mult_unscaling(desvar_mults, con_mults)
 
         # Design vars: λ = (scaler_x / scaler_f) * λ_scaled
         # x1: (2.0 / 8.0) * 16.0 = 4.0
@@ -474,7 +474,7 @@ class TestLagrangeMultiplierUnscaling(unittest.TestCase):
         con_mults = {}
 
         # Should not raise an error
-        desvar_unscaled, con_unscaled = autoscaler.unscale_lagrange_multipliers(desvar_mults, con_mults)
+        desvar_unscaled, con_unscaled = autoscaler.apply_mult_unscaling(desvar_mults, con_mults)
 
         self.assertEqual(len(desvar_unscaled), 0)
         self.assertEqual(len(con_unscaled), 0)
@@ -504,7 +504,7 @@ class TestScalingWithArrayValues(unittest.TestCase):
         # Scale: (model + adder) * scaler
         # (10.0 + 1.0) * 2.0 = 22.0
         # (20.0 + 0.5) * 3.0 = 61.5
-        autoscaler.apply_scaling(dv_vector)
+        autoscaler.apply_vec_scaling(dv_vector)
         expected = np.array([22.0, 61.5])
         np.testing.assert_array_almost_equal(dv_vector.asarray(), expected, decimal=10)
 
@@ -529,7 +529,7 @@ class TestScalingWithArrayValues(unittest.TestCase):
         # Unscale: optimizer / scaler - adder
         # 22.0 / 2.0 - 1.0 = 10.0
         # 61.5 / 3.0 - 0.5 = 20.0
-        unscaled = autoscaler.apply_unscaling(dv_vector, 'x')
+        unscaled = autoscaler.apply_vec_unscaling(dv_vector, 'x')
         expected = np.array([10.0, 20.0])
         np.testing.assert_array_almost_equal(unscaled, expected, decimal=10)
 
