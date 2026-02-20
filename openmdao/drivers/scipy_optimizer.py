@@ -10,8 +10,7 @@ from scipy import __version__ as scipy_version
 from scipy.optimize import minimize
 
 from openmdao.core.constants import INF_BOUND
-from openmdao.core.driver import RecordingDebugging
-from openmdao.drivers.optimization_driver_base import OptimizationDriverBase
+from openmdao.core.driver import RecordingDebugging, Driver
 from openmdao.core.group import Group
 from openmdao.utils.class_util import WeakMethodWrapper
 from openmdao.utils.mpi import MPI
@@ -84,7 +83,7 @@ CITATIONS = """
 """
 
 
-class ScipyOptimizeDriver(OptimizationDriverBase):
+class ScipyOptimizeDriver(Driver):
     """
     Driver wrapper for the scipy.optimize.minimize family of local optimizers.
 

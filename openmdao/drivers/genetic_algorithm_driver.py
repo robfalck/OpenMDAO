@@ -27,14 +27,13 @@ import copy
 import numpy as np
 
 from openmdao.core.constants import INF_BOUND
-from openmdao.core.driver import RecordingDebugging
-from openmdao.drivers.optimization_driver_base import OptimizationDriverBase
+from openmdao.core.driver import RecordingDebugging, Driver
 from openmdao.utils.concurrent_utils import concurrent_eval
 from openmdao.utils.mpi import MPI
 from openmdao.core.analysis_error import AnalysisError
 
 
-class SimpleGADriver(OptimizationDriverBase):
+class SimpleGADriver(Driver):
     """
     Driver for a simple genetic algorithm.
 
@@ -284,7 +283,7 @@ class SimpleGADriver(OptimizationDriverBase):
         bool
             Failure flag; True if failed to converge, False is successful.
         """
-        super.run()
+        super().run()
         self.result.reset()
         model = self._problem().model
         ga = self._ga
