@@ -585,24 +585,29 @@ class Driver(object, metaclass=DriverMetaclass):
         self._autoscaler = Autoscaler()
         self._autoscaler.setup(driver=self)
 
-        # Pre-allocate optimizer vectors for drivers with design variables/constraints/objectives
-        # Only create vectors if we have at least one of each (for optimization drivers)
-        if self._designvars and self._cons and self._objs:
+        # Pre-allocate optimizer vectors for all drivers
+        # Always initialize vectors since they're now part of the base Driver class
+        try:
             dv_vec = self.get_vector_from_model(voi_type='design_var', driver_scaling=True)
+        except (ValueError, KeyError, TypeError):
+            # Some drivers (e.g., DOEDriver) may have unsupported variable types
+            dv_vec = None
+
+        try:
             con_vec = self.get_vector_from_model(voi_type='constraint', driver_scaling=True)
+        except (ValueError, KeyError, TypeError):
+            con_vec = None
+
+        try:
             obj_vec = self.get_vector_from_model(voi_type='objective', driver_scaling=True)
-            self._vectors = {
-                'design_var': dv_vec,
-                'constraint': con_vec,
-                'objective': obj_vec,
-            }
-        else:
-            # For non-optimization drivers, just allocate empty vectors
-            self._vectors = {
-                'design_var': None,
-                'constraint': None,
-                'objective': None,
-            }
+        except (ValueError, KeyError, TypeError):
+            obj_vec = None
+
+        self._vectors = {
+            'design_var': dv_vec,
+            'constraint': con_vec,
+            'objective': obj_vec,
+        }
 
         # set up simultaneous deriv coloring
         if coloring_mod._use_total_sparsity:
