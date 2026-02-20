@@ -283,7 +283,6 @@ class SimpleGADriver(Driver):
         bool
             Failure flag; True if failed to converge, False is successful.
         """
-        super().run()
         self.result.reset()
         model = self._problem().model
         ga = self._ga

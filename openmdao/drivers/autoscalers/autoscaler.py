@@ -389,8 +389,6 @@ class Autoscaler:
                         # Unknown output, skip scaling this row
                         continue
 
-                    out_scaler = out_scaler if out_scaler is not None else 1.0
-
                     # Determine input scaler
                     if in_name in self._var_meta['design_var']:
                         in_scaler = self._combined_scalers['design_var'][in_name]['scaler']
@@ -398,13 +396,11 @@ class Autoscaler:
                         # Unknown input, skip scaling this entry
                         continue
 
-                    in_scaler = in_scaler if in_scaler is not None else 1.0
-
                     # Scale the Jacobian block in-place: J_scaled = J_model * out_scaler / in_scaler
                     # Use in-place operations to preserve view relationship with underlying array
-                    if out_scaler != 1.0:
-                        block[:] = (out_scaler * block.T).T
-                    if in_scaler != 1.0:
+                    if out_scaler is not None:
+                        block[...] = (out_scaler * block.T).T
+                    if in_scaler is not None:
                         block *= 1.0 / in_scaler
                 continue
 
@@ -418,8 +414,6 @@ class Autoscaler:
                 # Unknown output, skip scaling this entry
                 continue
 
-            out_scaler = out_scaler if out_scaler is not None else 1.0
-
             # Determine input scaler
             if in_name in self._var_meta['design_var']:
                 in_scaler = self._combined_scalers['design_var'][in_name]['scaler']
@@ -427,11 +421,9 @@ class Autoscaler:
                 # Unknown input, skip scaling this entry
                 continue
 
-            in_scaler = in_scaler if in_scaler is not None else 1.0
-
             # Scale the Jacobian block in-place: J_scaled = J_model * out_scaler / in_scaler
             # Must use in-place operations to preserve view relationship with underlying array
-            if out_scaler != 1.0:
-                jac_block[:] = (out_scaler * jac_block.T).T
-            if in_scaler != 1.0:
+            if out_scaler is not None:
+                jac_block[...] = (out_scaler * jac_block.T).T
+            if in_scaler is not None:
                 jac_block *= 1.0 / in_scaler

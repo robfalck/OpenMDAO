@@ -223,6 +223,7 @@ class CmdlineTestCase(unittest.TestCase):
             outs, errs = proc.communicate()
 
         outstr = outs.decode('utf-8')
+        print(outstr)
         self.assertRegex(outstr, r"Post-optimization components:\s+subprob\b")
 
 

@@ -1810,6 +1810,7 @@ class TestProblem(unittest.TestCase):
         finally:
             sys.stdout = stdout
         output = strout.getvalue().split('\n')
+        print(strout.getvalue())
         self.assertEqual(output[1], r'Design Variables')
         self.assertRegex(output[5], r'^z +\|[0-9. e+-]+\| +2')
         self.assertEqual(output[9], r'Constraints')
