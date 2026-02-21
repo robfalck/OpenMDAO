@@ -1483,14 +1483,9 @@ class _TotalJacInfo(object):
                             self.model._problem_meta['seed_vars'] = None
 
                 # Driver scaling via autoscaler.
-                if self.has_scaling:
-                    # Use the driver's autoscaler to apply combined scaling
-                    driver = self._driver() if self._driver is not None else None
-                    if driver is not None and hasattr(driver, '_autoscaler'):
-                        driver._autoscaler.apply_jac_scaling(self.J_dict)
-                    else:
-                        # Should not happen if has_scaling is True, but just in case
-                        raise RuntimeError("Driver with autoscaler expected for Jacobian scaling")
+                driver = self._driver() if self._driver is not None else None
+                if driver is not None:
+                    driver._autoscaler.apply_jac_scaling(self.J_dict)
 
                 # if some of the wrt vars are distributed in fwd mode, we bcast from the rank
                 # where each part of the distrib var exists
@@ -1590,8 +1585,9 @@ class _TotalJacInfo(object):
                       flush=True)
 
             # Driver scaling.
-            if self.has_scaling:
-                self._do_driver_scaling(totals)
+            driver = self._driver() if self._driver is not None else None
+            if driver is not None:
+                driver._autoscaler.apply_jac_scaling(self.J_dict)
 
             if return_format == 'array':
                 totals = self.J  # change back to array version
@@ -1738,91 +1734,91 @@ class _TotalJacInfo(object):
         """
         self.lin_sol_cache[key][:] = self.output_vec[mode].asarray()
 
-    def _do_driver_scaling(self, J):
-        """
-        Apply scalers to the jacobian if the driver defined any.
+    # def _do_driver_scaling(self, J):
+    #     """
+    #     Apply scalers to the jacobian if the driver defined any.
 
-        Parameters
-        ----------
-        J : dict
-            Jacobian to be scaled.
-        """
-        # use promoted names for design vars and responses
-        desvars = self.input_meta['fwd']
-        responses = self.output_meta['fwd']
+    #     Parameters
+    #     ----------
+    #     J : dict
+    #         Jacobian to be scaled.
+    #     """
+    #     # use promoted names for design vars and responses
+    #     desvars = self.input_meta['fwd']
+    #     responses = self.output_meta['fwd']
 
-        if self.return_format in ('dict', 'array'):
-            for prom_out, odict in J.items():
-                resp_meta = responses[prom_out]
-                # Compute combined scaler (unit_scaler * declared_scaler)
-                resp_unit_scaler = resp_meta.get('unit_scaler')
-                resp_declared_scaler = resp_meta.get('total_scaler')
+    #     if self.return_format in ('dict', 'array'):
+    #         for prom_out, odict in J.items():
+    #             resp_meta = responses[prom_out]
+    #             # Compute combined scaler (unit_scaler * declared_scaler)
+    #             resp_unit_scaler = resp_meta.get('unit_scaler')
+    #             resp_declared_scaler = resp_meta.get('total_scaler')
 
-                if resp_unit_scaler is not None and resp_declared_scaler is not None:
-                    oscaler = resp_declared_scaler * resp_unit_scaler
-                elif resp_unit_scaler is not None:
-                    oscaler = resp_unit_scaler
-                else:
-                    oscaler = resp_declared_scaler
+    #             if resp_unit_scaler is not None and resp_declared_scaler is not None:
+    #                 oscaler = resp_declared_scaler * resp_unit_scaler
+    #             elif resp_unit_scaler is not None:
+    #                 oscaler = resp_unit_scaler
+    #             else:
+    #                 oscaler = resp_declared_scaler
 
-                for prom_in, val in odict.items():
-                    dv_meta = desvars[prom_in]
-                    dv_unit_scaler = dv_meta.get('unit_scaler')
-                    dv_declared_scaler = dv_meta.get('total_scaler')
+    #             for prom_in, val in odict.items():
+    #                 dv_meta = desvars[prom_in]
+    #                 dv_unit_scaler = dv_meta.get('unit_scaler')
+    #                 dv_declared_scaler = dv_meta.get('total_scaler')
 
-                    if dv_unit_scaler is not None and dv_declared_scaler is not None:
-                        iscaler = dv_declared_scaler * dv_unit_scaler
-                    elif dv_unit_scaler is not None:
-                        iscaler = dv_unit_scaler
-                    else:
-                        iscaler = dv_declared_scaler
+    #                 if dv_unit_scaler is not None and dv_declared_scaler is not None:
+    #                     iscaler = dv_declared_scaler * dv_unit_scaler
+    #                 elif dv_unit_scaler is not None:
+    #                     iscaler = dv_unit_scaler
+    #                 else:
+    #                     iscaler = dv_declared_scaler
 
-                    # Scale response side
-                    if oscaler is not None:
-                        val[:] = (oscaler * val.T).T
+    #                 # Scale response side
+    #                 if oscaler is not None:
+    #                     val[:] = (oscaler * val.T).T
 
-                    # Scale design var side
-                    if iscaler is not None:
-                        val *= 1.0 / iscaler
+    #                 # Scale design var side
+    #                 if iscaler is not None:
+    #                     val *= 1.0 / iscaler
 
-        elif self.return_format == 'flat_dict':
-            for tup, val in J.items():
-                prom_out, prom_in = tup
-                resp_meta = responses[prom_out]
-                dv_meta = desvars[prom_in]
+    #     elif self.return_format == 'flat_dict':
+    #         for tup, val in J.items():
+    #             prom_out, prom_in = tup
+    #             resp_meta = responses[prom_out]
+    #             dv_meta = desvars[prom_in]
 
-                # Compute combined scaler for response (unit_scaler * declared_scaler)
-                resp_unit_scaler = resp_meta.get('unit_scaler')
-                resp_declared_scaler = resp_meta.get('total_scaler')
+    #             # Compute combined scaler for response (unit_scaler * declared_scaler)
+    #             resp_unit_scaler = resp_meta.get('unit_scaler')
+    #             resp_declared_scaler = resp_meta.get('total_scaler')
 
-                if resp_unit_scaler is not None and resp_declared_scaler is not None:
-                    oscaler = resp_declared_scaler * resp_unit_scaler
-                elif resp_unit_scaler is not None:
-                    oscaler = resp_unit_scaler
-                else:
-                    oscaler = resp_declared_scaler
+    #             if resp_unit_scaler is not None and resp_declared_scaler is not None:
+    #                 oscaler = resp_declared_scaler * resp_unit_scaler
+    #             elif resp_unit_scaler is not None:
+    #                 oscaler = resp_unit_scaler
+    #             else:
+    #                 oscaler = resp_declared_scaler
 
-                # Compute combined scaler for design var (unit_scaler * declared_scaler)
-                dv_unit_scaler = dv_meta.get('unit_scaler')
-                dv_declared_scaler = dv_meta.get('total_scaler')
+    #             # Compute combined scaler for design var (unit_scaler * declared_scaler)
+    #             dv_unit_scaler = dv_meta.get('unit_scaler')
+    #             dv_declared_scaler = dv_meta.get('total_scaler')
 
-                if dv_unit_scaler is not None and dv_declared_scaler is not None:
-                    iscaler = dv_declared_scaler * dv_unit_scaler
-                elif dv_unit_scaler is not None:
-                    iscaler = dv_unit_scaler
-                else:
-                    iscaler = dv_declared_scaler
+    #             if dv_unit_scaler is not None and dv_declared_scaler is not None:
+    #                 iscaler = dv_declared_scaler * dv_unit_scaler
+    #             elif dv_unit_scaler is not None:
+    #                 iscaler = dv_unit_scaler
+    #             else:
+    #                 iscaler = dv_declared_scaler
 
-                # Scale response side
-                if oscaler is not None:
-                    val[:] = (oscaler * val.T).T
+    #             # Scale response side
+    #             if oscaler is not None:
+    #                 val[:] = (oscaler * val.T).T
 
-                # Scale design var side
-                if iscaler is not None:
-                    val *= 1.0 / iscaler
-        else:
-            raise RuntimeError("Derivative scaling by the driver only supports 'dict', "
-                               "'array' and 'flat_array' formats at present.")
+    #             # Scale design var side
+    #             if iscaler is not None:
+    #                 val *= 1.0 / iscaler
+    #     else:
+    #         raise RuntimeError("Derivative scaling by the driver only supports 'dict', "
+    #                            "'array' and 'flat_array' formats at present.")
 
     def _print_derivatives(self):
         """

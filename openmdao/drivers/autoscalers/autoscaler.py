@@ -1,5 +1,7 @@
 from typing import TYPE_CHECKING
 
+import numpy as np
+
 if TYPE_CHECKING:
     from openmdao.core.driver import Driver
     from openmdao.vectors.optimizer_vector import OptimizerVector
@@ -9,15 +11,18 @@ class Autoscaler:
     """
     Base class of autoscalers that transform optimizer variables between model and optimizer spaces.
 
-    Autoscalers apply scaling transformations to design variables, constraints, and objectives,
-    converting between physical (model) space and optimizer (scaled) space. They also handle
-    transformation of Lagrange multipliers from optimizer space back to physical space.
+    Autoscalers apply scaling transformations to **continuous** design variables, constraints,
+    and objectives, converting between physical (model) space and optimizer (scaled) space
+    They also handle transformation of Lagrange multipliers from optimizer space back to physical
+    (model) space and of jacobians from model space to optimizer space.
+
+    Discrete design variables, constraints, and objectives are not scaled/unscaled by autoscalers.
 
     By default, this autoscaler performs an affine scaling:
         x_scaled = (x_model + combined_adder) * combined_scaler
 
     The Autoscaler internally combines unit conversion factors (unit_scaler, unit_adder)
-    with user-declared scaling factors (total_scaler, total_adder) into cached combined
+    with user-declared scaling factors (scaler, adder) into cached combined
     values. This recreates the pre-separation combined scaling behavior, where both unit
     conversion and user scaling are applied together in a single affine transformation.
 
@@ -42,17 +47,20 @@ class Autoscaler:
         Initialize the autoscaler with driver metadata.
         Called once during driver setup.
 
-    apply_scaling(vec)
+    apply_vec_scaling(vec)
         Scale a vector from model space to optimizer space.
         Modifies vec in-place.
 
-    apply_unscaling(vec, name)
+    apply_vec_unscaling(vec, name)
         Return an unscaled copy of a single variable from optimizer space to model space.
         Does not modify vec; returns a new array.
 
-    unscale_lagrange_multipliers(desvar_multipliers, con_multipliers)
+    apply_mult_unscaling(desvar_multipliers, con_multipliers)
         Unscale Lagrange multipliers from optimizer space to physical space.
         Modifies the input dictionaries in-place.
+    
+    apply_jac_scaling
+        TBD
 
     Notes
     -----
@@ -189,38 +197,38 @@ class Autoscaler:
 
         return combined_scaler, combined_adder
 
-    def apply_vec_unscaling(self, vec: 'OptimizerVector', name: str):
+    def apply_vec_unscaling(self, vec: 'OptimizerVector'):
         """
-        Unscale the optmization variables from the optimizer space to the model space.
+        Unscale the optmization variables from the optimizer space to the model space, in place.
 
         This method will generally be applied to each design variable at every iteration.
 
         Parameters
         ----------
-        vec : OptimizationVector
+        vec : OptimizerVector
             A vector of the scaled optimization variables.
-        name : str
-            The name of the optimization variable to be unscaled.
 
         Returns
         -------
-        np.array
-            The unscaled value of the variable specified by name.
+        OptimizerVector
+            The unscaled optimization vector.
         """
-        # Use cached combined scaler/adder - includes both unit conversion and user scaling
-        combined = self._combined_scalers[vec.voi_type][name]
-        scaler = combined['scaler']
-        adder = combined['adder']
+        if not vec.scaled:
+            return vec
+        
+        for name in vec:
+            # Use cached combined scaler/adder - includes both unit conversion and user scaling
+            combined = self._combined_scalers[vec.voi_type][name]
+            scaler = combined['scaler']
+            adder = combined['adder']
 
-        # Unscale: x_model = x_optimizer / scaler - adder
-        # IMPORTANT: copy the vector here.
-        out = vec[name].copy()
-        if scaler is not None:
-            out /= scaler
-        if adder is not None:
-            out -= adder
+            # Unscale: x_model = x_optimizer / scaler - adder
+            if scaler is not None:
+                vec[name] /= scaler
+            if adder is not None:
+                vec[name] -= adder
 
-        return out
+        return vec
     
     def apply_vec_scaling(self, vec: 'OptimizerVector'):
         """
@@ -228,6 +236,8 @@ class Autoscaler:
 
         Scaling is applied to the optimizer vector in-place.
         """
+        if vec.scaled:
+            return vec
         for name in vec:
             # Use cached combined scaler/adder - includes both unit conversion and user scaling
             combined = self._combined_scalers[vec.voi_type][name]
@@ -427,3 +437,72 @@ class Autoscaler:
                 jac_block[...] = (out_scaler * jac_block.T).T
             if in_scaler is not None:
                 jac_block *= 1.0 / in_scaler
+    
+    def apply_discrete_unscaling(self, name, voi_type, val):
+        """
+        Unscale the discrete optimization variable given by name.
+
+        Parameters
+        ----------
+        name : str
+            The name of the variable being unscaled.
+        voi_type : str ('design_var', 'constraint', 'objective')
+            The kind of variable to be unscaled.
+        val : float or ndarray
+            The scaled value of the varaible.
+
+        Returns
+        -------
+        float or ndarray
+            An unscaled copy of the variable if scaling was defined, otherwise
+            val is returned unchanged.
+        """ 
+        combined = self._combined_scalers[voi_type][name]
+        scaler = combined['scaler']
+        adder = combined['adder']
+
+        # Unscale: x_model = x_optimizer / scaler - adder
+        if scaler or adder:
+            out = np.copy(val)
+            if scaler is not None:
+                out /= scaler
+            if adder is not None:
+                out -= adder
+            return out
+
+        return val
+    
+    def apply_discrete_scaling(self, name, voi_type, val):
+        """
+        Scale the discrete optimization variable from the model space to the optimizer space.
+
+        Parameters
+        ----------
+        name : str
+            The name of the variable being unscaled.
+        voi_type : str ('design_var', 'constraint', 'objective')
+            The kind of variable to be unscaled.
+        val : float or ndarray
+            The scaled value of the varaible.
+
+        Returns
+        -------
+        float or ndarray
+            An scaled copy of the variable if scaling was defined, otherwise
+            val is returned unchanged.
+        """
+        # Use cached combined scaler/adder - includes both unit conversion and user scaling
+        combined = self._combined_scalers[voi_type][name]
+        scaler = combined['scaler']
+        adder = combined['adder']
+
+        # Scale: x_optimizer = (x_model + adder) * scaler
+        if scaler or adder:
+            out = np.copy(val)
+            if adder is not None:
+                out += adder
+            if scaler is not None:
+                out *= scaler
+            return out
+
+        return val

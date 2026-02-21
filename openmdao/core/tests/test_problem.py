@@ -2566,10 +2566,11 @@ class TestProblem(unittest.TestCase):
 
         stdout = sys.stdout
         strout = StringIO()
-        sys.stdout = strout
+        # sys.stdout = strout
         try:
             failed = prob.find_feasible(exclude_desvars='x1', iprint=1)
         finally:
+            pass
             sys.stdout = stdout
 
         output = strout.getvalue()

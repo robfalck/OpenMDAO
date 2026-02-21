@@ -26,6 +26,9 @@ class OptimizerVector(object):
     ----------
     voi_type : str ('design_var', 'constraint', or 'objective')
         A string specifying the type of optimization variable in the vector.
+    scaled : bool
+        The current state of the vector, whether it is in optmiizer scaled space (True),
+        or unscaled model/physical space (False).
     _data : ndarray
         Flat numpy array containing variable values.
     _meta : dict
@@ -45,11 +48,12 @@ class OptimizerVector(object):
     ...     print(f"{name}: {value}")
     """
 
-    def __init__(self, voi_type, data, metadata):
+    def __init__(self, voi_type, data, metadata, scaled):
         """Initialize OpimizerVector with data array and metadata."""
         self.voi_type: Literal['design_var', 'constraint', 'objective'] = voi_type
         self._data: np.ndarray = data
         self._meta: dict[str, Any] = metadata
+        self.scaled = scaled
         self._filters = {}
 
     def __getitem__(self, name):

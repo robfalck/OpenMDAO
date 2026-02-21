@@ -288,7 +288,7 @@ class Driver(object, metaclass=DriverMetaclass):
 
         # Optimization-specific attributes
         self._vectors = None
-        self._autoscaler = None
+        self._autoscaler = Autoscaler()
 
         # Driver options
         self.options = OptionsDictionary(parent_name=type(self).__name__)
@@ -654,6 +654,8 @@ class Driver(object, metaclass=DriverMetaclass):
         """
         Get a new OptimizerVector from the model, or populate the data in an existing one.
 
+        Note that this only returns the continuous values.
+
         Parameters
         ----------
         voi_type : str
@@ -690,6 +692,8 @@ class Driver(object, metaclass=DriverMetaclass):
         idx = 0
 
         for name, meta in varmeta_map[voi_type].items():
+            if meta['discrete']:
+                continue
             size = meta['global_size'] if meta['distributed'] else meta['size']
             start_idx = idx
             end_idx = idx + size
@@ -712,7 +716,7 @@ class Driver(object, metaclass=DriverMetaclass):
                     vecmeta[name]['upper'] = meta.get('upper')
 
                 val = self._get_voi_val(name, meta, remote_vois,
-                                       driver_scaling=False, get_remote=True)
+                                        driver_scaling=False, get_remote=True)
                 voi_array.append(np.atleast_1d(val).flat)
             else:
                 # The vector already exists, just populate it
@@ -725,9 +729,9 @@ class Driver(object, metaclass=DriverMetaclass):
         if out is None:
             # Create flat array
             flat_array = np.concatenate(voi_array) if voi_array else np.array([])
-            out = OptimizerVector(voi_type, flat_array, vecmeta)
+            out = OptimizerVector(voi_type, flat_array, vecmeta, scaled=False)
 
-        # Apply autoscaler to the vector (always available)
+        # Apply autoscaler to the vector
         if driver_scaling:
             self._autoscaler.apply_vec_scaling(out)
 
@@ -745,11 +749,12 @@ class Driver(object, metaclass=DriverMetaclass):
         """
         desvar_vec = self._vectors['design_var']
 
+        # Try to apply the unscaling. This is effectively a no-op if it has already been done.
+        if unscale:
+            value = self._autoscaler.apply_vec_unscaling(desvar_vec)
+
         for name, value in desvar_vec.items():
             # Unscale if requested
-            if unscale:
-                value = self._autoscaler.apply_vec_unscaling(desvar_vec, name)
-            # If we already applied unscaling, don't unscale in set_design_var
             self.set_design_var(name, value, set_remote=True, unscale=False)
 
     def _split_dvs(self, model):
@@ -1095,24 +1100,24 @@ class Driver(object, metaclass=DriverMetaclass):
             else:
                 val = get(src_name, flat=True)[indices.as_array()]
 
-        if driver_scaling:
-            # Step 1: Apply unit conversion (source units -> driver units)
-            unit_adder = meta.get('unit_adder')
-            unit_scaler = meta.get('unit_scaler')
-            if unit_adder is not None:
-                val = val + unit_adder
-            if unit_scaler is not None:
-                val = val * unit_scaler
+        # if driver_scaling:
+        #     # Step 1: Apply unit conversion (source units -> driver units)
+        #     unit_adder = meta.get('unit_adder')
+        #     unit_scaler = meta.get('unit_scaler')
+        #     if unit_adder is not None:
+        #         val = val + unit_adder
+        #     if unit_scaler is not None:
+        #         val = val * unit_scaler
 
-            # Step 2: Apply user-declared scaling (driver units -> optimizer space)
-            if self._has_scaling:
-                adder = meta['total_adder']
-                if adder is not None:
-                    val += adder
+        #     # Step 2: Apply user-declared scaling (driver units -> optimizer space)
+        #     if self._has_scaling:
+        #         adder = meta['total_adder']
+        #         if adder is not None:
+        #             val += adder
 
-                scaler = meta['total_scaler']
-                if scaler is not None:
-                    val *= scaler
+        #         scaler = meta['total_scaler']
+        #         if scaler is not None:
+        #             val *= scaler
 
         return val
 
@@ -1158,15 +1163,26 @@ class Driver(object, metaclass=DriverMetaclass):
             When True, return values that are scaled according to either the adder and scaler or
             the ref and ref0 values that were specified when add_design_var, add_objective, and
             add_constraint were called on the model. Default is True.
+        update_cache : bool
+            If True, update the values in self._vectors['design_var']. Before returning.
+            Subsequent calls with update_cache=False will be faster, but care must be taken
+            to make sure the latest values from the model are stored in the cache.
 
         Returns
         -------
         dict
            Dictionary containing values of each design variable.
         """
-        return {n: self._get_voi_val(n, dvmeta, self._remote_dvs, get_remote=get_remote,
-                                     driver_scaling=driver_scaling)
-                for n, dvmeta in self._designvars.items()}
+        self.get_vector_from_model('design_var', driver_scaling=True, in_place=True)
+        
+        dvs = self._vectors['design_var']._to_dict()
+        model = self._problem().model
+        discrete_dvs = {n: self._get_voi_val(n, dvmeta, self._remote_dvs, get_remote=get_remote,
+                                             driver_scaling=driver_scaling)
+                        for n, dvmeta in self._designvars.items()
+                        if dvmeta['source'] in model._discrete_outputs}
+        dvs.update(discrete_dvs)
+        return dvs
 
     def set_design_var(self, name, value, set_remote=True, unscale=True):
         """
@@ -1267,8 +1283,19 @@ class Driver(object, metaclass=DriverMetaclass):
         dict
            Dictionary containing values of each objective.
         """
-        obj_vec = self.get_vector_from_model('objective', driver_scaling=driver_scaling)
-        return obj_vec._to_dict()
+        # Get the continuous objective vector.
+        obj_vec = self.get_vector_from_model('objective', driver_scaling=driver_scaling,
+                                             in_place=True)
+        obj_dict = obj_vec._to_dict()
+        # Get the discrete objectives.
+        disc_obj_dict = {n: self._get_voi_val(n, meta, self._remote_objs, driver_scaling=False)
+                         for n, meta in self._objs.items() if meta['discrete']}
+        for name in disc_obj_dict:
+            val = disc_obj_dict[name]
+            disc_obj_dict[name] = self._autoscaler.apply_discrete_scaling(name, 'objective', val)
+
+        obj_dict.update(disc_obj_dict)
+        return obj_dict
 
     def get_constraint_values(self, ctype='all', lintype='all', driver_scaling=True,
                               viol=False):
@@ -1300,14 +1327,15 @@ class Driver(object, metaclass=DriverMetaclass):
         dict
            Dictionary containing values of each constraint.
         """
-        if driver_scaling and viol:
-            # Get scaled constraint values for violation calculation (always available)
-            con_vec = self.get_vector_from_model('constraint', driver_scaling=True)
-            con_dict_scaled = con_vec._to_dict()
+        print('W00t')
+        print(viol)
+        if viol:
+            # If computing violations, first pull the unscaled constraint values into the vector
+            con_vec = self.get_vector_from_model('constraint', driver_scaling=False, in_place=True)
 
-            # Now filter by ctype and lintype and compute violations
+            # Now filter by ctype and lintype and compute violations for continuous
             con_dict = {}
-            it = self._cons.items()
+            it = {name: con_vec.metadata[name] for name in con_vec}
             if lintype == 'linear':
                 it = filter_by_meta(it, 'linear')
             elif lintype == 'nonlinear':
@@ -1317,69 +1345,88 @@ class Driver(object, metaclass=DriverMetaclass):
             elif ctype == 'ineq':
                 it = filter_by_meta(it, 'equals', chk_none=True, exclude=True)
 
+            # Now for each element
             for name, meta in it:
-                con_val = con_dict_scaled[name]
-                size = con_val.size
-                con_dict[name] = np.zeros(size)
-                if meta['equals'] is not None:
-                    con_dict[name][...] = con_val - meta['equals']
+                con_val = con_vec[name]
+                lb = meta['lower']
+                ub = meta['upper']
+                eq = meta['equals']
+                if eq is not None:
+                    con_vec[name] -= eq
                 else:
-                    lower_viol_idxs = np.where(con_val < meta['lower'])[0]
-                    upper_viol_idxs = np.where(con_val > meta['upper'])[0]
-                    con_dict[name][lower_viol_idxs] = con_val[lower_viol_idxs] - meta['lower']
-                    con_dict[name][upper_viol_idxs] = con_val[upper_viol_idxs] - meta['upper']
+                    lower_viol_idxs = np.where(con_val < lb)[0]
+                    upper_viol_idxs = np.where(con_val > ub)[0]
+                    non_viol_idxs = np.where(con_val >= lb and con_val <= ub)[0]
+                    con_vec[name][lower_viol_idxs] -= con_val[lower_viol_idxs] - meta['lower']
+                    con_vec[name][upper_viol_idxs] = con_val[upper_viol_idxs] - meta['upper']
+                    con_vec[name][non_viol_idxs] = 0.0
 
-            return con_dict
+            print(con_vec)
+            
+            # Apply autoscaler to the vector
+            if driver_scaling:
+                self._autoscaler.apply_vec_scaling(con_vec)
 
-        elif driver_scaling:
-            # Get constraint values with scaling (always available)
-            con_vec = self.get_vector_from_model('constraint', driver_scaling=True)
+            # When computing violations we dont return violations of discrete constraints.
+            return con_vec._to_dict()
+
+        else:
+            # Get constraint values with scaling
+            con_vec = self.get_vector_from_model('constraint', driver_scaling=True, in_place=True)
             con_dict = con_vec._to_dict()
 
             # Filter by ctype and lintype
             filtered_dict = {}
             it = con_dict.items()
-            if lintype == 'linear':
-                it = filter_by_meta([(n, self._cons[n]) for n in con_dict.keys()],
-                                    'linear')
-                it = [(n, con_dict[n]) for n, _ in it]
-            elif lintype == 'nonlinear':
-                it = filter_by_meta([(n, self._cons[n]) for n in con_dict.keys()],
-                                    'linear', exclude=True)
-                it = [(n, con_dict[n]) for n, _ in it]
+            # if lintype == 'linear':
+            #     it = filter_by_meta([(n, self._cons[n]) for n in con_dict.keys()],
+            #                         'linear')
+            #     it = [(n, con_dict[n]) for n, _ in it]
+            # elif lintype == 'nonlinear':
+            #     it = filter_by_meta([(n, self._cons[n]) for n in con_dict.keys()],
+            #                         'linear', exclude=True)
+            #     it = [(n, con_dict[n]) for n, _ in it]
 
+            # if ctype == 'eq':
+            #     it = filter_by_meta([(n, self._cons[n]) for n, v in it], 'equals',
+            #                         chk_none=True)
+            #     it = [(n, con_dict[n]) for n, _ in it]
+            # elif ctype == 'ineq':
+            #     it = filter_by_meta([(n, self._cons[n]) for n, v in it], 'equals',
+            #                         chk_none=True, exclude=True)
+            #     it = [(n, con_dict[n]) for n, _ in it]
+            if lintype == 'linear':
+                it = filter_by_meta(it, 'linear')
+            elif lintype == 'nonlinear':
+                it = filter_by_meta(it, 'linear', exclude=True)
             if ctype == 'eq':
-                it = filter_by_meta([(n, self._cons[n]) for n, v in it], 'equals',
-                                    chk_none=True)
-                it = [(n, con_dict[n]) for n, _ in it]
+                it = filter_by_meta(it, 'equals', chk_none=True)
             elif ctype == 'ineq':
-                it = filter_by_meta([(n, self._cons[n]) for n, v in it], 'equals',
-                                    chk_none=True, exclude=True)
-                it = [(n, con_dict[n]) for n, _ in it]
+                it = filter_by_meta(it, 'equals', chk_none=True, exclude=True)
 
             for name, val in it:
                 filtered_dict[name] = val
 
             return filtered_dict
 
-        else:
-            # No driver scaling - use old method
-            con_dict = {}
-            it = self._cons.items()
-            if lintype == 'linear':
-                it = filter_by_meta(it, 'linear')
-            elif lintype == 'nonlinear':
-                it = filter_by_meta(it, 'linear', exclude=True)
-            if ctype == 'eq':
-                it = filter_by_meta(it, 'equals', chk_none=True)
-            elif ctype == 'ineq':
-                it = filter_by_meta(it, 'equals', chk_none=True, exclude=True)
+        # else:
+        #     # No driver scaling - use old method
+        #     con_dict = {}
+        #     it = self._cons.items()
+        #     if lintype == 'linear':
+        #         it = filter_by_meta(it, 'linear')
+        #     elif lintype == 'nonlinear':
+        #         it = filter_by_meta(it, 'linear', exclude=True)
+        #     if ctype == 'eq':
+        #         it = filter_by_meta(it, 'equals', chk_none=True)
+        #     elif ctype == 'ineq':
+        #         it = filter_by_meta(it, 'equals', chk_none=True, exclude=True)
 
-            for name, meta in it:
-                con_dict[name] = self._get_voi_val(name, meta, self._remote_cons,
-                                                   driver_scaling=False)
+        #     for name, meta in it:
+        #         con_dict[name] = self._get_voi_val(name, meta, self._remote_cons,
+        #                                            driver_scaling=False)
 
-            return con_dict
+        #     return con_dict
 
     def _get_ordered_nl_responses(self):
         """
@@ -1400,6 +1447,8 @@ class Driver(object, metaclass=DriverMetaclass):
     def _update_voi_meta(self, model, responses, desvars):
         """
         Collect response and design var metadata from the model and size desvars and responses.
+
+        This method also sets the "discrete" metadata flag for each desvar and response.
 
         Parameters
         ----------
@@ -1432,10 +1481,18 @@ class Driver(object, metaclass=DriverMetaclass):
                     continue  # don't add to response size
             else:
                 objs[name] = meta
+            
+            meta['discrete'] = meta['source'] in model._discrete_outputs
 
             response_size += meta['global_size']
 
+        for name, meta in desvars.items():
+            meta['discrete'] = meta['source'] in model._discrete_outputs
+
         desvar_size = sum(meta['global_size'] for meta in desvars.values())
+
+        # It is no longer enough to know if a Driver has scaling, that
+        # information depends on the Autoscaler implementation.
 
         self._has_scaling = model._setup_driver_units()
 
@@ -2271,7 +2328,8 @@ class Driver(object, metaclass=DriverMetaclass):
             if MPI and model.comm.size > 1:
                 model.comm.Bcast(x_new, root=0)
 
-            self._scipy_update_design_vars(x_new, desvar_names)
+            # self._scipy_update_design_vars(x_new, desvar_names)
+            self.set_design_vars(unscale=True)
 
             with RecordingDebugging(self._get_name(), self.iter_count, self):
                 self.iter_count += 1

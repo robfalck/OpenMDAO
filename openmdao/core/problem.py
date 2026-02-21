@@ -1951,6 +1951,7 @@ class Problem(object, metaclass=ProblemMetaclass):
         # Design vars
         desvars = self.driver._designvars
         vals = self.driver.get_design_var_values(get_remote=True, driver_scaling=driver_scaling)
+
         if not driver_scaling:
             desvars = deepcopy(desvars)
             for meta in desvars.values():

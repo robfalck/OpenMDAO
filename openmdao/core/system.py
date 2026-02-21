@@ -955,7 +955,8 @@ class System(object, metaclass=SystemMetaclass):
     def set_design_var_options(self, name,
                                lower=_UNDEFINED, upper=_UNDEFINED,
                                scaler=_UNDEFINED, adder=_UNDEFINED,
-                               ref=_UNDEFINED, ref0=_UNDEFINED):
+                               ref=_UNDEFINED, ref0=_UNDEFINED,
+                               units=_UNDEFINED):
         """
         Set options for design vars in the model.
 
@@ -981,6 +982,8 @@ class System(object, metaclass=SystemMetaclass):
             Value of design var that scales to 1.0 in the driver.
         ref0 : float or ndarray, optional
             Value of design var that scales to 0.0 in the driver.
+        units : str, optional
+            Units of the design variable.
         """
         # Check inputs
 
@@ -1008,38 +1011,7 @@ class System(object, metaclass=SystemMetaclass):
 
         existing_dv_meta = design_vars[name]
 
-        are_existing_scaling = existing_dv_meta['scaler'] is not None or \
-            existing_dv_meta['adder'] is not None or \
-            existing_dv_meta['ref'] is not None or \
-            existing_dv_meta['ref0'] is not None
-        are_existing_bounds = existing_dv_meta['lower'] is not None or \
-            existing_dv_meta['upper'] is not None
-
-        # figure out the bounds (lower, upper) based on what is passed to this
-        #   method and what were the existing bounds
-        if are_new_bounds:
-            # wipe out all the bounds and only use what is set by the arguments to this call
-            if is_undefined(lower):
-                lower = None
-            if is_undefined(upper):
-                upper = None
-        else:
-            lower = existing_dv_meta['lower']
-            upper = existing_dv_meta['upper']
-
-        if are_new_scaling and are_existing_scaling and are_existing_bounds and not are_new_bounds:
-            # need to unscale bounds using the existing scaling so the new scaling can
-            # be applied. But if no new bounds, no need to
-            existing_scaler = existing_dv_meta['scaler'] \
-                if existing_dv_meta['scaler'] is not None else 1.0
-            existing_adder = existing_dv_meta['adder'] \
-                if existing_dv_meta['adder'] is not None else 0.0
-            if lower is not None:
-                lower = lower / existing_scaler - existing_adder
-            if upper is not None:
-                upper = upper / existing_scaler - existing_adder
-
-        # Now figure out scaling
+        # If we change any scaling, reset them all.
         if are_new_scaling:
             if is_undefined(scaler):
                 scaler = None
@@ -1049,67 +1021,41 @@ class System(object, metaclass=SystemMetaclass):
                 ref = None
             if is_undefined(ref0):
                 ref0 = None
-        else:
-            scaler = existing_dv_meta['scaler']
-            adder = existing_dv_meta['adder']
-            ref = existing_dv_meta['ref']
-            ref0 = existing_dv_meta['ref0']
 
-        # Convert ref/ref0 to ndarray/float as necessary
-        ref = format_as_float_or_array('ref', ref, val_if_none=None, flatten=True)
-        ref0 = format_as_float_or_array('ref0', ref0, val_if_none=None, flatten=True)
+            ref = format_as_float_or_array('ref', ref, val_if_none=None, flatten=True)
+            ref0 = format_as_float_or_array('ref0', ref0, val_if_none=None, flatten=True)
 
-        # determine adder and scaler based on args
-        adder, scaler = determine_adder_scaler(ref0, ref, adder, scaler)
+            # determine adder and scaler based on args
+            adder, scaler = determine_adder_scaler(ref0, ref, adder, scaler)
 
-        if lower is None:
-            # if not set, set lower to -INF_BOUND and don't apply adder/scaler
-            lower = -INF_BOUND
-        else:
-            # Convert lower to ndarray/float as necessary
-            lower = format_as_float_or_array('lower', lower, flatten=True)
-            # Apply scaler/adder
-            lower = (lower + adder) * scaler
+            existing_dv_meta['scaler'] = scaler
+            existing_dv_meta['adder'] = adder
 
-        if upper is None:
-            # if not set, set upper to INF_BOUND and don't apply adder/scaler
-            upper = INF_BOUND
-        else:
-            # Convert upper to ndarray/float as necessary
-            upper = format_as_float_or_array('upper', upper, flatten=True)
-            # Apply scaler/adder
-            upper = (upper + adder) * scaler
+        if not is_undefined(lower):
+            if lower is None:
+                # if not set, set lower to -INF_BOUND and don't apply adder/scaler
+                lower = -INF_BOUND
+            else:
+                # Convert lower to ndarray/float as necessary
+                lower = format_as_float_or_array('lower', lower, flatten=True)
+            existing_dv_meta['lower'] = lower
+        
+        if not is_undefined(upper):
+            if upper is None:
+                # if not set, set upper to INF_BOUND and don't apply adder/scaler
+                upper = INF_BOUND
+            else:
+                # Convert upper to ndarray/float as necessary
+                upper = format_as_float_or_array('upper', upper, flatten=True)
+            existing_dv_meta['upper'] = upper
 
-        if isinstance(scaler, np.ndarray):
-            if np.all(scaler == 1.0):
-                scaler = None
-        elif scaler == 1.0:
-            scaler = None
-
-        if isinstance(adder, np.ndarray):
-            if not np.any(adder):
-                adder = None
-        elif adder == 0.0:
-            adder = None
-
-        # Put together a dict of the new values so they can be used to update the metadata for
-        #   this var
-        new_desvar_metadata = {
-            'scaler': scaler,
-            'total_scaler': scaler,
-            'adder': adder,
-            'total_adder': adder,
-            'upper': upper,
-            'lower': lower,
-            'ref': ref,
-            'ref0': ref0,
-        }
-
-        design_vars[name].update(new_desvar_metadata)
+        if not is_undefined(units):
+            existing_dv_meta['units'] = units 
 
     def set_constraint_options(self, name, ref=_UNDEFINED, ref0=_UNDEFINED,
                                equals=_UNDEFINED, lower=_UNDEFINED, upper=_UNDEFINED,
-                               adder=_UNDEFINED, scaler=_UNDEFINED, alias=_UNDEFINED):
+                               adder=_UNDEFINED, scaler=_UNDEFINED, alias=_UNDEFINED,
+                               units=_UNDEFINED):
         """
         Set options for constraints in the model.
 
@@ -1140,6 +1086,8 @@ class System(object, metaclass=SystemMetaclass):
         alias : str, optional
             Alias for this response. Necessary when adding multiple constraints on different
             indices or slices of a single variable.
+        units : str, optional
+            Units of the constraint.
         """
         # Check inputs
         if not isinstance(name, str):
@@ -1179,13 +1127,14 @@ class System(object, metaclass=SystemMetaclass):
             raise RuntimeError(msg)
 
         existing_cons_meta = responses[name]
-        are_existing_scaling = existing_cons_meta['scaler'] is not None or \
-            existing_cons_meta['adder'] is not None or \
-            existing_cons_meta['ref'] is not None or \
-            existing_cons_meta['ref0'] is not None
-        are_existing_bounds = existing_cons_meta['equals'] is not None or \
-            existing_cons_meta['lower'] is not None or \
-            existing_cons_meta['upper'] is not None
+
+        # are_existing_scaling = existing_cons_meta['scaler'] is not None or \
+        #     existing_cons_meta['adder'] is not None or \
+        #     existing_cons_meta['ref'] is not None or \
+        #     existing_cons_meta['ref0'] is not None
+        # are_existing_bounds = existing_cons_meta['equals'] is not None or \
+        #     existing_cons_meta['lower'] is not None or \
+        #     existing_cons_meta['upper'] is not None
 
         # figure out the bounds (equals, lower, upper) based on what is passed to this
         #   method and what were the existing bounds
@@ -1197,24 +1146,45 @@ class System(object, metaclass=SystemMetaclass):
                 lower = None
             if is_undefined(upper):
                 upper = None
-        else:
-            equals = existing_cons_meta['equals']
-            lower = existing_cons_meta['lower']
-            upper = existing_cons_meta['upper']
 
-        if are_new_scaling and are_existing_scaling and are_existing_bounds and not are_new_bounds:
-            # need to unscale bounds using the existing scaling so the new scaling can
-            # be applied
-            existing_scaler = existing_cons_meta['scaler'] \
-                if existing_cons_meta['scaler'] is not None else 1.0
-            existing_adder = existing_cons_meta['adder'] \
-                if existing_cons_meta['adder'] is not None else 0.0
-            if lower is not None:
-                lower = lower / existing_scaler - existing_adder
-            if upper is not None:
-                upper = upper / existing_scaler - existing_adder
+            # Convert lower to ndarray/float as necessary
+            try:
+                if lower is None:
+                    # don't apply adder/scaler if lower not set
+                    lower = -INF_BOUND
+                else:
+                    lower = format_as_float_or_array('lower', lower, flatten=True)
+
+            except (TypeError, ValueError):
+                raise TypeError("Argument 'lower' can not be a string ('{}' given). You can not "
+                                "specify a variable as lower bound. You can only provide constant "
+                                "float values".format(lower))
+
+            # Convert upper to ndarray/float as necessary
+            try:
+                if upper is None:
+                    # don't apply adder/scaler if upper not set
+                    upper = INF_BOUND
+                else:
+                    upper = format_as_float_or_array('upper', upper, flatten=True)
+
+            except (TypeError, ValueError):
+                raise TypeError("Argument 'upper' can not be a string ('{}' given). You can not "
+                                "specify a variable as upper bound. You can only provide constant "
+                                "float values".format(upper))
+
+            # Convert equals to ndarray/float as necessary
             if equals is not None:
-                equals = equals / existing_scaler - existing_adder
+                try:
+                    equals = format_as_float_or_array('equals', equals, flatten=True)
+                except (TypeError, ValueError):
+                    raise TypeError("Argument 'equals' can not be a string ('{}' given). You can "
+                                    "not specify a variable as equals bound. You can only provide "
+                                    "constant float values".format(equals))
+            
+            existing_cons_meta['equals'] = equals
+            existing_cons_meta['lower'] = lower
+            existing_cons_meta['upper'] = upper
 
         # Now figure out scaling
         if are_new_scaling:
@@ -1226,85 +1196,23 @@ class System(object, metaclass=SystemMetaclass):
                 ref = None
             if is_undefined(ref0):
                 ref0 = None
-        else:
-            scaler = existing_cons_meta['scaler']
-            adder = existing_cons_meta['adder']
-            ref = existing_cons_meta['ref']
-            ref0 = existing_cons_meta['ref0']
 
-        # Convert ref/ref0 to ndarray/float as necessary
-        ref = format_as_float_or_array('ref', ref, val_if_none=None, flatten=True)
-        ref0 = format_as_float_or_array('ref0', ref0, val_if_none=None, flatten=True)
+            # Convert ref/ref0 to ndarray/float as necessary
+            ref = format_as_float_or_array('ref', ref, val_if_none=None, flatten=True)
+            ref0 = format_as_float_or_array('ref0', ref0, val_if_none=None, flatten=True)
 
-        # determine adder and scaler based on args
-        adder, scaler = determine_adder_scaler(ref0, ref, adder, scaler)
+            # determine adder and scaler based on args
+            adder, scaler = determine_adder_scaler(ref0, ref, adder, scaler)
 
-        # Convert lower to ndarray/float as necessary
-        try:
-            if lower is None:
-                # don't apply adder/scaler if lower not set
-                lower = -INF_BOUND
-            else:
-                lower = format_as_float_or_array('lower', lower, flatten=True)
-                if lower != - INF_BOUND:
-                    lower = (lower + adder) * scaler
-        except (TypeError, ValueError):
-            raise TypeError("Argument 'lower' can not be a string ('{}' given). You can not "
-                            "specify a variable as lower bound. You can only provide constant "
-                            "float values".format(lower))
+            existing_cons_meta['adder'] = adder
+            existing_cons_meta['scaler'] = scaler
 
-        # Convert upper to ndarray/float as necessary
-        try:
-            if upper is None:
-                # don't apply adder/scaler if upper not set
-                upper = INF_BOUND
-            else:
-                upper = format_as_float_or_array('upper', upper, flatten=True)
-                if upper != INF_BOUND:
-                    upper = (upper + adder) * scaler
-        except (TypeError, ValueError):
-            raise TypeError("Argument 'upper' can not be a string ('{}' given). You can not "
-                            "specify a variable as upper bound. You can only provide constant "
-                            "float values".format(upper))
-
-        # Convert equals to ndarray/float as necessary
-        if equals is not None:
-            try:
-                equals = format_as_float_or_array('equals', equals, flatten=True)
-            except (TypeError, ValueError):
-                raise TypeError("Argument 'equals' can not be a string ('{}' given). You can "
-                                "not specify a variable as equals bound. You can only provide "
-                                "constant float values".format(equals))
-            equals = (equals + adder) * scaler
-
-        if isinstance(scaler, np.ndarray):
-            if np.all(scaler == 1.0):
-                scaler = None
-        elif scaler == 1.0:
-            scaler = None
-
-        if isinstance(adder, np.ndarray):
-            if not np.any(adder):
-                adder = None
-        elif adder == 0.0:
-            adder = None
-
-        new_cons_metadata = {
-            'ref': ref,
-            'ref0': ref0,
-            'equals': equals,
-            'lower': lower,
-            'upper': upper,
-            'adder': adder,
-            'total_adder': adder,
-            'scaler': scaler,
-            'total_scaler': scaler,
-        }
-
-        responses[name].update(new_cons_metadata)
+        if not is_undefined(units):
+            existing_cons_meta['units'] = units 
 
     def set_objective_options(self, name, ref=_UNDEFINED, ref0=_UNDEFINED,
-                              adder=_UNDEFINED, scaler=_UNDEFINED, alias=_UNDEFINED):
+                              adder=_UNDEFINED, scaler=_UNDEFINED, alias=_UNDEFINED,
+                              units=_UNDEFINED):
         """
         Set options for objectives in the model.
 
@@ -1329,6 +1237,8 @@ class System(object, metaclass=SystemMetaclass):
         alias : str
             Alias for this response. Used to disambiguate variable names when adding
             multiple objectives on different indices or slices of a single variable. Deprecated.
+        units : str
+            Units of the objective
         """
         # Check inputs
         # Name must be a string
@@ -1340,18 +1250,6 @@ class System(object, metaclass=SystemMetaclass):
                              "If the objective has an alias, provide that as the 'name' "
                              "argument to set_objective_options.")
             name = alias
-
-        # At least one of the scaling parameters must be set or function does nothing
-        if (
-            is_undefined(scaler)
-            and is_undefined(adder)
-            and is_undefined(ref)
-            and is_undefined(ref0)
-        ):
-            raise RuntimeError(
-                'Must set a value for at least one argument '
-                'in call to set_objective_options.'
-            )
 
         if self._static_mode and self._static_responses:
             responses = self._static_responses
@@ -1366,46 +1264,45 @@ class System(object, metaclass=SystemMetaclass):
                 f"an alias, use that in place of its name for set_objective_options."
             raise RuntimeError(msg)
 
-        # Since one or more of these are being set by the incoming arguments, the
-        #   ones that are not being set should be set to None since they will be re-computed below
-        if is_undefined(scaler):
-            scaler = None
-        if is_undefined(adder):
-            adder = None
-        if is_undefined(ref):
-            ref = None
-        if is_undefined(ref0):
-            ref0 = None
+        are_new_scaling = scaler is not _UNDEFINED or adder is not _UNDEFINED or \
+            ref is not _UNDEFINED or ref0 is not _UNDEFINED
 
-        # Convert ref/ref0 to ndarray/float as necessary
-        ref = format_as_float_or_array('ref', ref, val_if_none=None, flatten=True)
-        ref0 = format_as_float_or_array('ref0', ref0, val_if_none=None, flatten=True)
-
-        # determine adder and scaler based on args
-        adder, scaler = determine_adder_scaler(ref0, ref, adder, scaler)
-
-        if isinstance(scaler, np.ndarray):
-            if np.all(scaler == 1.0):
+        if are_new_scaling:
+            # Since one or more of these are being set by the incoming arguments, the
+            #   ones that are not being set should be set to None since they will be re-computed
+            if is_undefined(scaler):
                 scaler = None
-        elif scaler == 1.0:
-            scaler = None
-
-        if isinstance(adder, np.ndarray):
-            if not np.any(adder):
+            if is_undefined(adder):
                 adder = None
-        elif adder == 0.0:
-            adder = None
+            if is_undefined(ref):
+                ref = None
+            if is_undefined(ref0):
+                ref0 = None
 
-        new_obj_metadata = {
-            'ref': ref,
-            'ref0': ref0,
-            'adder': adder,
-            'total_adder': adder,
-            'scaler': scaler,
-            'total_scaler': scaler,
-        }
+            # Convert ref/ref0 to ndarray/float as necessary
+            ref = format_as_float_or_array('ref', ref, val_if_none=None, flatten=True)
+            ref0 = format_as_float_or_array('ref0', ref0, val_if_none=None, flatten=True)
 
-        responses[name].update(new_obj_metadata)
+            # determine adder and scaler based on args
+            adder, scaler = determine_adder_scaler(ref0, ref, adder, scaler)
+
+            if isinstance(scaler, np.ndarray):
+                if np.all(scaler == 1.0):
+                    scaler = None
+            elif scaler == 1.0:
+                scaler = None
+
+            if isinstance(adder, np.ndarray):
+                if not np.any(adder):
+                    adder = None
+            elif adder == 0.0:
+                adder = None
+
+            responses[name]['scaler'] = scaler
+            responses[name]['adder'] = adder
+
+        if not is_undefined(units):
+            responses[name]['units'] = units
 
     def initialize(self):
         """
@@ -2362,8 +2259,6 @@ class System(object, metaclass=SystemMetaclass):
         for name, meta in self._design_vars.items():
 
             units = meta['units']
-            meta['total_adder'] = meta['adder']
-            meta['total_scaler'] = meta['scaler']
             # Initialize unit conversion factors (stored separately from declared scaling)
             meta['unit_scaler'] = None
             meta['unit_adder'] = None
@@ -2392,34 +2287,17 @@ class System(object, metaclass=SystemMetaclass):
                     raise RuntimeError(msg.format(self.msginfo, name, var_units, units))
 
                 # Unit conversion and user-declared scaling are now handled separately.
-                # Transformation pipeline (for _get_voi_val, driver_scaling=True):
-                # 1. y_in_units = (y + unit_adder) * unit_scaler
-                # 2. y_opt = (y_in_units + total_adder) * total_scaler
-                #
-                # Where total_scaler and total_adder are ONLY user-declared scaling.
-
                 unit_scaler, unit_adder = unit_conversion(var_units, units)
-                declared_adder, declared_scaler = determine_adder_scaler(None, None,
-                                                                         meta['adder'],
-                                                                         meta['scaler'])
 
                 # Store unit conversion factors separately
                 meta['unit_scaler'] = unit_scaler
                 meta['unit_adder'] = unit_adder
-                # total_scaler and total_adder now contain ONLY user-declared scaling
-                meta['total_scaler'] = declared_scaler
-                meta['total_adder'] = declared_adder
-
-            if meta['total_scaler'] is not None or meta['total_adder'] is not None:
-                has_scaling = True
 
         resp = self._responses
         type_dict = {'con': 'constraint', 'obj': 'objective'}
         for name, meta in resp.items():
 
             units = meta['units']
-            meta['total_scaler'] = meta['scaler']
-            meta['total_adder'] = meta['adder']
             # Initialize unit conversion factors (stored separately from declared scaling)
             meta['unit_scaler'] = None
             meta['unit_adder'] = None
@@ -2450,18 +2328,10 @@ class System(object, metaclass=SystemMetaclass):
                                                   name, src_units, units))
 
                 unit_scaler, unit_adder = unit_conversion(src_units, units)
-                declared_adder, declared_scaler =\
-                    determine_adder_scaler(None, None, meta['adder'], meta['scaler'])
 
                 # Store unit conversion factors separately
                 meta['unit_scaler'] = unit_scaler
                 meta['unit_adder'] = unit_adder
-                # total_scaler and total_adder now contain ONLY user-declared scaling
-                meta['total_scaler'] = declared_scaler
-                meta['total_adder'] = declared_adder
-
-            if meta['total_scaler'] is not None or meta['total_adder'] is not None:
-                has_scaling = True
 
         for s in self._subsystems_myproc:
             has_scaling |= s._setup_driver_units(abs2meta)
@@ -3404,10 +3274,8 @@ class System(object, metaclass=SystemMetaclass):
             'ref0': ref0,
             'units': units,
             'cache_linear_solution': cache_linear_solution,
-            'total_scaler': scaler,
-            'total_adder': adder,
-            'unit_scaler': None,  # Will be set in _setup_driver_units if units conversion needed
-            'unit_adder': None,   # Will be set in _setup_driver_units if units conversion needed
+            'unit_scaler': None, # Keep separate from scaler/adder
+            'unit_adder': None, # Keep separate from scaler/adder
             'indices': indices,
             'flat_indices': flat_indices,
             'parallel_deriv_color': parallel_deriv_color,
@@ -3529,7 +3397,6 @@ class System(object, metaclass=SystemMetaclass):
                     lower = -INF_BOUND
                 else:
                     lower = format_as_float_or_array('lower', lower, flatten=True)
-                    lower = (lower + adder) * scaler
             except (TypeError, ValueError):
                 raise TypeError("Argument 'lower' can not be a string ('{}' given). You can not "
                                 "specify a variable as lower bound. You can only provide constant "
@@ -3542,7 +3409,6 @@ class System(object, metaclass=SystemMetaclass):
                     upper = INF_BOUND
                 else:
                     upper = format_as_float_or_array('upper', upper, flatten=True)
-                    upper = (upper + adder) * scaler
             except (TypeError, ValueError):
                 raise TypeError("Argument 'upper' can not be a string ('{}' given). You can not "
                                 "specify a variable as upper bound. You can only provide constant "
@@ -3555,7 +3421,6 @@ class System(object, metaclass=SystemMetaclass):
                     raise TypeError("Argument 'equals' can not be a string ('{}' given). You can "
                                     "not specify a variable as equals bound. You can only provide "
                                     "constant float values".format(equals))
-                equals = (equals + adder) * scaler
 
             resp['lower'] = lower
             resp['upper'] = upper
@@ -3582,7 +3447,6 @@ class System(object, metaclass=SystemMetaclass):
         elif scaler == 1.0:
             scaler = None
         resp['scaler'] = scaler
-        resp['total_scaler'] = scaler
 
         if isinstance(adder, np.ndarray):
             if not np.any(adder):
@@ -3590,10 +3454,8 @@ class System(object, metaclass=SystemMetaclass):
         elif adder == 0.0:
             adder = None
         resp['adder'] = adder
-        resp['total_adder'] = adder
-        resp['unit_scaler'] = None  # Will be set in _setup_driver_units if units conversion needed
-        resp['unit_adder'] = None   # Will be set in _setup_driver_units if units conversion needed
-
+        resp['unit_scaler'] = None
+        resp['unit_adder'] = None
         resp['ref'] = ref
         resp['ref0'] = ref0
         resp['type'] = type_
@@ -3601,6 +3463,9 @@ class System(object, metaclass=SystemMetaclass):
         resp['cache_linear_solution'] = cache_linear_solution
         resp['parallel_deriv_color'] = parallel_deriv_color
         resp['flat_indices'] = flat_indices
+
+        # Start by assuming response is continuous and update later
+        resp['discrete'] = False
 
         if self._static_mode:
             responses = self._static_responses

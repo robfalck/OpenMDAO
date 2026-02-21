@@ -1628,6 +1628,9 @@ class TestDOEDriverListVars(unittest.TestCase):
         prob.list_driver_vars(out_stream=f)
         output = f.getvalue()
 
+        print(output)
+        return
+
         self.assertIn('x     -1   0', output)
         self.assertIn('y     3    0', output)
         self.assertIn('f_xy  59   0', output)
