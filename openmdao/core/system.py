@@ -2362,6 +2362,9 @@ class System(object, metaclass=SystemMetaclass):
         for name, meta in self._design_vars.items():
 
             units = meta['units']
+            meta['unit_scaler'] = None
+            meta['unit_adder'] = None
+
             meta['total_adder'] = meta['adder']
             meta['total_scaler'] = meta['scaler']
 
@@ -2408,6 +2411,7 @@ class System(object, metaclass=SystemMetaclass):
                                                                          meta['adder'],
                                                                          meta['scaler'])
 
+                meta['unit_scaler'], meta['unit_adder'] = unit_conversion(var_units, units)
                 meta['total_adder'] = unit_adder + declared_adder / unit_scaler
                 meta['total_scaler'] = declared_scaler * unit_scaler
 
@@ -2450,6 +2454,10 @@ class System(object, metaclass=SystemMetaclass):
                 unit_scaler, unit_adder = unit_conversion(src_units, units)
                 declared_adder, declared_scaler =\
                     determine_adder_scaler(None, None, meta['adder'], meta['scaler'])
+
+                meta['scaler'], meta['adder'] = \
+                    determine_adder_scaler(None, None, meta['adder'], meta['scaler'])
+                meta['unit_scaler'], meta['unit_adder'] = unit_conversion(var_units, units)
 
                 meta['total_scaler'] = declared_scaler * unit_scaler
                 meta['total_adder'] = unit_adder + declared_adder / unit_scaler
@@ -3397,6 +3405,9 @@ class System(object, metaclass=SystemMetaclass):
             'ref': ref,
             'ref0': ref0,
             'units': units,
+            'unit_scaler': None,
+            'unit_adder': None,
+            'discrete': False,
             'cache_linear_solution': cache_linear_solution,
             'total_scaler': scaler,
             'total_adder': adder,
@@ -3495,6 +3506,13 @@ class System(object, metaclass=SystemMetaclass):
 
         resp['name'] = name
         resp['alias'] = alias
+
+        # Start by assuming response is continuous and update later
+        resp['discrete'] = False
+
+        # Determine the unit scaler and unit_adder at setup
+        resp['unit_scaler'] = None
+        resp['unit_adder'] = None
 
         # Convert ref/ref0 to ndarray/float as necessary
         ref = format_as_float_or_array('ref', ref, val_if_none=None, flatten=True)
@@ -3781,6 +3799,7 @@ class System(object, metaclass=SystemMetaclass):
 
         meta['source'] = src_name
         meta['distributed'] = src_node_meta.distributed
+        meta['discrete'] = src_name in model._discrete_outputs
 
         if get_size:
             if 'indices' not in meta:
@@ -3912,6 +3931,7 @@ class System(object, metaclass=SystemMetaclass):
 
         meta['source'] = src_name
         meta['distributed'] = dist = src_node_meta.distributed
+        meta['discrete'] = src_name in model._discrete_outputs
 
         if get_size:
             sizes = model._var_sizes['output']

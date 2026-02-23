@@ -24,6 +24,7 @@ from openmdao.utils.options_dictionary import OptionsDictionary
 import openmdao.utils.coloring as coloring_mod
 from openmdao.utils.array_utils import sizes2offsets
 from openmdao.vectors.vector import _full_slice, _flat_full_indexer
+from openmdao.vectors.optimizer_vector import OptimizerVector
 from openmdao.utils.indexer import indexer
 from openmdao.utils.om_warnings import issue_warning, DerivativesWarning, \
     DriverWarning, OMDeprecationWarning, warn_deprecation
@@ -372,7 +373,6 @@ class Driver(object, metaclass=DriverMetaclass):
         self._declare_options()
         self.options.update(kwargs)
         self.result = DriverResult(self)
-        self._has_scaling = False
         self._filtered_vars_to_record = None
 
     def _get_inst_id(self):
@@ -444,6 +444,129 @@ class Driver(object, metaclass=DriverMetaclass):
             Reference to the containing problem.
         """
         self._problem = weakref.ref(problem)
+
+    @property
+    def autoscaler(self):
+        """
+        Get the Autoscaler used by this driver.
+
+        Returns
+        -------
+        Autoscaler
+            The Autoscaler instance used by this driver, or None if not initialized.
+        """
+        return self._autoscaler
+
+    @autoscaler.setter
+    def autoscaler(self, autoscaler):
+        """
+        Set the Autoscaler to be used by this driver.
+
+        Parameters
+        ----------
+        autoscaler : Autoscaler
+            The Autoscaler instance to use.
+        """
+        self._autoscaler = autoscaler
+    
+    @property
+    def _has_scaling(self):
+        """
+        Returns True if the Driver will perform scaling.
+
+        Returns
+        -------
+        bool
+            True if the Autoscaler will perform scaling, otherwise False.
+        """
+        return self._autoscaler._has_scaling
+
+    def _get_vector_from_model(self, voi_type, driver_scaling=True, in_place=False):
+        """
+        Get a new OptimizerVector from the model, or populate the data in an existing one.
+
+        Note that this only returns the continuous values.
+
+        Parameters
+        ----------
+        voi_type : str
+            The kind of variable being retrieved ('design_var', 'constraint', or 'objective').
+        driver_scaling : bool
+            If True, return vector values in the optimizer-scaled space. Default is True.
+        in_place : bool
+            If True, populate the associated VOI vector in self._vectors in-place and
+            return a reference to that vector, otherwise return a newly allocated OptimizerVector.
+            Default is False.
+
+        Returns
+        -------
+        OptimizerVector
+            A new OptimizerVector or reference to existing vector with data populated.
+        """
+        varmeta_map = {'design_var': self._designvars,
+                       'constraint': self._cons,
+                       'objective': self._objs}
+
+        # Determine remote VOIs dict based on type
+        if voi_type == 'design_var':
+            remote_vois = self._remote_dvs
+        elif voi_type == 'constraint':
+            remote_vois = self._remote_cons
+        else:  # objective
+            remote_vois = self._remote_objs
+
+        out = self._vectors[voi_type] if in_place else None
+
+        # Build metadata for OptimizerVector with flat array indexing
+        vecmeta = {}
+        voi_array = []
+        idx = 0
+
+        for name, meta in varmeta_map[voi_type].items():
+            if meta['discrete']:
+                continue
+            size = meta['global_size'] if meta['distributed'] else meta['size']
+            start_idx = idx
+            end_idx = idx + size
+
+            if out is None:
+                vecmeta[name] = {
+                    'start_idx': idx,
+                    'end_idx': idx + size,
+                    'size': size,
+                }
+
+                # Meta that only applies to constraints and/or design vars
+                if 'linear' in meta:
+                    vecmeta[name]['linear'] = meta.get('linear')
+                if 'equals' in meta:
+                    vecmeta[name]['equals'] = meta.get('equals')
+                if 'lower' in meta:
+                    vecmeta[name]['lower'] = meta.get('lower')
+                if 'upper' in meta:
+                    vecmeta[name]['upper'] = meta.get('upper')
+
+                val = self._get_voi_val(name, meta, remote_vois,
+                                        driver_scaling=False, get_remote=True)
+                voi_array.append(np.atleast_1d(val).flat)
+            else:
+                # The vector already exists, just populate it
+                out.asarray()[start_idx:end_idx] = self._get_voi_val(name, meta, remote_vois,
+                                                                     driver_scaling=False,
+                                                                     get_remote=True)
+
+            idx += size
+
+        if out is None:
+            # Create flat array
+            flat_array = np.concatenate(voi_array) if voi_array else np.array([])
+            out = OptimizerVector(voi_type, flat_array, vecmeta, scaled=False)
+
+        # Apply autoscaler to the vector
+        if driver_scaling:
+            self._autoscaler.apply_vec_scaling(out)
+
+        return out
 
     def _setup_driver(self, problem):
         """
@@ -599,8 +722,31 @@ class Driver(object, metaclass=DriverMetaclass):
                 if not problem.model._use_derivatives:
                     issue_warning("Derivatives are turned off.  Skipping simul deriv coloring.",
                                   category=DerivativesWarning)
-        
+
         self._autoscaler.setup(driver=self)
+        
+        # Pre-allocate optimizer vectors for all drivers
+        try:
+            dv_vec = self._get_vector_from_model(voi_type='design_var', driver_scaling=False)
+        except (ValueError, KeyError, TypeError):
+            # Some drivers (e.g., DOEDriver) may have unsupported variable types
+            dv_vec = None
+
+        try:
+            con_vec = self._get_vector_from_model(voi_type='constraint', driver_scaling=False)
+        except (ValueError, KeyError, TypeError):
+            con_vec = None
+
+        try:
+            obj_vec = self._get_vector_from_model(voi_type='objective', driver_scaling=False)
+        except (ValueError, KeyError, TypeError):
+            obj_vec = None
+
+        self._vectors = {
+            'design_var': dv_vec,
+            'constraint': con_vec,
+            'objective': obj_vec,
+        }
 
     def _split_dvs(self, model):
         """
@@ -1005,9 +1151,16 @@ class Driver(object, metaclass=DriverMetaclass):
         dict
            Dictionary containing values of each design variable.
         """
-        return {n: self._get_voi_val(n, dvmeta, self._remote_dvs, get_remote=get_remote,
-                                     driver_scaling=driver_scaling)
-                for n, dvmeta in self._designvars.items()}
+        self._get_vector_from_model('design_var', driver_scaling=driver_scaling, in_place=True)
+        
+        dvs = self._vectors['design_var']._to_dict()
+        model = self._problem().model
+        discrete_dvs = {n: self._get_voi_val(n, dvmeta, self._remote_dvs, get_remote=get_remote,
+                                             driver_scaling=driver_scaling)
+                        for n, dvmeta in self._designvars.items()
+                        if dvmeta['source'] in model._discrete_outputs}
+        dvs.update(discrete_dvs)
+        return dvs
 
     def set_design_var(self, name, value, set_remote=True):
         """
@@ -1225,7 +1378,7 @@ class Driver(object, metaclass=DriverMetaclass):
 
         desvar_size = sum(meta['global_size'] for meta in desvars.values())
 
-        self._has_scaling = model._setup_driver_units()
+        model._setup_driver_units()
 
         return response_size, desvar_size
 

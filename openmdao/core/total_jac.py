@@ -119,8 +119,7 @@ class _TotalJacInfo(object):
             The driver that owns the total jacobian.  If None, use the driver from the problem.
             If False, this total jacobian will be computed directly by the problem.
         """
-        if driver is None:
-            driver = problem.driver
+        self._driver = driver = problem.driver if driver is None else driver
         self.model = model = problem.model
 
         # reset the of and wrt caches just in case we've previously built a total jac with
@@ -1478,7 +1477,7 @@ class _TotalJacInfo(object):
 
                 # Driver scaling.
                 if self.has_scaling:
-                    self._do_driver_scaling(self.J_dict)
+                    self._driver._autoscaler.apply_jac_scaling(self.J_dict)
 
                 # if some of the wrt vars are distributed in fwd mode, we bcast from the rank
                 # where each part of the distrib var exists
@@ -1579,7 +1578,7 @@ class _TotalJacInfo(object):
 
             # Driver scaling.
             if self.has_scaling:
-                self._do_driver_scaling(totals)
+                self._driver._autoscaler.apply_jac_scaling(totals)
 
             if return_format == 'array':
                 totals = self.J  # change back to array version
@@ -1725,51 +1724,6 @@ class _TotalJacInfo(object):
             Direction of derivative solution.
         """
         self.lin_sol_cache[key][:] = self.output_vec[mode].asarray()
-
-    def _do_driver_scaling(self, J):
-        """
-        Apply scalers to the jacobian if the driver defined any.
-
-        Parameters
-        ----------
-        J : dict
-            Jacobian to be scaled.
-        """
-        # use promoted names for design vars and responses
-        desvars = self.input_meta['fwd']
-        responses = self.output_meta['fwd']
-
-        if self.return_format in ('dict', 'array'):
-            for prom_out, odict in J.items():
-                oscaler = responses[prom_out].get('total_scaler')
-
-                for prom_in, val in odict.items():
-                    iscaler = desvars[prom_in].get('total_scaler')
-
-                    # Scale response side
-                    if oscaler is not None:
-                        val[:] = (oscaler * val.T).T
-
-                    # Scale design var side
-                    if iscaler is not None:
-                        val *= 1.0 / iscaler
-
-        elif self.return_format == 'flat_dict':
-            for tup, val in J.items():
-                prom_out, prom_in = tup
-                oscaler = responses[prom_out]['total_scaler']
-                iscaler = desvars[prom_in]['total_scaler']
-
-                # Scale response side
-                if oscaler is not None:
-                    val[:] = (oscaler * val.T).T
-
-                # Scale design var side
-                if iscaler is not None:
-                    val *= 1.0 / iscaler
-        else:
-            raise RuntimeError("Derivative scaling by the driver only supports 'dict', "
-                               "'array' and 'flat_array' formats at present.")
 
     def _print_derivatives(self):
         """

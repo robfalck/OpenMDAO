@@ -46,6 +46,11 @@ class Autoscaler:
     setup(driver)
         Initialize the autoscaler with driver metadata.
         Called once during driver setup.
+    
+    update(driver)
+        Update any scaling parameters after the model has been executed.
+        This can be used to assess the current values in the model,
+        the current jacobian, etc.
 
     apply_vec_scaling(vec)
         Scale a vector from model space to optimizer space.
@@ -62,35 +67,9 @@ class Autoscaler:
     apply_jac_scaling
         TBD
 
-    Notes
-    -----
-    The OptimizerVector interface provides access to:
-    - Full flat array via `.asarray()` - for vectorized operations
-    - Variable-by-variable access via `[name]` - for element-wise operations
-    - Metadata via `.get_metadata()` - for scaling parameters
-
     This flexible interface allows autoscalers to choose any implementation strategy,
     from simple loops to complex matrix operations.
 
-    Examples
-    --------
-    Implementing a custom autoscaler for large-scale problems:
-
-    >>> class VectorizedAutoscaler(Autoscaler):
-    ...     def setup(self, driver):
-    ...         # Pre-compute full scaler/adder arrays
-    ...         self.dv_scalers = np.ones(total_size)
-    ...         self.dv_adders = np.zeros(total_size)
-    ...         # ... populate with driver metadata ...
-    ...
-    ...     def apply_scaling(self, vec):
-    ...         data = vec.asarray()
-    ...         data += self.dv_adders
-    ...         data *= self.dv_scalers
-
-    See Also
-    --------
-    DefaultAutoscaler : Simple element-wise scaling implementation
     """
 
     def setup(self, driver: 'Driver'):
@@ -111,21 +90,30 @@ class Autoscaler:
         # Compute and cache combined scalers for all variables
         self._combined_scalers = {}
 
+        self._has_scaling = False
+
         for voi_type in ['design_var', 'constraint', 'objective']:
             self._combined_scalers[voi_type] = {}
             for name, meta in self._var_meta[voi_type].items():
-                scaler, adder = self._compute_combined_scaling(meta)
+                total_scaler, total_adder = self._compute_combined_scaling(meta)
+                self._has_scaling = self._has_scaling \
+                    or (total_scaler is not None) \
+                    or (total_adder is not None)
                 self._combined_scalers[voi_type][name] = {
-                    'scaler': scaler,
-                    'adder': adder
+                    'scaler': total_scaler,
+                    'adder': total_adder
                 }
+    
+    @property
+    def has_scaling(self):
+        return self._has_scaling
 
-    def pre_run(self, driver: 'Driver'):
+    def update(self, driver: 'Driver'):
         """
         Perform any last minute setup of the autoscaler at the start of the driver's execution.
 
-        The model is fully setup at this point and may be run, allowing the autoscaler to
-        set itself up based on the outputs of the model.
+        This method is called during driver.run when the model has been executed. It can be used
+        to configure the scaling based on values in the model, the current model jacobian, etc.
 
         Parameters
         ----------
@@ -227,6 +215,7 @@ class Autoscaler:
                 vec[name] /= scaler
             if adder is not None:
                 vec[name] -= adder
+        vec.scaled = False
 
         return vec
     
@@ -249,6 +238,7 @@ class Autoscaler:
                 vec[name] += adder
             if scaler is not None:
                 vec[name] *= scaler
+        vec.scaled = True
 
     def apply_mult_unscaling(self, desvar_multipliers, con_multipliers):
         """
@@ -335,6 +325,9 @@ class Autoscaler:
             A reference to the con_multipliers given on input. The values of the multipliers
             were unscaled in-place.
         """
+        if not self._has_scaling:
+            return desvar_multipliers, con_multipliers
+
         # Get the objective scaler from cached combined scalers
         obj_name = list(self._var_meta['objective'].keys())[0]
         obj_scaler = self._combined_scalers['objective'][obj_name]['scaler'] or 1.0
@@ -381,6 +374,9 @@ class Autoscaler:
         When a scaler is None (identity transformation), it's treated as 1.0 for
         multiplication and division.
         """
+        if not self._has_scaling:
+            return
+
         for key, jac_block in jac_dict.items():
             # Handle both nested dict and flat dict formats
             if isinstance(key, tuple):
