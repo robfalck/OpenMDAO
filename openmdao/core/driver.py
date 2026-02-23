@@ -11,6 +11,7 @@ import weakref
 import numpy as np
 import scipy.sparse as sp
 
+from openmdao.drivers.autoscalers import Autoscaler
 from openmdao.core.group import Group
 from openmdao.core.total_jac import _TotalJacInfo
 from openmdao.core.constants import INT_DTYPE, _SetupStatus
@@ -265,6 +266,10 @@ class Driver(object, metaclass=DriverMetaclass):
         Variables to record based on recording options.
     _in_find_feasible : bool
         True if the driver is currently executing find_feasible.
+    _vectors : dict
+        The optimizer vectors used to cache design variables, constraints, and objectives.
+    _autoscaler : Autoscaler
+        The autoscaler instance used to scale/unscale values for the optimizer.
     """
 
     def __init__(self, **kwargs):
@@ -283,6 +288,10 @@ class Driver(object, metaclass=DriverMetaclass):
         self._lin_dvs = None
         self._nl_dvs = None
         self._in_find_feasible = False
+
+        # Optimization-specific attributes
+        self._vectors = None
+        self._autoscaler = Autoscaler()
 
         # Driver options
         self.options = OptionsDictionary(parent_name=type(self).__name__)
@@ -590,6 +599,8 @@ class Driver(object, metaclass=DriverMetaclass):
                 if not problem.model._use_derivatives:
                     issue_warning("Derivatives are turned off.  Skipping simul deriv coloring.",
                                   category=DerivativesWarning)
+        
+        self._autoscaler.setup(driver=self)
 
     def _split_dvs(self, model):
         """

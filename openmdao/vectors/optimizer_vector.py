@@ -1,0 +1,384 @@
+"""Lightweight vector wrapper for driver-level design variables and responses."""
+
+from typing import Any, Literal
+
+import numpy as np
+
+
+class OptimizerVector(object):
+    """
+    Provides name-based indexing over optimizer-level design variable or response vectors.
+
+    This is a lightweight dict-like wrapper, not a System Vector. It provides convenient
+    access for optimization algorithms.
+
+    Parameters
+    ----------
+    voi_type : str ('design_var', 'constraint', 'objective', or 'lagrange_multiplier')
+        A string specifying the type of optimization variable in the vector.
+    data : ndarray
+        Flat numpy array containing variable values.
+    metadata : dict
+        Metadata dict mapping variable names to index information. Each entry should contain
+        'start_idx', 'end_idx', and 'size' keys.
+
+    Attributes
+    ----------
+    voi_type : str ('design_var', 'constraint', or 'objective')
+        A string specifying the type of optimization variable in the vector.
+    scaled : bool
+        The current state of the vector, whether it is in optmiizer scaled space (True),
+        or unscaled model/physical space (False).
+    _data : ndarray
+        Flat numpy array containing variable values.
+    _meta : dict
+        Metadata dict mapping variable names to index information. Each entry should contain
+        'start_idx', 'end_idx', and 'size' keys.
+    _filters : dict[tuple, ndarray]
+        Cache for computed filter indices. Keys are tuples of sorted (key, value)
+        filter criteria, values are integer arrays of indices into _data.
+        Used by asarray() to avoid recomputing indices for repeated filter calls.
+
+    Examples
+    --------
+    >>> vec = OpimizerVector('design_var', numpy_array, metadata)
+    >>> x_value = vec['x']  # Get design variable by name
+    >>> vec['x'] = 2.5  # Set design variable by name
+    >>> for name, value in vec.items():  # Iterate over variables
+    ...     print(f"{name}: {value}")
+    """
+
+    def __init__(self, voi_type, data, metadata, scaled):
+        """Initialize OpimizerVector with data array and metadata."""
+        self.voi_type: Literal['design_var', 'constraint', 'objective'] = voi_type
+        self._data: np.ndarray = data
+        self._meta: dict[str, Any] = metadata
+        self.scaled = scaled
+        self._filters = {}
+
+    def __getitem__(self, name):
+        """
+        Get variable value by name.
+
+        Parameters
+        ----------
+        name : str
+            Variable name (promoted or alias).
+
+        Returns
+        -------
+        ndarray
+            1D array of variable values.
+
+        Raises
+        ------
+        KeyError
+            If variable name not found.
+        """
+        if name not in self._meta:
+            raise KeyError(f"Variable '{name}' not found in OpimizerVector")
+        info = self._meta[name]
+        return self._data[info['start_idx']:info['end_idx']].reshape(-1)
+
+    def __setitem__(self, name, value):
+        """
+        Set variable value by name.
+
+        Parameters
+        ----------
+        name : str
+            Variable name (promoted or alias).
+        value : float or ndarray
+            New value for the variable.
+
+        Raises
+        ------
+        KeyError
+            If variable name not found.
+        """
+        if name not in self._meta:
+            raise KeyError(f"Variable '{name}' not found in OptimizerVector")
+        info = self._meta[name]
+        self._data[info['start_idx']:info['end_idx']] = np.asarray(value).flat
+
+    def __contains__(self, name):
+        """
+        Check if variable name exists.
+
+        Parameters
+        ----------
+        name : str
+            Variable name to check.
+
+        Returns
+        -------
+        bool
+            True if variable exists, False otherwise.
+        """
+        return name in self._meta
+
+    def __len__(self):
+        """
+        Return number of variables.
+
+        Returns
+        -------
+        int
+            Number of variables in this vector.
+        """
+        return len(self._meta)
+
+    def __iter__(self):
+        """
+        Iterate over variable names.
+
+        Yields
+        ------
+        str
+            Variable names in iteration order.
+        """
+        return iter(self._meta)
+
+    def keys(self):
+        """
+        Return variable names.
+
+        Returns
+        -------
+        dict_keys
+            View of variable names.
+        """
+        return self._meta.keys()
+
+    def values(self):
+        """
+        Iterate over variable values.
+
+        Yields
+        ------
+        ndarray
+            Variable values in iteration order.
+        """
+        for name in self._meta:
+            yield self[name]
+
+    def items(self):
+        """
+        Iterate over (name, value) pairs.
+
+        Yields
+        ------
+        tuple
+            (variable_name, variable_value) pairs in iteration order.
+        """
+        for name in self._meta:
+            yield name, self[name]
+
+    def _make_filter_key(self, **kwargs):
+        """
+        Create hashable cache key from filter kwargs.
+
+        Parameters
+        ----------
+        **kwargs : dict
+            Filter criteria.
+
+        Returns
+        -------
+        tuple or None
+            Sorted tuple of (key, value) pairs, or None if no kwargs.
+        """
+        if not kwargs:
+            return None
+        return tuple(sorted(kwargs.items()))
+
+    def _compute_filter_indices(self, filters):
+        """
+        Compute array indices for variables matching filter criteria.
+
+        Parameters
+        ----------
+        filters : dict
+            Filter criteria to match.
+
+        Returns
+        -------
+        ndarray
+            1D integer array of indices into self._data for matching variables.
+            Empty array if no variables match.
+        """
+        ranges = []
+        for meta in self._meta.values():
+            # Check if all filter criteria match this variable's metadata
+            if all(meta.get(key) == value for key, value in filters.items()):
+                ranges.append((meta['start_idx'], meta['end_idx']))
+
+        if not ranges:
+            return np.array([], dtype=np.intp)
+
+        # Use np.concatenate with list of np.arange (follows OpenMDAO vector.py pattern)
+        return np.concatenate([np.arange(start, end, dtype=np.intp)
+                              for start, end in ranges])
+
+    # def set_data(self, val, order='C', **kwargs):
+    #     """
+    #     Set the values of the internal vector.
+
+    #     The size of val must match the size of the internal data vector.
+    #     val is flattened before being set into _data.
+
+    #     Parameters
+    #     ----------
+    #     val : ArrayLike
+    #         Values to which the entire internal vector should be set.
+
+    #     order : str
+    #         The order in which val is flattened, as accepted by
+    #     """
+    #     self._data[:] = np.asarray(val).ravel(order=order)
+
+    def asarray(self, **kwargs) -> np.ndarray:
+        """
+        Return underlying flat numpy array, optionally filtered by metadata.
+
+        When filters are provided, returns only elements whose metadata matches
+        ALL specified criteria (AND logic). Filtered results are copies due to
+        NumPy fancy indexing. Unfiltered results (no kwargs) return a view.
+
+        Parameters
+        ----------
+        **kwargs : dict
+            Filter criteria based on metadata keys. For example:
+            - linear=False : only nonlinear constraints
+            - linear=True : only linear constraints
+            - equals=None : only inequality constraints
+            Multiple criteria are combined with AND logic.
+
+        Returns
+        -------
+        ndarray
+            The underlying data array. If no filters provided, returns a view
+            of the full array. If filters provided, returns a filtered copy.
+
+        Examples
+        --------
+        >>> vec.asarray()  # Full array (view)
+        >>> vec.asarray(linear=False)  # Only nonlinear constraints (copy)
+        >>> vec.asarray(linear=False, equals=None)  # Nonlinear inequalities (copy)
+
+        Notes
+        -----
+        Filter results are cached in self._filters for performance. Repeated
+        calls with the same filters reuse cached indices but still return a
+        copy (unavoidable with NumPy fancy indexing).
+        """
+        # No filters: return full view
+        if not kwargs:
+            return self._data
+
+        # Check cache
+        cache_key = self._make_filter_key(**kwargs)
+        if cache_key not in self._filters:
+            self._filters[cache_key] = self._compute_filter_indices(kwargs)
+
+        indices = self._filters[cache_key]
+        return self._data[indices]
+
+    def _from_dict(self, var_dict):
+        """
+        Populate this OptimizerVector from a dictionary of variables in-place.
+
+        This method populates the underlying flat array by extracting values from a
+        dictionary interface (as used by pyOptSparseDriver), ordering them according to
+        the metadata index information.
+
+        Parameters
+        ----------
+        var_dict : dict
+            Dictionary mapping variable names (str) to numpy array values.
+            Keys must exactly match the keys in this vector's metadata.
+
+        Raises
+        ------
+        KeyError
+            If a key in metadata is not present in var_dict.
+        ValueError
+            If the size of a variable in var_dict doesn't match the size in metadata.
+
+        Examples
+        --------
+        >>> vec = OptimizerVector('design_var', np.zeros(3), metadata)
+        >>> dv_dict = {'x': np.array([1.0, 2.0]), 'y': np.array([3.0])}
+        >>> vec._from_dict(dv_dict)
+        >>> vec.asarray()
+        array([1., 2., 3.])
+        """
+        for name, meta in self._meta.items():
+            if name not in var_dict:
+                raise KeyError(f"Variable '{name}' in metadata not found in var_dict")
+
+            value = np.asarray(var_dict[name]).ravel()
+            expected_size = meta['end_idx'] - meta['start_idx']
+
+            if value.size != expected_size:
+                raise ValueError(
+                    f"Size mismatch for variable '{name}': expected {expected_size}, "
+                    f"got {value.size}"
+                )
+
+            self._data[meta['start_idx']:meta['end_idx']] = value
+
+    def _to_dict(self, **filters):
+        """
+        Convert this OptimizerVector to a dictionary of variables.
+
+        Returns a dictionary mapping variable names to their numpy array values, extracting
+        them from the underlying flat array according to the metadata index information.
+        When filters are provided, only variables whose metadata matches ALL specified
+        criteria are included in the returned dictionary.
+
+        Parameters
+        ----------
+        **filters : dict
+            Optional filter criteria based on metadata keys. For example:
+            - linear=False : only nonlinear constraints
+            - linear=True : only linear constraints
+            Multiple criteria are combined with AND logic.
+
+        Returns
+        -------
+        dict
+            Dictionary mapping variable names (str) to numpy array values. Each value is
+            a copy, not a view, so modifications to the dictionary won't affect this vector.
+            When filters are provided, only matching variables are included.
+
+        Examples
+        --------
+        >>> vec = OptimizerVector('design_var', np.array([1., 2., 3.]), metadata)
+        >>> dv_dict = vec._to_dict()  # All variables
+        >>> dv_dict['x']
+        array([1., 2.])
+
+        >>> # Get only nonlinear constraints
+        >>> con_dict = vec._to_dict(linear=False)
+        """
+        result = {}
+        for name, meta in self._meta.items():
+            # Check if all filter criteria match this variable's metadata
+            if all(meta.get(key) == value for key, value in filters.items()):
+                result[name] = self[name].copy()  # Use copy to return independent array
+        return result
+
+    @property
+    def metadata(self):
+        """
+        Access the internal metadata dictionary for each variable.
+
+        Returns
+        -------
+        dict
+            The dictionary of metadata keyed by optimization variable name/alias.
+        """
+        return self._meta
+
+
