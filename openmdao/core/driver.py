@@ -1151,14 +1151,14 @@ class Driver(object, metaclass=DriverMetaclass):
         dict
            Dictionary containing values of each design variable.
         """
-        self._get_vector_from_model('design_var', driver_scaling=driver_scaling, in_place=True)
+        dv_vec = self._get_vector_from_model('design_var',
+                                             driver_scaling=driver_scaling,
+                                             in_place=True)
         
-        dvs = self._vectors['design_var']._to_dict()
-        model = self._problem().model
+        dvs = dv_vec._to_dict()
         discrete_dvs = {n: self._get_voi_val(n, dvmeta, self._remote_dvs, get_remote=get_remote,
                                              driver_scaling=driver_scaling)
-                        for n, dvmeta in self._designvars.items()
-                        if dvmeta['source'] in model._discrete_outputs}
+                        for n, dvmeta in self._designvars.items() if dvmeta['discrete']}
         dvs.update(discrete_dvs)
         return dvs
 
@@ -1250,9 +1250,17 @@ class Driver(object, metaclass=DriverMetaclass):
         dict
            Dictionary containing values of each objective.
         """
-        return {n: self._get_voi_val(n, obj, self._remote_objs,
-                                     driver_scaling=driver_scaling)
-                for n, obj in self._objs.items()}
+        obj_vec = self._get_vector_from_model('objective',
+                                              driver_scaling=driver_scaling,
+                                              in_place=False)
+        
+        objs = obj_vec._to_dict()
+        discrete_objs = {n: self._get_voi_val(n, obj_meta, self._remote_dvs, get_remote=True,
+                                              driver_scaling=driver_scaling)
+                         for n, obj_meta in self._objs.items() if obj_meta['discrete']}
+        objs.update(discrete_objs)
+
+        return objs
 
     def get_constraint_values(self, ctype='all', lintype='all', driver_scaling=True,
                               viol=False):
