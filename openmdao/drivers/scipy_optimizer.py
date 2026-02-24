@@ -61,11 +61,11 @@ _unsupported_optimizers = {'dogleg', 'trust-ncg'}
 # With "old-style" a bound is a tuple, with "new-style" a Bounds instance
 # In principle now everything can work with "old-style"
 # These settings have no effect to the optimizers implemented before SciPy 1.1
-_supports_new_style = {'trust-constr', 'SLSQP', 'differential_evolution', 'COBYQA'}
+_supports_new_style = {'trust-constr', 'differential_evolution'}
 # if Version(scipy_version) >= Version("1.4"):
 #     _supports_new_style.add('differential_evolution')
-# if Version(scipy_version) >= Version("1.14"):
-#     _supports_new_style.add('COBYQA')
+if Version(scipy_version) >= Version("1.14"):
+    _supports_new_style.add('COBYQA')
 if Version(scipy_version) >= Version("1.11.0"):
     _supports_new_style.add('shgo')
 _use_new_style = True  # Recommended to set to True

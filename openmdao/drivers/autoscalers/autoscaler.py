@@ -240,6 +240,8 @@ class Autoscaler:
         # Restore sentinel for unbounded elements (scaling may have perturbed them)
         val_arr[inf_mask] = -INF_BOUND if is_lower else INF_BOUND
 
+        val_arr = val_arr.ravel()
+
         return val_arr
 
     def _compute_scaled_bounds(self, voi_type):

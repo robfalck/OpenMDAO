@@ -3355,6 +3355,11 @@ class System(object, metaclass=SystemMetaclass):
         # determine adder and scaler based on args
         adder, scaler = determine_adder_scaler(ref0, ref, adder, scaler)
 
+        if lower is not None:
+            lower = format_as_float_or_array('lower', lower, flatten=True)
+        if upper is not None:
+            upper = format_as_float_or_array('upper', upper, flatten=True)
+
         # if lower is None:
         #     # if not set, set lower to -INF_BOUND and don't apply adder/scaler
         #     lower = -INF_BOUND

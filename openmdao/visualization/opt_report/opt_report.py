@@ -354,7 +354,7 @@ def _make_dvcons_table(meta_dict, vals_dict, kind,
                 else:
                     min_val_as_str = str(vals_dict[name])
                 if meta['lower'] is not None:
-                    comp = (vals_dict[name] - meta['lower']) < _bounds_tolerance
+                    comp = (vals_dict[name] - np.asarray(meta['lower']).ravel()) < _bounds_tolerance
                 else:
                     comp = False
                 if np.any(comp):
@@ -369,7 +369,7 @@ def _make_dvcons_table(meta_dict, vals_dict, kind,
                 else:
                     max_val_as_str = str(vals_dict[name])
                 if meta['upper'] is not None:
-                    comp = (meta['upper'] - vals_dict[name]) < _bounds_tolerance
+                    comp = (np.asarray(meta['upper']).ravel() - vals_dict[name]) < _bounds_tolerance
                 else:
                     comp = False
                 if np.any(comp):
