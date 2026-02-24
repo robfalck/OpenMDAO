@@ -403,7 +403,7 @@ class ScipyOptimizeDriver(Driver):
                     else:
                         lb = lower
                         ub = upper
-
+                    
                     if linear:
                         # LinearConstraint
                         lb_lin = np.where(lower <= -INF_BOUND, -np.inf, lower)
@@ -420,10 +420,11 @@ class ScipyOptimizeDriver(Driver):
                             args = [name, False, j]
                             lb_j = float(lb[j])
                             ub_j = float(ub[j])
-                            if lb_j <= -INF_BOUND:
+                            if lb_j <= -INF_BOUND or np.isnan(lb_j):
                                 lb_j = -np.inf
-                            if ub_j >= INF_BOUND:
+                            if ub_j >= INF_BOUND or np.isnan(ub_j):
                                 ub_j = np.inf
+                            print(j, lb_j, ub_j)
                             con = NonlinearConstraint(
                                 fun=signature_extender(
                                     WeakMethodWrapper(self, '_con_val_func'), args),
