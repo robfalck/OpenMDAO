@@ -704,7 +704,6 @@ def _constraint_plot(kind, meta, val, width=300):
 
     lower = -INF_BOUND if meta['lower'] is None else meta['lower']
     upper = INF_BOUND if meta['upper'] is None else meta['upper']
-    print(lower, upper)
 
     var_bounds_plot(kind, ax, float(val), lower, upper)
     tmpfile = io.BytesIO()

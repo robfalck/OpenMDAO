@@ -61,11 +61,13 @@ _unsupported_optimizers = {'dogleg', 'trust-ncg'}
 # With "old-style" a bound is a tuple, with "new-style" a Bounds instance
 # In principle now everything can work with "old-style"
 # These settings have no effect to the optimizers implemented before SciPy 1.1
-_supports_new_style = {'trust-constr'}
-if Version(scipy_version) >= Version("1.4"):
-    _supports_new_style.add('differential_evolution')
-if Version(scipy_version) >= Version("1.14"):
-    _supports_new_style.add('COBYQA')
+_supports_new_style = {'trust-constr', 'SLSQP', 'differential_evolution', 'COBYQA'}
+# if Version(scipy_version) >= Version("1.4"):
+#     _supports_new_style.add('differential_evolution')
+# if Version(scipy_version) >= Version("1.14"):
+#     _supports_new_style.add('COBYQA')
+if Version(scipy_version) >= Version("1.11.0"):
+    _supports_new_style.add('shgo')
 _use_new_style = True  # Recommended to set to True
 
 CITATIONS = """
@@ -321,9 +323,9 @@ class ScipyOptimizeDriver(Driver):
                     p_low = meta_low[j]
                     p_high = meta_high[j]
 
-                    if p_low <= -INF_BOUND:
+                    if p_low <= -INF_BOUND or np.isnan(p_low):
                         p_low = None
-                    if p_high >= INF_BOUND:
+                    if p_high >= INF_BOUND or np.isnan(p_high):
                         p_high = None
 
                     bounds.append((p_low, p_high))
@@ -404,8 +406,10 @@ class ScipyOptimizeDriver(Driver):
 
                     if linear:
                         # LinearConstraint
+                        lb_lin = np.where(lower <= -INF_BOUND, -np.inf, lower)
+                        ub_lin = np.where(upper >= INF_BOUND, np.inf, upper)
                         con = LinearConstraint(A=lincongrad[self._con_idx[name]],
-                                               lb=lower, ub=upper, keep_feasible=True)
+                                               lb=lb_lin, ub=ub_lin, keep_feasible=True)
                     else:
                         # NonlinearConstraint
                         # Loop over every index separately,
@@ -414,10 +418,16 @@ class ScipyOptimizeDriver(Driver):
                             # TODO add option for Hessian
                             # Double-sided constraints are accepted by the algorithm
                             args = [name, False, j]
+                            lb_j = float(lb[j])
+                            ub_j = float(ub[j])
+                            if lb_j <= -INF_BOUND:
+                                lb_j = -np.inf
+                            if ub_j >= INF_BOUND:
+                                ub_j = np.inf
                             con = NonlinearConstraint(
                                 fun=signature_extender(
                                     WeakMethodWrapper(self, '_con_val_func'), args),
-                                lb=lb, ub=ub,
+                                lb=lb_j, ub=ub_j,
                                 jac=signature_extender(
                                     WeakMethodWrapper(self, '_congradfunc'), args)
                             )
@@ -743,6 +753,8 @@ class ScipyOptimizeDriver(Driver):
             grad = self._compute_totals(of=self._obj_and_nlcons, wrt=self._dvlist,
                                         return_format=self._total_jac_format)
             self._grad_cache = grad
+            if not np.all(np.isfinite(grad)):
+                print(f'DEBUG _gradfunc: NaN/Inf in grad shape={grad.shape}:\n{grad}')
 
             # First time through, check for zero row/col.
             if self._check_jac and self._total_jac is not None:
