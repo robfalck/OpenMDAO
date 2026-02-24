@@ -560,7 +560,7 @@ class Driver(object, metaclass=DriverMetaclass):
         if out is None:
             # Create flat array
             flat_array = np.concatenate(voi_array) if voi_array else np.array([])
-            out = OptimizerVector(voi_type, flat_array, vecmeta, scaled=False)
+            out = OptimizerVector(voi_type, flat_array, vecmeta)
 
         # Apply autoscaler to the vector
         if driver_scaling:
@@ -1292,6 +1292,11 @@ class Driver(object, metaclass=DriverMetaclass):
         dict
            Dictionary containing values of each constraint.
         """
+        # Note we populate the vector in an unscaled state for getting violations
+        con_vec = self._get_vector_from_model('constraint',
+                                              driver_scaling=driver_scaling and not viol,
+                                              in_place=True)
+        
         con_dict = {}
         it = self._cons.items()
         if lintype == 'linear':
@@ -1305,28 +1310,35 @@ class Driver(object, metaclass=DriverMetaclass):
 
         for name, meta in it:
             if viol:
-                con_val = self._get_voi_val(name, meta, self._remote_cons,
-                                            driver_scaling=True)
-                size = con_val.size
-                con_dict[name] = np.zeros(size)
+                con_val = con_vec[name]
                 if meta['equals'] is not None:
-                    con_dict[name][...] = con_val - meta['equals']
+                    con_val -= meta['equals']
                 else:
                     lower_viol_idxs = np.where(con_val < meta['lower'])[0]
                     upper_viol_idxs = np.where(con_val > meta['upper'])[0]
-                    con_dict[name][lower_viol_idxs] = con_val[lower_viol_idxs] - meta['lower']
-                    con_dict[name][upper_viol_idxs] = con_val[upper_viol_idxs] - meta['upper']
+                    non_viol_idxs = np.where(con_val >= meta['lower'] 
+                                             and con_val <= meta['upper'])[0]
+                    con_val[lower_viol_idxs] -= meta['lower']
+                    con_val[upper_viol_idxs] -=  meta['upper']
+                    con_val[non_viol_idxs] = 0.0
 
-                # We got the voi value in driver-scaled units.
-                # Unscale if necessary.
-                if not driver_scaling:
-                    scaler = meta['total_scaler']
-                    if scaler is not None:
-                        con_dict[name] /= scaler
+            con_dict[name] = con_vec[name]
 
-            else:
-                con_dict[name] = self._get_voi_val(name, meta, self._remote_cons,
-                                                   driver_scaling=driver_scaling)
+        # If we computed violations, those were unscaled.
+        # Now scale them.
+        if driver_scaling and viol:
+            self._autoscaler.apply_vec_scaling(con_vec)
+
+                # if not driver_scaling:
+                #     scaler = meta['total_scaler']
+                #     if scaler is not None:
+                #         con_dict[name] /= scaler
+                
+                # con_dict[name] = con_vec[name]
+
+            # else:
+            #     # con_dict[name] = self._get_voi_val(name, meta, self._remote_cons,
+            #     #                                    driver_scaling=driver_scaling)
 
         return con_dict
 

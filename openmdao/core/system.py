@@ -3539,7 +3539,7 @@ class System(object, metaclass=SystemMetaclass):
                     lower = -INF_BOUND
                 else:
                     lower = format_as_float_or_array('lower', lower, flatten=True)
-                    lower = (lower + adder) * scaler
+                    # lower = (lower + adder) * scaler
             except (TypeError, ValueError):
                 raise TypeError("Argument 'lower' can not be a string ('{}' given). You can not "
                                 "specify a variable as lower bound. You can only provide constant "
@@ -3552,7 +3552,7 @@ class System(object, metaclass=SystemMetaclass):
                     upper = INF_BOUND
                 else:
                     upper = format_as_float_or_array('upper', upper, flatten=True)
-                    upper = (upper + adder) * scaler
+                    # upper = (upper + adder) * scaler
             except (TypeError, ValueError):
                 raise TypeError("Argument 'upper' can not be a string ('{}' given). You can not "
                                 "specify a variable as upper bound. You can only provide constant "
@@ -3565,7 +3565,7 @@ class System(object, metaclass=SystemMetaclass):
                     raise TypeError("Argument 'equals' can not be a string ('{}' given). You can "
                                     "not specify a variable as equals bound. You can only provide "
                                     "constant float values".format(equals))
-                equals = (equals + adder) * scaler
+                # equals = (equals + adder) * scaler
 
             resp['lower'] = lower
             resp['upper'] = upper

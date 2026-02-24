@@ -225,8 +225,6 @@ class Autoscaler:
 
         Scaling is applied to the optimizer vector in-place.
         """
-        if vec.scaled:
-            return vec
         for name in vec:
             # Use cached combined scaler/adder - includes both unit conversion and user scaling
             combined = self._combined_scalers[vec.voi_type][name]
