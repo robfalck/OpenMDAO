@@ -237,6 +237,7 @@ class ScipyOptimizeDriver(Driver):
         # Since COBYLA did not support bounds in versions of SciPy prior to 1.11, we need to
         # add to the _cons metadata for any bounds that need to be translated into a constraint
         if opt == 'COBYLA' and Version(scipy_version) < Version("1.11"):
+            added = False
             for name, meta in self._designvars.items():
                 lower = meta['lower']
                 upper = meta['upper']
@@ -246,6 +247,10 @@ class ScipyOptimizeDriver(Driver):
                     self._cons[name]['equals'] = None
                     self._cons[name]['linear'] = True
                     self._cons[name]['alias'] = None
+                    added = True
+            if added:
+                # Refresh constraint bounds cache to include the newly-added entries
+                self._autoscaler.refresh_bounds_cache('constraint')
 
     def run(self):
         """
@@ -301,6 +306,8 @@ class ScipyOptimizeDriver(Driver):
         else:
             bounds = None
 
+        lower_dv, upper_dv, _ = self._autoscaler.apply_bounds_scaling('design_var')
+
         for name, meta in self._designvars.items():
             size = meta['global_size'] if meta['distributed'] else meta['size']
             x_init[i:i + size] = desvar_vals[name]
@@ -308,24 +315,15 @@ class ScipyOptimizeDriver(Driver):
 
             # Bounds if our optimizer supports them
             if use_bounds:
-                meta_low = meta['lower']
-                meta_high = meta['upper']
+                meta_low = lower_dv[name]
+                meta_high = upper_dv[name]
                 for j in range(size):
+                    p_low = meta_low[j]
+                    p_high = meta_high[j]
 
-                    if isinstance(meta_low, np.ndarray):
-                        p_low = meta_low[j]
-                    else:
-                        p_low = meta_low
-
-                    if isinstance(meta_high, np.ndarray):
-                        p_high = meta_high[j]
-                    else:
-                        p_high = meta_high
-
-                    # Use 1.E16 here in case we've scaled the bounds
-                    if p_low <= -1.0E16:
+                    if p_low <= -INF_BOUND:
                         p_low = None
-                    if p_high >= 1.0E16:
+                    if p_high >= INF_BOUND:
                         p_high = None
 
                     bounds.append((p_low, p_high))
@@ -366,15 +364,17 @@ class ScipyOptimizeDriver(Driver):
             else:
                 self._lincongrad_cache = None
 
+            lower_con, upper_con, equals_con = self._autoscaler.apply_bounds_scaling('constraint')
+
             # map constraints to index and instantiate constraints for scipy
             for name, meta in self._cons.items():
                 if meta['indices'] is not None:
                     meta['size'] = size = meta['indices'].indexed_src_size
                 else:
                     size = meta['global_size'] if meta['distributed'] else meta['size']
-                upper = meta['upper']
-                lower = meta['lower']
-                equals = meta['equals']
+                upper = upper_con[name]
+                lower = lower_con[name]
+                equals = equals_con[name] if meta['equals'] is not None else None
                 linear = name in lincons
 
                 if linear:
@@ -703,22 +703,17 @@ class ScipyOptimizeDriver(Driver):
         cons = self._con_cache
         meta = self._cons[name]
 
+        lower_con, upper_con, equals_con = self._autoscaler.apply_bounds_scaling('constraint')
+
         # Equality constraints
-        equals = meta['equals']
-        if equals is not None:
-            if isinstance(equals, np.ndarray):
-                equals = equals[idx]
-            return cons[name][idx] - equals
+        if meta['equals'] is not None:
+            eq = equals_con[name]
+            return cons[name][idx] - eq[idx]
 
         # Note, scipy defines constraints to be satisfied when positive,
         # which is the opposite of OpenMDAO.
-        upper = meta['upper']
-        if isinstance(upper, np.ndarray):
-            upper = upper[idx]
-
-        lower = meta['lower']
-        if isinstance(lower, np.ndarray):
-            lower = lower[idx]
+        upper = upper_con[name][idx]
+        lower = lower_con[name][idx]
 
         if dbl or (lower <= -INF_BOUND):
             return upper - cons[name][idx]

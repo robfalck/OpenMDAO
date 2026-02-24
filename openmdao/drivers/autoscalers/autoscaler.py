@@ -2,9 +2,11 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
+from openmdao.core.constants import INF_BOUND
+from openmdao.vectors.optimizer_vector import OptimizerVector
+
 if TYPE_CHECKING:
     from openmdao.core.driver import Driver
-    from openmdao.vectors.optimizer_vector import OptimizerVector
 
 
 class Autoscaler:
@@ -103,7 +105,16 @@ class Autoscaler:
                     'scaler': total_scaler,
                     'adder': total_adder
                 }
-    
+
+        # Compute and cache scaled bounds vectors for design vars and constraints
+        self._scaled_lower = {}
+        self._scaled_upper = {}
+        self._scaled_equals = {}
+        for voi_type in ['design_var', 'constraint']:
+            self._scaled_lower[voi_type], \
+                self._scaled_upper[voi_type], \
+                self._scaled_equals[voi_type] = self._compute_scaled_bounds(voi_type)
+
     @property
     def has_scaling(self):
         return self._has_scaling
@@ -184,6 +195,169 @@ class Autoscaler:
                 combined_adder = unit_adder + total_adder / unit_scaler
 
         return combined_scaler, combined_adder
+
+    def _scale_bound(self, val, adder, scaler, size, is_lower):
+        """
+        Apply scaling to a single bound value, preserving infinite bounds.
+
+        Parameters
+        ----------
+        val : float or ndarray
+            Bound value in physical (model) units.
+        adder : float, ndarray, or None
+            Combined additive scaling factor.
+        scaler : float, ndarray, or None
+            Combined multiplicative scaling factor.
+        size : int
+            Number of elements for the variable.
+        is_lower : bool
+            True if this is a lower bound; controls which infinity sentinel is used.
+
+        Returns
+        -------
+        ndarray
+            Scaled bound array of length `size`.
+        """
+        if np.isscalar(val):
+            val_arr = np.full(size, val, dtype=float)
+        else:
+            val_arr = np.asarray(val, dtype=float)
+            if val_arr.size != size:
+                val_arr = np.broadcast_to(val_arr, (size,)).copy()
+            else:
+                val_arr = val_arr.copy()
+
+        # Identify unbounded (infinite) elements before scaling
+        inf_mask = (val_arr <= -INF_BOUND) if is_lower else (val_arr >= INF_BOUND)
+
+        if not inf_mask.all():
+            finite = ~inf_mask
+            if adder is not None:
+                val_arr[finite] += adder if np.isscalar(adder) else np.asarray(adder)[finite]
+            if scaler is not None:
+                val_arr[finite] *= scaler if np.isscalar(scaler) else np.asarray(scaler)[finite]
+
+        # Restore sentinel for unbounded elements (scaling may have perturbed them)
+        val_arr[inf_mask] = -INF_BOUND if is_lower else INF_BOUND
+
+        return val_arr
+
+    def _compute_scaled_bounds(self, voi_type):
+        """
+        Compute scaled bounds OptimizerVectors for design variables or constraints.
+
+        Called once during setup() to build and cache scaled bounds. Bounds are read
+        from metadata in physical (model) units and transformed to driver (optimizer)
+        units using the combined scaler and adder for each variable.
+
+        Parameters
+        ----------
+        voi_type : str
+            One of 'design_var' or 'constraint'.
+
+        Returns
+        -------
+        lower : OptimizerVector
+            Scaled lower bounds. Unbounded entries contain -INF_BOUND.
+        upper : OptimizerVector
+            Scaled upper bounds. Unbounded entries contain INF_BOUND.
+        equals : OptimizerVector or None
+            Scaled equality values. Non-equality constraint entries contain np.nan.
+            None when voi_type='design_var'.
+        """
+        vecmeta = {}
+        total_size = 0
+
+        for name, meta in self._var_meta[voi_type].items():
+            if meta.get('discrete', False):
+                continue
+            size = meta.get('global_size', meta.get('size', 0)) \
+                if meta.get('distributed', False) else meta.get('size', 0)
+            vecmeta[name] = {
+                'start_idx': total_size,
+                'end_idx': total_size + size,
+                'size': size,
+            }
+            total_size += size
+
+        lower_data = np.empty(total_size)
+        upper_data = np.empty(total_size)
+        equals_data = np.full(total_size, np.nan) if voi_type == 'constraint' else None
+
+        for name, vmeta in vecmeta.items():
+            meta = self._var_meta[voi_type][name]
+            size = vmeta['size']
+            start = vmeta['start_idx']
+            end = vmeta['end_idx']
+            combined = self._combined_scalers[voi_type][name]
+            adder = combined['adder']
+            scaler = combined['scaler']
+
+            lower_data[start:end] = self._scale_bound(
+                meta.get('lower', -INF_BOUND), adder, scaler, size, is_lower=True)
+            upper_data[start:end] = self._scale_bound(
+                meta.get('upper', INF_BOUND), adder, scaler, size, is_lower=False)
+
+            if voi_type == 'constraint':
+                eq = meta.get('equals')
+                if eq is not None:
+                    equals_data[start:end] = self._scale_bound(
+                        eq, adder, scaler, size, is_lower=False)
+                # else: np.nan sentinel already in place
+
+        lower_vec = OptimizerVector(voi_type, lower_data, vecmeta)
+        upper_vec = OptimizerVector(voi_type, upper_data, vecmeta)
+        equals_vec = OptimizerVector(voi_type, equals_data, vecmeta) \
+            if voi_type == 'constraint' else None
+
+        return lower_vec, upper_vec, equals_vec
+
+    def apply_bounds_scaling(self, voi_type):
+        """
+        Return pre-computed scaled bounds vectors for the given variable type.
+
+        Returns bounds cached during setup() in driver (optimizer) units. The original
+        metadata bounds remain in physical (model) units and are not modified.
+
+        Infinite bounds (abs value >= INF_BOUND in model space) are returned as ±INF_BOUND.
+
+        If scalers change after setup (e.g. in an adaptive autoscaler subclass), call
+        _compute_scaled_bounds() again for each affected voi_type to refresh the cache.
+
+        Parameters
+        ----------
+        voi_type : str
+            One of 'design_var' or 'constraint'.
+
+        Returns
+        -------
+        lower : OptimizerVector
+            Scaled lower bounds. Unbounded entries contain -INF_BOUND.
+        upper : OptimizerVector
+            Scaled upper bounds. Unbounded entries contain INF_BOUND.
+        equals : OptimizerVector or None
+            Scaled equality values. Non-equality constraint entries contain np.nan as
+            a sentinel. None when voi_type='design_var'.
+        """
+        return (self._scaled_lower[voi_type],
+                self._scaled_upper[voi_type],
+                self._scaled_equals[voi_type])
+
+    def refresh_bounds_cache(self, voi_type):
+        """
+        Re-compute and cache scaled bounds for the given variable type.
+
+        Call this after modifying the constraint or design variable metadata post-setup,
+        for example when a driver adds entries to _cons dynamically during _setup_driver.
+
+        Parameters
+        ----------
+        voi_type : str
+            One of 'design_var' or 'constraint'.
+        """
+        (self._scaled_lower[voi_type],
+         self._scaled_upper[voi_type],
+         self._scaled_equals[voi_type]) = self._compute_scaled_bounds(voi_type)
 
     def apply_vec_unscaling(self, vec: 'OptimizerVector'):
         """

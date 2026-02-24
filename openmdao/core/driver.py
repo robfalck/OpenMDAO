@@ -14,7 +14,7 @@ import scipy.sparse as sp
 from openmdao.drivers.autoscalers import Autoscaler
 from openmdao.core.group import Group
 from openmdao.core.total_jac import _TotalJacInfo
-from openmdao.core.constants import INT_DTYPE, _SetupStatus
+from openmdao.core.constants import INT_DTYPE, INF_BOUND, _SetupStatus
 from openmdao.recorders.recording_manager import RecordingManager
 from openmdao.recorders.recording_iteration_stack import Recording
 from openmdao.utils.record_util import create_local_meta, check_path, has_match
@@ -835,13 +835,18 @@ class Driver(object, metaclass=DriverMetaclass):
                 val = np.array([_val]) if np.ndim(_val) == 0 else _val  # Handle discrete desvars
                 idxs = meta['indices']() if meta['indices'] else None
                 flat_idxs = meta['flat_indices']
-                scaler = meta['scaler'] if meta['scaler'] is not None else 1.
-                adder = meta['adder'] if meta['adder'] is not None else 0.
-                lower = meta['lower'] / scaler - adder
-                upper = meta['upper'] / scaler - adder
+                lower = meta['lower']
+                upper = meta['upper']
                 flat_val = val.ravel()[idxs] if flat_idxs else val[idxs].ravel()
-
-                if (flat_val < lower).any() or (flat_val > upper).any():
+                fail_lower = False
+                fail_upper = False
+                if lower is not None:
+                    if (flat_val < lower).any():
+                        fail_lower = True
+                if upper is not None:
+                    if (flat_val > upper).any():
+                        fail_upper = True
+                if fail_lower or fail_upper:
                     invalid_desvar_data.append((var, val, lower, upper))
             if invalid_desvar_data:
                 s = 'The following design variable initial conditions are out of their ' \
@@ -2479,26 +2484,20 @@ class Driver(object, metaclass=DriverMetaclass):
             i = 0
             bounds = []
 
+            lower_dv, upper_dv, _ = self._autoscaler.apply_bounds_scaling('design_var')
+
             for name, val in desvar_vals.items():
                 meta = self._designvars[name]
                 size = meta['global_size'] if meta['distributed'] else meta['size']
 
-                meta_low = meta['lower']
-                meta_high = meta['upper']
+                meta_low = lower_dv[name]
+                meta_high = upper_dv[name]
                 for j in range(size):
+                    p_low = meta_low[j]
+                    p_high = meta_high[j]
 
-                    if isinstance(meta_low, np.ndarray):
-                        p_low = meta_low[j]
-                    else:
-                        p_low = meta_low
-
-                    if isinstance(meta_high, np.ndarray):
-                        p_high = meta_high[j]
-                    else:
-                        p_high = meta_high
-
-                    p_low = -np.inf if p_low < -1.0E16 else p_low
-                    p_high = np.inf if p_high > 1.0E16 else p_high
+                    p_low = -np.inf if p_low <= -INF_BOUND else p_low
+                    p_high = np.inf if p_high >= INF_BOUND else p_high
 
                     # If lower and upper are equal at any indices, add some slack
                     equal_idxs = np.where(np.atleast_1d(np.abs(p_high - p_low)) < 1.0E-16)[0]

@@ -2436,7 +2436,7 @@ class TestProblem(unittest.TestCase):
         prob.setup()
         prob.final_setup()
 
-        for method in ['dogbox']: #['trf', 'dogbox', 'lm']:
+        for method in ['trf', 'dogbox', 'lm']:
             for loss in ['linear', 'soft_l1', 'huber', 'cauchy', 'arctan']:
                 for term_tol in [{}, {'xtol': 1.0}, {'ftol': 1.0}, {'gtol': 1.0}]:
                     for max_nfev in [None, 1]:

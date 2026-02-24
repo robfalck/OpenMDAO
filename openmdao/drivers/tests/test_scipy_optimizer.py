@@ -603,12 +603,12 @@ class TestScipyOptimizeDriver(unittest.TestCase):
                         "bounds:"
                         "\n  paraboloid.x"
                         "\n    val: [100.]"
-                        "\n    lower: -50.0"
-                        "\n    upper: 50.0"
+                        "\n    lower: -50"
+                        "\n    upper: 50"
                         "\n  paraboloid.y"
                         "\n    val: [-200.]"
-                        "\n    lower: -50.0"
-                        "\n    upper: 50.0"
+                        "\n    lower: -50"
+                        "\n    upper: 50"
                         "\nSet the initial value of the design variable to a valid value or set "
                         "the driver option['invalid_desvar_behavior'] to 'ignore'.")
 
@@ -655,12 +655,12 @@ class TestScipyOptimizeDriver(unittest.TestCase):
                         "bounds:"
                         "\n  paraboloid.x"
                         "\n    val: [100.]"
-                        "\n    lower: -50.0"
-                        "\n    upper: 50.0"
+                        "\n    lower: -50"
+                        "\n    upper: 50"
                         "\n  paraboloid.y"
                         "\n    val: [-200.]"
-                        "\n    lower: -50.0"
-                        "\n    upper: 50.0"
+                        "\n    lower: -50"
+                        "\n    upper: 50"
                         "\nSet the initial value of the design variable to a valid value or set "
                         "the driver option['invalid_desvar_behavior'] to 'ignore'.")
 

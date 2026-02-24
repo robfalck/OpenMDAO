@@ -3355,23 +3355,23 @@ class System(object, metaclass=SystemMetaclass):
         # determine adder and scaler based on args
         adder, scaler = determine_adder_scaler(ref0, ref, adder, scaler)
 
-        if lower is None:
-            # if not set, set lower to -INF_BOUND and don't apply adder/scaler
-            lower = -INF_BOUND
-        else:
-            # Convert lower to ndarray/float as necessary
-            lower = format_as_float_or_array('lower', lower, flatten=True)
-            # Apply scaler/adder
-            lower = (lower + adder) * scaler
+        # if lower is None:
+        #     # if not set, set lower to -INF_BOUND and don't apply adder/scaler
+        #     lower = -INF_BOUND
+        # else:
+        #     # Convert lower to ndarray/float as necessary
+        #     lower = format_as_float_or_array('lower', lower, flatten=True)
+        #     # Apply scaler/adder
+        #     lower = (lower + adder) * scaler
 
-        if upper is None:
-            # if not set, set upper to INF_BOUND and don't apply adder/scaler
-            upper = INF_BOUND
-        else:
-            # Convert upper to ndarray/float as necessary
-            upper = format_as_float_or_array('upper', upper, flatten=True)
-            # Apply scaler/adder
-            upper = (upper + adder) * scaler
+        # if upper is None:
+        #     # if not set, set upper to INF_BOUND and don't apply adder/scaler
+        #     upper = INF_BOUND
+        # else:
+        #     # Convert upper to ndarray/float as necessary
+        #     upper = format_as_float_or_array('upper', upper, flatten=True)
+        #     # Apply scaler/adder
+        #     upper = (upper + adder) * scaler
 
         if self._static_mode:
             design_vars = self._static_design_vars
