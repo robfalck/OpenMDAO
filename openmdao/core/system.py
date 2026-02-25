@@ -3535,7 +3535,6 @@ class System(object, metaclass=SystemMetaclass):
         elif scaler == 1.0:
             scaler = None
         resp['scaler'] = scaler
-        resp['total_scaler'] = scaler
 
         if isinstance(adder, np.ndarray):
             if not np.any(adder):

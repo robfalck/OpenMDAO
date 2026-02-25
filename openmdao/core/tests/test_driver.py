@@ -91,6 +91,8 @@ class TestDriver(unittest.TestCase):
         prob.setup()
         prob.run_model()
 
+        prob.model.list_vars(residuals=True)
+
         cv = prob.driver.get_constraint_values()['con1'][0]
         base = prob['con1']
         self.assertEqual((base-3.0)/(2.0-3.0), cv)
