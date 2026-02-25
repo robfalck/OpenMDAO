@@ -28,6 +28,7 @@ from openmdao.vectors.optimizer_vector import OptimizerVector
 from openmdao.utils.indexer import indexer
 from openmdao.utils.om_warnings import issue_warning, DerivativesWarning, \
     DriverWarning, OMDeprecationWarning, warn_deprecation
+from openmdao.utils.units import convert_units
 
 
 class DriverResult():
@@ -546,14 +547,16 @@ class Driver(object, metaclass=DriverMetaclass):
                 if 'upper' in meta:
                     vecmeta[name]['upper'] = meta.get('upper')
 
+                # TODO: Soon we will no longer pass driver_scaling to get_voi_val
                 val = self._get_voi_val(name, meta, remote_vois,
-                                        driver_scaling=False, get_remote=True)
+                                        driver_scaling=False, get_remote=True, driver_units=True)
                 voi_array.append(np.atleast_1d(val).flat)
             else:
                 # The vector already exists, just populate it
                 out.asarray()[start_idx:end_idx] = self._get_voi_val(name, meta, remote_vois,
                                                                      driver_scaling=False,
-                                                                     get_remote=True)
+                                                                     get_remote=True,
+                                                                     driver_units=True)
 
             idx += size
 
@@ -567,6 +570,31 @@ class Driver(object, metaclass=DriverMetaclass):
             self._autoscaler.apply_vec_scaling(out)
 
         return out
+
+    def _set_design_vars(self, desvar_names=None, unscale=True):
+        """
+        Set design variable values into the model from the internal design var vector.
+
+        Parameters
+        ----------
+        desvar_names : Iterable[str] or None
+            If None, assume all design variables in the model are to be set. Otherwise,
+            only set the design variables of the given names. This is used by find_feasible
+            when we may exclude some design variables from the feasibility search.
+        unscale : bool
+            Specifies that design variables need to be unscaled before setting them in the model.
+            Default is True.
+        """
+        desvar_vec = self._vectors['design_var']
+
+        if unscale:
+            value = self._autoscaler.apply_vec_unscaling(desvar_vec)
+        
+        desvar_names = desvar_names if desvar_names is not None else desvar_vec.keys()
+
+        for name in desvar_names:
+            value = desvar_vec[name]
+            self.set_design_var(name, value, set_remote=True, unscale=False)
 
     def _setup_driver(self, problem):
         """
@@ -993,7 +1021,7 @@ class Driver(object, metaclass=DriverMetaclass):
         return self.result
 
     def _get_voi_val(self, name, meta, remote_vois, driver_scaling=True,
-                     get_remote=True, rank=None):
+                     get_remote=True, rank=None, driver_units=False):
         """
         Get the value of a variable of interest (objective, constraint, or design var).
 
@@ -1020,6 +1048,9 @@ class Driver(object, metaclass=DriverMetaclass):
             of the value that's on the current process for a distributed variable.
         rank : int or None
             If not None, gather value to this rank only.
+        driver_units : bool
+            If True, return the given variable interest in the units specified for the
+            design variable, constraint, or objective.
 
         Returns
         -------
@@ -1105,6 +1136,10 @@ class Driver(object, metaclass=DriverMetaclass):
             scaler = meta['total_scaler']
             if scaler is not None:
                 val *= scaler
+        
+        if driver_units and meta['units'] is not None:
+            src_units = model._var_abs2meta['output'][src_name]['units']
+            val = convert_units(val, src_units, meta['units'])
 
         return val
 
@@ -1178,7 +1213,7 @@ class Driver(object, metaclass=DriverMetaclass):
         name : str
             Global pathname of the design variable.
         value : float or ndarray
-            Value for the design variable.
+            Value for the design variable in driver scaling/units.
         set_remote : bool
             If True, set the global value of the variable (value must be of the global size).
             If False, set the local value of the variable (value must be of the local size).
@@ -1238,6 +1273,11 @@ class Driver(object, metaclass=DriverMetaclass):
                 adder = meta['total_adder']
                 if adder is not None:
                     desvar[loc_idxs] -= adder
+
+            if meta['units'] is not None:
+                src_units = problem.model._var_abs2meta['output'][src_name]['units']
+                desvar[loc_idxs] = convert_units(desvar[loc_idxs], meta['units'], src_units)
+
 
     def get_objective_values(self, driver_scaling=True):
         """
@@ -1951,9 +1991,12 @@ class Driver(object, metaclass=DriverMetaclass):
         constraints = self._cons
 
         # We obtain the driver scaled values so that feasibility check is performed
-        # with driver scaling.
+        # with driver scaling. This matters as tolerances apply to scaled values.
         dv_vals = self.get_design_var_values(driver_scaling=True)
         con_vals = self.get_constraint_values(driver_scaling=True)
+
+        lower_dv, upper_dv, _ = self._autoscaler.get_bounds_scaling('design_var')
+        lower_con, upper_con, _ = self._autoscaler.get_bounds_scaling('constraint')
 
         for constraint, con_options in constraints.items():
             constraint_value = con_vals[constraint]
@@ -1965,8 +2008,8 @@ class Driver(object, metaclass=DriverMetaclass):
                                            'active_bounds': np.zeros(con_size, dtype=int)}
             else:
                 # Inequality constraint, determine active indices and bounds
-                constraint_upper = con_options.get("upper", np.inf)
-                constraint_lower = con_options.get("lower", -np.inf)
+                constraint_upper = upper_con[constraint]
+                constraint_lower = lower_con[constraint]
 
                 if np.all(np.isinf(constraint_upper)):
                     upper_idxs = np.empty()
@@ -1993,8 +2036,9 @@ class Driver(object, metaclass=DriverMetaclass):
         for des_var, des_var_options in des_vars.items():
             des_var_value = dv_vals[des_var]
             des_var_size = des_var_options['size']
-            des_var_upper = np.ravel(des_var_options.get("upper", np.inf))
-            des_var_lower = np.ravel(des_var_options.get("lower", -np.inf))
+
+            des_var_upper = upper_dv[des_var]
+            des_var_lower = lower_dv[des_var]
 
             if assume_dvs_active:
                 active_dvs[des_var] = {'indices': np.arange(des_var_size, dtype=int),
@@ -2233,6 +2277,47 @@ class Driver(object, metaclass=DriverMetaclass):
         exc_info = self._exc_info
         self._exc_info = None  # clear since we're done with it
         raise exc_info[1].with_traceback(exc_info[2])
+
+    # def _scipy_update_design_vars(self, x_new, desvar_names=None):
+    #     """
+    #     Update the design variables in the model.
+
+    #     This interface is used
+    #     by scipy minimize and least_squares.
+
+    #     Parameters
+    #     ----------
+    #     x_new : ndarray
+    #         Array containing input values at new design point in optimizer-scaled space.
+    #         Note this may exclude some design variables in the model.
+    #     desvar_names : Sequence[str] or None
+    #         If given, the names of the design variables represented in x_new.
+    #         For the Driver.find_feasible excludes argument, one or more design
+    #         variables may be excluded from the feasibility search. If None,
+    #         assume all design variables are present in x_new.
+    #     """
+    #     excludes = desvar_names is not None
+
+    #     if desvar_names is None:
+    #         desvar_names = self._designvars.keys()
+
+    #     if excludes:
+    #         # If dealing with find feasible with excluded variables, update entire vector
+    #         # with scaled values so we can selectively replace some elements and then
+    #         # unscale it when setting it into the model.
+    #         dv_vec = self._get_vector_from_model('design_var', driver_scaling=True, in_place=True)
+    #     else:
+    #         dv_vec = self._vectors['design_var']
+
+    #     dv_meta = dv_vec.metadata
+
+    #     for dv_name in desvar_names:
+    #         # TODO STart and end apply to the full x_new vector, not when some elements excluded!
+    #         start = dv_meta[dv_name]['start']
+    #         end = dv_meta[dv_name]['end']
+    #         dv_vec[dv_name] = x_new[start:end]
+            
+    #     self._set_design_vars(unscale=False)
 
     def _scipy_update_design_vars(self, x_new, desvar_names=None):
         """
@@ -2484,7 +2569,7 @@ class Driver(object, metaclass=DriverMetaclass):
             i = 0
             bounds = []
 
-            lower_dv, upper_dv, _ = self._autoscaler.apply_bounds_scaling('design_var')
+            lower_dv, upper_dv, _ = self._autoscaler.get_bounds_scaling('design_var')
 
             for name, val in desvar_vals.items():
                 meta = self._designvars[name]

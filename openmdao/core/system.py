@@ -2362,11 +2362,6 @@ class System(object, metaclass=SystemMetaclass):
         for name, meta in self._design_vars.items():
 
             units = meta['units']
-            meta['unit_scaler'] = None
-            meta['unit_adder'] = None
-
-            meta['total_adder'] = meta['adder']
-            meta['total_scaler'] = meta['scaler']
 
             if units is not None:
                 # If derivatives are not being calculated, then you reach here before source
@@ -2391,6 +2386,7 @@ class System(object, metaclass=SystemMetaclass):
                           "were specified."
                     raise RuntimeError(msg.format(self.msginfo, name, var_units, units))
 
+                # TODO: REMOVE THIS EXPLANATION
                 # Derivation of the total scaler and total adder for design variables:
                 # Given base design variable value y
                 # First we apply the desired unit conversion
@@ -2406,16 +2402,12 @@ class System(object, metaclass=SystemMetaclass):
                 # total_scaler = declared_scaler * unit_scaler
                 # total_adder = unit_adder + declared_adder / unit_scaler
 
-                unit_scaler, unit_adder = unit_conversion(var_units, units)
+                meta['unit_scaler'], meta['unit_adder'] = unit_conversion(var_units, units)
                 declared_adder, declared_scaler = determine_adder_scaler(None, None,
                                                                          meta['adder'],
                                                                          meta['scaler'])
 
-                meta['unit_scaler'], meta['unit_adder'] = unit_conversion(var_units, units)
-                meta['total_adder'] = unit_adder + declared_adder / unit_scaler
-                meta['total_scaler'] = declared_scaler * unit_scaler
-
-            if meta['total_scaler'] is not None or meta['total_adder'] is not None:
+            if meta['scaler'] is not None or meta['adder'] is not None:
                 has_scaling = True
 
         resp = self._responses
@@ -2423,8 +2415,6 @@ class System(object, metaclass=SystemMetaclass):
         for name, meta in resp.items():
 
             units = meta['units']
-            meta['total_scaler'] = meta['scaler']
-            meta['total_adder'] = meta['adder']
 
             if units is not None:
                 # If derivatives are not being calculated, then you reach here before source
@@ -2451,18 +2441,15 @@ class System(object, metaclass=SystemMetaclass):
                     raise RuntimeError(msg.format(self.msginfo, type_dict[meta['type']],
                                                   name, src_units, units))
 
-                unit_scaler, unit_adder = unit_conversion(src_units, units)
+                meta['unit_scaler'], meta['unit_adder'] = unit_conversion(src_units, units)
+
                 declared_adder, declared_scaler =\
                     determine_adder_scaler(None, None, meta['adder'], meta['scaler'])
 
                 meta['scaler'], meta['adder'] = \
                     determine_adder_scaler(None, None, meta['adder'], meta['scaler'])
-                meta['unit_scaler'], meta['unit_adder'] = unit_conversion(var_units, units)
 
-                meta['total_scaler'] = declared_scaler * unit_scaler
-                meta['total_adder'] = unit_adder + declared_adder / unit_scaler
-
-            if meta['total_scaler'] is not None or meta['total_adder'] is not None:
+            if meta['scaler'] is not None or meta['adder'] is not None:
                 has_scaling = True
 
         for s in self._subsystems_myproc:
@@ -3355,28 +3342,15 @@ class System(object, metaclass=SystemMetaclass):
         # determine adder and scaler based on args
         adder, scaler = determine_adder_scaler(ref0, ref, adder, scaler)
 
-        if lower is not None:
+        if lower is None:
+            lower = -INF_BOUND
+        else:
             lower = format_as_float_or_array('lower', lower, flatten=True)
-        if upper is not None:
+        
+        if upper is None:
+            upper = INF_BOUND
+        else:
             upper = format_as_float_or_array('upper', upper, flatten=True)
-
-        # if lower is None:
-        #     # if not set, set lower to -INF_BOUND and don't apply adder/scaler
-        #     lower = -INF_BOUND
-        # else:
-        #     # Convert lower to ndarray/float as necessary
-        #     lower = format_as_float_or_array('lower', lower, flatten=True)
-        #     # Apply scaler/adder
-        #     lower = (lower + adder) * scaler
-
-        # if upper is None:
-        #     # if not set, set upper to INF_BOUND and don't apply adder/scaler
-        #     upper = INF_BOUND
-        # else:
-        #     # Convert upper to ndarray/float as necessary
-        #     upper = format_as_float_or_array('upper', upper, flatten=True)
-        #     # Apply scaler/adder
-        #     upper = (upper + adder) * scaler
 
         if self._static_mode:
             design_vars = self._static_design_vars
@@ -3544,7 +3518,6 @@ class System(object, metaclass=SystemMetaclass):
                     lower = -INF_BOUND
                 else:
                     lower = format_as_float_or_array('lower', lower, flatten=True)
-                    # lower = (lower + adder) * scaler
             except (TypeError, ValueError):
                 raise TypeError("Argument 'lower' can not be a string ('{}' given). You can not "
                                 "specify a variable as lower bound. You can only provide constant "
@@ -3557,7 +3530,6 @@ class System(object, metaclass=SystemMetaclass):
                     upper = INF_BOUND
                 else:
                     upper = format_as_float_or_array('upper', upper, flatten=True)
-                    # upper = (upper + adder) * scaler
             except (TypeError, ValueError):
                 raise TypeError("Argument 'upper' can not be a string ('{}' given). You can not "
                                 "specify a variable as upper bound. You can only provide constant "
@@ -3570,7 +3542,6 @@ class System(object, metaclass=SystemMetaclass):
                     raise TypeError("Argument 'equals' can not be a string ('{}' given). You can "
                                     "not specify a variable as equals bound. You can only provide "
                                     "constant float values".format(equals))
-                # equals = (equals + adder) * scaler
 
             resp['lower'] = lower
             resp['upper'] = upper

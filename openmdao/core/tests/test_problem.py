@@ -2225,9 +2225,10 @@ class TestProblem(unittest.TestCase):
         sys.stdout = strout
 
         try:
-            prob.list_driver_vars(desvar_opts=['lower', 'upper'], cons_opts=['lower', 'upper'])
+            prob.list_driver_vars(desvar_opts=['lower', 'upper', 'units'], cons_opts=['lower', 'upper', 'units'], driver_scaling=True)
         finally:
             sys.stdout = stdout
+
         output = strout.getvalue().split('\n')
 
         self.assertTrue('275.' in output[5])  # design var: x, value
@@ -2249,13 +2250,13 @@ class TestProblem(unittest.TestCase):
             sys.stdout = stdout
         output = strout.getvalue().split('\n')
 
-        self.assertTrue('35.'  in output[5])  # design var: x, value
+        self.assertTrue('1.6'  in output[5])  # design var: x, value
         self.assertTrue('0.'   in output[5])  # design var: x, lower bound
         self.assertTrue('100.' in output[5])  # design var: x, upper bound
-        self.assertTrue('70.'  in output[12]) # constraint: y1, value
+        self.assertTrue('21.1'  in output[12]) # constraint: y1, value
         self.assertTrue('100.' in output[12]) # constraint: y1, lower bound
         self.assertTrue('0.'   in output[12]) # constraint: y1, upper bound
-        self.assertTrue('105.' in output[19]) # objective: y2, value
+        self.assertTrue('40.5' in output[19]) # objective: y2, value
 
     def test_feature_list_driver_vars(self):
 

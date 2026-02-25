@@ -308,7 +308,7 @@ class ScipyOptimizeDriver(Driver):
         else:
             bounds = None
 
-        lower_dv, upper_dv, _ = self._autoscaler.apply_bounds_scaling('design_var')
+        lower_dv, upper_dv, _ = self._autoscaler.get_bounds_scaling('design_var')
 
         for name, meta in self._designvars.items():
             size = meta['global_size'] if meta['distributed'] else meta['size']
@@ -323,9 +323,9 @@ class ScipyOptimizeDriver(Driver):
                     p_low = meta_low[j]
                     p_high = meta_high[j]
 
-                    if p_low <= -INF_BOUND or np.isnan(p_low):
+                    if p_low <= -INF_BOUND:
                         p_low = None
-                    if p_high >= INF_BOUND or np.isnan(p_high):
+                    if p_high >= INF_BOUND:
                         p_high = None
 
                     bounds.append((p_low, p_high))
@@ -366,7 +366,7 @@ class ScipyOptimizeDriver(Driver):
             else:
                 self._lincongrad_cache = None
 
-            lower_con, upper_con, equals_con = self._autoscaler.apply_bounds_scaling('constraint')
+            lower_con, upper_con, equals_con = self._autoscaler.get_bounds_scaling('constraint')
 
             # map constraints to index and instantiate constraints for scipy
             for name, meta in self._cons.items():
@@ -630,10 +630,10 @@ class ScipyOptimizeDriver(Driver):
             if MPI:
                 model.comm.Bcast(x_new, root=0)
 
-            if self._desvar_array_cache is None:
-                self._desvar_array_cache = np.empty(x_new.shape, dtype=x_new.dtype)
+            # if self._desvar_array_cache is None:
+            #     self._desvar_array_cache = np.empty(x_new.shape, dtype=x_new.dtype)
 
-            self._desvar_array_cache[:] = x_new
+            # self._desvar_array_cache[:] = x_new
 
             self._scipy_update_design_vars(x_new)
 
@@ -714,7 +714,7 @@ class ScipyOptimizeDriver(Driver):
         cons = self._con_cache
         meta = self._cons[name]
 
-        lower_con, upper_con, equals_con = self._autoscaler.apply_bounds_scaling('constraint')
+        lower_con, upper_con, equals_con = self._autoscaler.get_bounds_scaling('constraint')
 
         # Equality constraints
         if meta['equals'] is not None:

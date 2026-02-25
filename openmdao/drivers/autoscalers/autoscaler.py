@@ -20,21 +20,13 @@ class Autoscaler:
 
     Discrete design variables, constraints, and objectives are not scaled/unscaled by autoscalers.
 
-    By default, this autoscaler performs an affine scaling:
-        x_scaled = (x_model + combined_adder) * combined_scaler
+    This autoscaler performs an affine scaling:
+        x_scaled = (x_model' + adder) * scaler
 
-    The Autoscaler internally combines unit conversion factors (unit_scaler, unit_adder)
-    with user-declared scaling factors (scaler, adder) into cached combined
-    values. This recreates the pre-separation combined scaling behavior, where both unit
-    conversion and user scaling are applied together in a single affine transformation.
-
-    Combined scaling factors are computed as:
-        combined_scaler = unit_scaler * total_scaler
-        combined_adder = unit_adder + total_adder / unit_scaler
-
-    These combined values are cached during setup for efficiency and used in all subsequent
-    scaling operations. This allows autoscalers to handle both unit conversions and user-
-    specified scaling in a self-contained manner.
+    Here x_model' is assumed to be the value of the variable in the model but converted
+    to the units specified for the variable of interest (design variable, constraint, or objective).
+    If the units of the VOI are `None`, then x_model' is the same as the value of the associated
+    output in the model.
 
     If implementing specialized autoscaler algorithms that derive from this class,
     the developer could choose to utilize or ignore the scaling applied with the optimizer
@@ -157,8 +149,8 @@ class Autoscaler:
         tuple
             (combined_scaler, combined_adder) where each can be None, float, or array
         """
-        unit_scaler = meta.get('unit_scaler')
-        unit_adder = meta.get('unit_adder')
+        unit_scaler = None
+        unit_adder = None
         total_scaler = meta.get('total_scaler')
         total_adder = meta.get('total_adder')
 
@@ -221,7 +213,14 @@ class Autoscaler:
         if np.isscalar(val):
             val_arr = np.full(size, val, dtype=float)
         else:
+            if val is None:
+                if is_lower:
+                    val = -INF_BOUND
+                else:
+                    val = INF_BOUND
+
             val_arr = np.asarray(val, dtype=float)
+                
             if val_arr.size != size:
                 val_arr = np.broadcast_to(val_arr, (size,)).copy()
             else:
@@ -314,7 +313,7 @@ class Autoscaler:
 
         return lower_vec, upper_vec, equals_vec
 
-    def apply_bounds_scaling(self, voi_type):
+    def get_bounds_scaling(self, voi_type):
         """
         Return pre-computed scaled bounds vectors for the given variable type.
 
