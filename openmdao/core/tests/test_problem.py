@@ -2250,6 +2250,7 @@ class TestProblem(unittest.TestCase):
             sys.stdout = stdout
         output = strout.getvalue().split('\n')
 
+        # Not outputs are return
         self.assertTrue('1.6'  in output[5])  # design var: x, value
         self.assertTrue('0.'   in output[5])  # design var: x, lower bound
         self.assertTrue('100.' in output[5])  # design var: x, upper bound

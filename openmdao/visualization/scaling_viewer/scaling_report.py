@@ -225,9 +225,10 @@ def view_driver_scaling(driver, outfile=_default_scaling_filename, show_browser=
         return '', inds
 
     # set up design vars table data
+    # TODO THIS WILL NEED REWORK AFTER REMOVING TOTAL_SCALER/TOTAL_ADDER
     for name, meta in driver._designvars.items():
-        scaler = meta['total_scaler']
-        adder = meta['total_adder']
+        scaler = meta['scaler']
+        adder = meta['adder']
         ref = meta.get('ref')
         ref0 = meta.get('ref0')
         lower = meta.get('lower')
@@ -267,8 +268,8 @@ def view_driver_scaling(driver, outfile=_default_scaling_filename, show_browser=
 
     # set up constraints table data
     for name, meta in driver._cons.items():
-        scaler = meta['total_scaler']
-        adder = meta['total_adder']
+        scaler = meta['scaler']
+        adder = meta['adder']
         ref = meta.get('ref')
         ref0 = meta.get('ref0')
         lower = meta.get('lower')
@@ -316,8 +317,8 @@ def view_driver_scaling(driver, outfile=_default_scaling_filename, show_browser=
 
     # set up objectives table data
     for name, meta in driver._objs.items():
-        scaler = meta['total_scaler']
-        adder = meta['total_adder']
+        scaler = meta['scaler']
+        adder = meta['adder']
         ref = meta.get('ref')
         ref0 = meta.get('ref0')
         alias = meta.get('alias', '')

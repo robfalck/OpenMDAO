@@ -1008,15 +1008,6 @@ class System(object, metaclass=SystemMetaclass):
 
         existing_dv_meta = design_vars[name]
 
-        are_existing_scaling = existing_dv_meta['scaler'] is not None or \
-            existing_dv_meta['adder'] is not None or \
-            existing_dv_meta['ref'] is not None or \
-            existing_dv_meta['ref0'] is not None
-        are_existing_bounds = existing_dv_meta['lower'] is not None or \
-            existing_dv_meta['upper'] is not None
-
-        # figure out the bounds (lower, upper) based on what is passed to this
-        #   method and what were the existing bounds
         if are_new_bounds:
             # wipe out all the bounds and only use what is set by the arguments to this call
             if is_undefined(lower):
@@ -1026,18 +1017,6 @@ class System(object, metaclass=SystemMetaclass):
         else:
             lower = existing_dv_meta['lower']
             upper = existing_dv_meta['upper']
-
-        if are_new_scaling and are_existing_scaling and are_existing_bounds and not are_new_bounds:
-            # need to unscale bounds using the existing scaling so the new scaling can
-            # be applied. But if no new bounds, no need to
-            existing_scaler = existing_dv_meta['scaler'] \
-                if existing_dv_meta['scaler'] is not None else 1.0
-            existing_adder = existing_dv_meta['adder'] \
-                if existing_dv_meta['adder'] is not None else 0.0
-            if lower is not None:
-                lower = lower / existing_scaler - existing_adder
-            if upper is not None:
-                upper = upper / existing_scaler - existing_adder
 
         # Now figure out scaling
         if are_new_scaling:
@@ -1068,8 +1047,6 @@ class System(object, metaclass=SystemMetaclass):
         else:
             # Convert lower to ndarray/float as necessary
             lower = format_as_float_or_array('lower', lower, flatten=True)
-            # Apply scaler/adder
-            lower = (lower + adder) * scaler
 
         if upper is None:
             # if not set, set upper to INF_BOUND and don't apply adder/scaler
@@ -1077,8 +1054,6 @@ class System(object, metaclass=SystemMetaclass):
         else:
             # Convert upper to ndarray/float as necessary
             upper = format_as_float_or_array('upper', upper, flatten=True)
-            # Apply scaler/adder
-            upper = (upper + adder) * scaler
 
         if isinstance(scaler, np.ndarray):
             if np.all(scaler == 1.0):
@@ -1096,9 +1071,7 @@ class System(object, metaclass=SystemMetaclass):
         #   this var
         new_desvar_metadata = {
             'scaler': scaler,
-            'total_scaler': scaler,
             'adder': adder,
-            'total_adder': adder,
             'upper': upper,
             'lower': lower,
             'ref': ref,
@@ -1296,9 +1269,7 @@ class System(object, metaclass=SystemMetaclass):
             'lower': lower,
             'upper': upper,
             'adder': adder,
-            'total_adder': adder,
             'scaler': scaler,
-            'total_scaler': scaler,
         }
 
         responses[name].update(new_cons_metadata)
@@ -1400,9 +1371,7 @@ class System(object, metaclass=SystemMetaclass):
             'ref': ref,
             'ref0': ref0,
             'adder': adder,
-            'total_adder': adder,
             'scaler': scaler,
-            'total_scaler': scaler,
         }
 
         responses[name].update(new_obj_metadata)
@@ -3388,8 +3357,6 @@ class System(object, metaclass=SystemMetaclass):
             'unit_adder': None,
             'discrete': False,
             'cache_linear_solution': cache_linear_solution,
-            'total_scaler': scaler,
-            'total_adder': adder,
             'indices': indices,
             'flat_indices': flat_indices,
             'parallel_deriv_color': parallel_deriv_color,
@@ -3576,7 +3543,6 @@ class System(object, metaclass=SystemMetaclass):
         elif adder == 0.0:
             adder = None
         resp['adder'] = adder
-        resp['total_adder'] = adder
 
         resp['ref'] = ref
         resp['ref0'] = ref0

@@ -1191,11 +1191,12 @@ class Case(object):
                     val = val.copy()
                 if use_indices and meta['indices'] is not None:
                     val = val.ravel()[meta['indices']]
-                if scaled:
-                    if meta['total_adder'] is not None:
-                        val += meta['total_adder']
-                    if meta['total_scaler'] is not None:
-                        val *= meta['total_scaler']
+                # TODO: DO SCALING HERE
+                # if scaled:
+                #     if meta['total_adder'] is not None:
+                #         val += meta['total_adder']
+                #     if meta['total_scaler'] is not None:
+                #         val *= meta['total_scaler']
                 ret_vars[name] = val
 
         return PromAbsDict(ret_vars, self._prom2abs['output'], self._abs2prom['output'],

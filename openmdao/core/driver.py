@@ -547,14 +547,12 @@ class Driver(object, metaclass=DriverMetaclass):
                 if 'upper' in meta:
                     vecmeta[name]['upper'] = meta.get('upper')
 
-                # TODO: Soon we will no longer pass driver_scaling to get_voi_val
                 val = self._get_voi_val(name, meta, remote_vois,
-                                        driver_scaling=False, get_remote=True, driver_units=True)
+                                        get_remote=True, driver_units=True)
                 voi_array.append(np.atleast_1d(val).flat)
             else:
                 # The vector already exists, just populate it
                 out.asarray()[start_idx:end_idx] = self._get_voi_val(name, meta, remote_vois,
-                                                                     driver_scaling=False,
                                                                      get_remote=True,
                                                                      driver_units=True)
 
@@ -594,7 +592,8 @@ class Driver(object, metaclass=DriverMetaclass):
 
         for name in desvar_names:
             value = desvar_vec[name]
-            self.set_design_var(name, value, set_remote=True, unscale=False)
+            units = self._designvars[name].get('units')
+            self.set_design_var(name, value, set_remote=True, unscale=False, units=units)
 
     def _setup_driver(self, problem):
         """
@@ -1020,7 +1019,7 @@ class Driver(object, metaclass=DriverMetaclass):
 
         return self.result
 
-    def _get_voi_val(self, name, meta, remote_vois, driver_scaling=True,
+    def _get_voi_val(self, name, meta, remote_vois,
                      get_remote=True, rank=None, driver_units=False):
         """
         Get the value of a variable of interest (objective, constraint, or design var).
@@ -1036,10 +1035,6 @@ class Driver(object, metaclass=DriverMetaclass):
         remote_vois : dict
             Dict containing (owning_rank, size) for all remote vois of a particular
             type (design var, constraint, or objective).
-        driver_scaling : bool
-            When True, return values that are scaled according to either the adder and scaler or
-            the ref and ref0 values that were specified when add_design_var, add_objective, and
-            add_constraint were called on the model. Default is True.
         get_remote : bool or None
             If True, retrieve the value even if it is on a remote process.  Note that if the
             variable is remote on ANY process, this function must be called on EVERY process
@@ -1126,16 +1121,6 @@ class Driver(object, metaclass=DriverMetaclass):
                 val = get(src_name, flat=True).copy()
             else:
                 val = get(src_name, flat=True)[indices.as_array()]
-
-        if self._has_scaling and driver_scaling:
-            # Scale design variable values
-            adder = meta['total_adder']
-            if adder is not None:
-                val += adder
-
-            scaler = meta['total_scaler']
-            if scaler is not None:
-                val *= scaler
         
         if driver_units and meta['units'] is not None:
             src_units = model._var_abs2meta['output'][src_name]['units']
@@ -1196,8 +1181,7 @@ class Driver(object, metaclass=DriverMetaclass):
                                              in_place=True)
         
         dvs = dv_vec._to_dict()
-        discrete_dvs = {n: self._get_voi_val(n, dvmeta, self._remote_dvs, get_remote=get_remote,
-                                             driver_scaling=driver_scaling)
+        discrete_dvs = {n: self._get_voi_val(n, dvmeta, self._remote_dvs, get_remote=get_remote)
                         for n, dvmeta in self._designvars.items() if dvmeta['discrete']}
         dvs.update(discrete_dvs)
         return dvs
@@ -1263,16 +1247,6 @@ class Driver(object, metaclass=DriverMetaclass):
             else:
                 # provided value is the local value
                 desvar[loc_idxs] = np.atleast_1d(value)
-
-            # Undo driver scaling when setting design var values into model.
-            if self._has_scaling:
-                scaler = meta['total_scaler']
-                if scaler is not None:
-                    desvar[loc_idxs] *= 1.0 / scaler
-
-                adder = meta['total_adder']
-                if adder is not None:
-                    desvar[loc_idxs] -= adder
 
             if meta['units'] is not None:
                 src_units = problem.model._var_abs2meta['output'][src_name]['units']
@@ -1373,17 +1347,6 @@ class Driver(object, metaclass=DriverMetaclass):
         # Now scale them.
         if driver_scaling and viol:
             self._autoscaler.apply_vec_scaling(con_vec)
-
-                # if not driver_scaling:
-                #     scaler = meta['total_scaler']
-                #     if scaler is not None:
-                #         con_dict[name] /= scaler
-                
-                # con_dict[name] = con_vec[name]
-
-            # else:
-            #     # con_dict[name] = self._get_voi_val(name, meta, self._remote_cons,
-            #     #                                    driver_scaling=driver_scaling)
 
         return con_dict
 
@@ -2061,58 +2024,58 @@ class Driver(object, metaclass=DriverMetaclass):
 
         return active_cons, active_dvs
 
-    def _unscale_lagrange_multipliers(self, multipliers, assume_dv=False):
-        """
-        Unscale the Lagrange multipliers from optimizer scaling to physical/model scaling.
+    # def _unscale_lagrange_multipliers(self, multipliers, assume_dv=False):
+    #     """
+    #     Unscale the Lagrange multipliers from optimizer scaling to physical/model scaling.
 
-        This method assumes that the optimizer is in a converged state, satisfying both the
-        primal constraints as well as the optimality conditions.
+    #     This method assumes that the optimizer is in a converged state, satisfying both the
+    #     primal constraints as well as the optimality conditions.
 
-        Parameters
-        ----------
-        active_constraints : Sequence[str]
-            Active constraints/dvs in the optimization, determined using the
-            get_active_cons_and_dvs method.
-        multipliers : dict[str: ArrayLike]
-            The Lagrange multipliers, in Driver-scaled units.
-        assume_dv : bool
-            This function can unscale the multipliers of either design variables or constraints.
-            Since variables can be both a design variable and a constraint, this flag
-            disambiguates the type of multiplier we're handling so the appropriate scaling
-            factors can be used.
+    #     Parameters
+    #     ----------
+    #     active_constraints : Sequence[str]
+    #         Active constraints/dvs in the optimization, determined using the
+    #         get_active_cons_and_dvs method.
+    #     multipliers : dict[str: ArrayLike]
+    #         The Lagrange multipliers, in Driver-scaled units.
+    #     assume_dv : bool
+    #         This function can unscale the multipliers of either design variables or constraints.
+    #         Since variables can be both a design variable and a constraint, this flag
+    #         disambiguates the type of multiplier we're handling so the appropriate scaling
+    #         factors can be used.
 
-        Returns
-        -------
-        dict
-            The Lagrange multipliers in model/physical units.
-        """
-        if len(self._objs) != 1:
-            raise ValueError('Lagrange Multplier estimation requires that there '
-                             f'be a single objective, but there are {len(self._objs)}.')
+    #     Returns
+    #     -------
+    #     dict
+    #         The Lagrange multipliers in model/physical units.
+    #     """
+    #     if len(self._objs) != 1:
+    #         raise ValueError('Lagrange Multplier estimation requires that there '
+    #                          f'be a single objective, but there are {len(self._objs)}.')
 
-        obj_meta = list(self._objs.values())[0]
-        obj_ref = obj_meta['ref']
-        obj_ref0 = obj_meta['ref0']
+    #     obj_meta = list(self._objs.values())[0]
+    #     obj_ref = obj_meta['ref']
+    #     obj_ref0 = obj_meta['ref0']
 
-        if obj_ref is None:
-            obj_ref = 1.0
-        if obj_ref0 is None:
-            obj_ref0 = 0.0
+    #     if obj_ref is None:
+    #         obj_ref = 1.0
+    #     if obj_ref0 is None:
+    #         obj_ref0 = 0.0
 
-        obj_scaler = obj_meta['total_scaler'] or 1.0
+    #     obj_scaler = obj_meta['total_scaler'] or 1.0
 
-        unscaled_multipliers = {}
+    #     unscaled_multipliers = {}
 
-        for name, val in multipliers.items():
-            if name in self._designvars and assume_dv:
-                scaler = self._designvars[name]['total_scaler']
-            else:
-                scaler = self._responses[name]['total_scaler']
-            scaler = scaler or 1.0
+    #     for name, val in multipliers.items():
+    #         if name in self._designvars and assume_dv:
+    #             scaler = self._designvars[name]['total_scaler']
+    #         else:
+    #             scaler = self._responses[name]['total_scaler']
+    #         scaler = scaler or 1.0
 
-            unscaled_multipliers[name] = val * scaler / obj_scaler
+    #         unscaled_multipliers[name] = val * scaler / obj_scaler
 
-        return unscaled_multipliers
+    #     return unscaled_multipliers
 
     def compute_lagrange_multipliers(self, driver_scaling=False, feas_tol=1.0E-6,
                                      use_sparse_solve=True):
@@ -2259,8 +2222,8 @@ class Driver(object, metaclass=DriverMetaclass):
             offset += active_size
 
         if not driver_scaling:
-            dv_multipliers = self._unscale_lagrange_multipliers(dv_multipliers, assume_dv=True)
-            con_multipliers = self._unscale_lagrange_multipliers(con_multipliers, assume_dv=False)
+            dv_multipliers, con_multipliers = self._autoscaler.apply_mult_unscaling(dv_multipliers,
+                                                                                    con_multipliers)
 
         for key, val in dv_multipliers.items():
             active_dvs[key]['multipliers'] = val
@@ -2398,7 +2361,7 @@ class Driver(object, metaclass=DriverMetaclass):
         except Exception:
             if self._exc_info is None:  # only record the first one
                 self._exc_info = sys.exc_info()
-            return np.zeros(np.sum([c['size'] for c in self._cons.values()]))
+            return np.zeros(np.sum([c['size'] for c in self._cons.values()], dtype=int))
 
     def _compute_con_viol_grad(self, x_new, desvar_names, con_row_map,
                                driver_scaling=True, lin_con_grad=None):

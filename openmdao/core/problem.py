@@ -1976,7 +1976,8 @@ class Problem(object, metaclass=ProblemMetaclass):
         col_names = default_col_names + def_desvar_opts + desvar_opts
         if 'units' in col_names and driver_scaling:
             for dv in desvars:
-                desvars[dv]['units'] += ' (scaled)'
+                if desvars[dv]['units'] is not None:
+                    desvars[dv]['units'] += ' (scaled)'
         if out_stream:
             self._write_var_info_table(header, col_names, desvars, vals,
                                        show_promoted_name=show_promoted_name,
@@ -2018,7 +2019,8 @@ class Problem(object, metaclass=ProblemMetaclass):
         col_names = default_col_names + def_cons_opts + cons_opts
         if 'units' in col_names and driver_scaling:
             for c in cons:
-                cons[c]['units'] += ' (scaled)'
+                if cons[c]['units'] is not None:
+                    cons[c]['units'] += ' (scaled)'
         if out_stream:
             self._write_var_info_table(header, col_names, cons, vals,
                                        show_promoted_name=show_promoted_name,
@@ -2048,7 +2050,8 @@ class Problem(object, metaclass=ProblemMetaclass):
         col_names = default_col_names + def_obj_opts + objs_opts
         if 'units' in col_names and driver_scaling:
             for o in objs:
-                objs[o]['units'] += ' (scaled)'
+                if objs[o]['units'] is not None:
+                    objs[o]['units'] += ' (scaled)'
         if out_stream:
             self._write_var_info_table(header, col_names, objs, vals,
                                        show_promoted_name=show_promoted_name,
