@@ -74,7 +74,11 @@ class TestDriver(unittest.TestCase):
         self.assertEqual(dv['z'][0], 1.0)
         self.assertEqual(dv['z'][1], -0.5)
 
-        prob.driver.set_design_var('z', np.array((2.0, -2.0)))
+        # Check our internal vector
+        assert_near_equal(dv['z'], [1.0, -0.5])
+        prob.driver._vectors['design_var'].asarray()[:] = [2., -2.]
+
+        prob.driver._set_design_vars(driver_scaling=True)
         self.assertEqual(prob['z'][0], 7.0)
         self.assertEqual(prob['z'][1], -1.0)
 
@@ -90,8 +94,6 @@ class TestDriver(unittest.TestCase):
 
         prob.setup()
         prob.run_model()
-
-        prob.model.list_vars(residuals=True)
 
         cv = prob.driver.get_constraint_values()['con1'][0]
         base = prob['con1']

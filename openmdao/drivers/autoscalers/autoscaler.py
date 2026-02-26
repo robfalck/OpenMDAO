@@ -89,14 +89,10 @@ class Autoscaler:
         for voi_type in ['design_var', 'constraint', 'objective']:
             self._combined_scalers[voi_type] = {}
             for name, meta in self._var_meta[voi_type].items():
-                total_scaler, total_adder = self._compute_combined_scaling(meta)
+                scaler, adder = meta['scaler'], meta['adder']
                 self._has_scaling = self._has_scaling \
-                    or (total_scaler is not None) \
-                    or (total_adder is not None)
-                self._combined_scalers[voi_type][name] = {
-                    'scaler': total_scaler,
-                    'adder': total_adder
-                }
+                    or (scaler is not None) \
+                    or (adder is not None)
 
         # Compute and cache scaled bounds vectors for design vars and constraints
         self._scaled_lower = {}
@@ -124,69 +120,6 @@ class Autoscaler:
             The driver that is running this autoscaler.
         """
         pass
-
-    def _compute_combined_scaling(self, meta):
-        """
-        Combine unit conversion and user-declared scaling into single scaler/adder.
-
-        This routine will be useful for those scaling algorithms which effectively
-        decompose scaling into a single scalar and single adder per each variable,
-        such as OpenMDAO's default user-specified scaling.
-
-        Combines the two-step transformation:
-            y_scaled = ((y + unit_adder) * unit_scaler + total_adder) * total_scaler
-
-        Into single affine transformation:
-            y_scaled = (y + combined_adder) * combined_scaler
-
-        Parameters
-        ----------
-        meta : dict
-            Metadata dictionary containing scaling parameters.
-
-        Returns
-        -------
-        tuple
-            (combined_scaler, combined_adder) where each can be None, float, or array
-        """
-        unit_scaler = None
-        unit_adder = None
-        total_scaler = meta.get('total_scaler')
-        total_adder = meta.get('total_adder')
-
-        # If all None, no scaling needed
-        if all(x is None for x in [unit_scaler, unit_adder, total_scaler, total_adder]):
-            return None, None
-
-        # Compute combined_scaler = unit_scaler * total_scaler
-        if unit_scaler is None and total_scaler is None:
-            combined_scaler = None
-        elif unit_scaler is None:
-            combined_scaler = total_scaler
-        elif total_scaler is None:
-            combined_scaler = unit_scaler
-        else:
-            combined_scaler = unit_scaler * total_scaler
-
-        # Compute combined_adder = unit_adder + total_adder / unit_scaler
-        if unit_adder is None and total_adder is None:
-            combined_adder = None
-        elif unit_adder is None:
-            # combined_adder = total_adder / unit_scaler
-            if unit_scaler is None:
-                combined_adder = total_adder
-            else:
-                combined_adder = total_adder / unit_scaler
-        elif total_adder is None:
-            combined_adder = unit_adder
-        else:
-            # combined_adder = unit_adder + total_adder / unit_scaler
-            if unit_scaler is None:
-                combined_adder = unit_adder + total_adder
-            else:
-                combined_adder = unit_adder + total_adder / unit_scaler
-
-        return combined_scaler, combined_adder
 
     def _scale_bound(self, val, adder, scaler, size, is_lower):
         """
@@ -290,9 +223,8 @@ class Autoscaler:
             size = vmeta['size']
             start = vmeta['start_idx']
             end = vmeta['end_idx']
-            combined = self._combined_scalers[voi_type][name]
-            adder = combined['adder']
-            scaler = combined['scaler']
+            adder = self._var_meta[voi_type][name]['adder']
+            scaler = self._var_meta[voi_type][name]['scaler']
 
             lower_data[start:end] = self._scale_bound(
                 meta.get('lower', -INF_BOUND), adder, scaler, size, is_lower=True)
@@ -381,9 +313,8 @@ class Autoscaler:
         
         for name in vec:
             # Use cached combined scaler/adder - includes both unit conversion and user scaling
-            combined = self._combined_scalers[vec.voi_type][name]
-            scaler = combined['scaler']
-            adder = combined['adder']
+            scaler = self._var_meta[vec.voi_type][name]['scaler']
+            adder = self._var_meta[vec.voi_type][name]['adder']
 
             # Unscale: x_model = x_optimizer / scaler - adder
             if scaler is not None:
@@ -402,9 +333,8 @@ class Autoscaler:
         """
         for name in vec:
             # Use cached combined scaler/adder - includes both unit conversion and user scaling
-            combined = self._combined_scalers[vec.voi_type][name]
-            scaler = combined['scaler']
-            adder = combined['adder']
+            scaler = self._var_meta[vec.voi_type][name]['scaler']
+            adder = self._var_meta[vec.voi_type][name]['adder']
 
             # Scale: x_optimizer = (x_model + adder) * scaler
             if adder is not None:
@@ -561,16 +491,16 @@ class Autoscaler:
                 for in_name, block in jac_block.items():
                     # Determine output scaler
                     if out_name in self._var_meta['objective']:
-                        out_scaler = self._combined_scalers['objective'][out_name]['scaler']
+                        out_scaler = self._var_meta['objective'][out_name]['scaler']
                     elif out_name in self._var_meta['constraint']:
-                        out_scaler = self._combined_scalers['constraint'][out_name]['scaler']
+                        out_scaler = self._var_meta['constraint'][out_name]['scaler']
                     else:
                         # Unknown output, skip scaling this row
                         continue
 
                     # Determine input scaler
                     if in_name in self._var_meta['design_var']:
-                        in_scaler = self._combined_scalers['design_var'][in_name]['scaler']
+                        in_scaler = self._var_meta['design_var'][in_name]['scaler']
                     else:
                         # Unknown input, skip scaling this entry
                         continue
@@ -586,16 +516,16 @@ class Autoscaler:
             # Handle flat dict format (key is a tuple)
             # Determine output scaler
             if out_name in self._var_meta['objective']:
-                out_scaler = self._combined_scalers['objective'][out_name]['scaler']
+                out_scaler = self._var_meta['objective'][out_name]['scaler']
             elif out_name in self._var_meta['constraint']:
-                out_scaler = self._combined_scalers['constraint'][out_name]['scaler']
+                out_scaler = self._var_meta['constraint'][out_name]['scaler']
             else:
                 # Unknown output, skip scaling this entry
                 continue
 
             # Determine input scaler
             if in_name in self._var_meta['design_var']:
-                in_scaler = self._combined_scalers['design_var'][in_name]['scaler']
+                in_scaler = self._design_var['design_var'][in_name]['scaler']
             else:
                 # Unknown input, skip scaling this entry
                 continue

@@ -569,7 +569,7 @@ class Driver(object, metaclass=DriverMetaclass):
 
         return out
 
-    def _set_design_vars(self, desvar_names=None, unscale=True):
+    def _set_design_vars(self, desvar_names=None, driver_scaling=True):
         """
         Set design variable values into the model from the internal design var vector.
 
@@ -579,21 +579,22 @@ class Driver(object, metaclass=DriverMetaclass):
             If None, assume all design variables in the model are to be set. Otherwise,
             only set the design variables of the given names. This is used by find_feasible
             when we may exclude some design variables from the feasibility search.
-        unscale : bool
+        driver_scaling : bool
             Specifies that design variables need to be unscaled before setting them in the model.
             Default is True.
         """
+        meta = self._designvars
         desvar_vec = self._vectors['design_var']
 
-        if unscale:
+        if driver_scaling:
             value = self._autoscaler.apply_vec_unscaling(desvar_vec)
         
-        desvar_names = desvar_names if desvar_names is not None else desvar_vec.keys()
+        desvar_names = desvar_names if desvar_names is not None else meta.keys()
 
         for name in desvar_names:
             value = desvar_vec[name]
-            units = self._designvars[name].get('units')
-            self.set_design_var(name, value, set_remote=True, unscale=False, units=units)
+            units = meta[name].get('units')
+            self.set_design_var(name, value, set_remote=True, driver_scaling=False, units=units)
 
     def _setup_driver(self, problem):
         """
@@ -1186,7 +1187,7 @@ class Driver(object, metaclass=DriverMetaclass):
         dvs.update(discrete_dvs)
         return dvs
 
-    def set_design_var(self, name, value, set_remote=True):
+    def set_design_var(self, name, value, set_remote=True, driver_scaling=False, units=None):
         """
         Set the value of a design variable.
 
@@ -1195,12 +1196,16 @@ class Driver(object, metaclass=DriverMetaclass):
         Parameters
         ----------
         name : str
-            Global pathname of the design variable.
+            Promoted name or alias of the design variable.
         value : float or ndarray
             Value for the design variable in driver scaling/units.
         set_remote : bool
             If True, set the global value of the variable (value must be of the global size).
             If False, set the local value of the variable (value must be of the local size).
+        driver_scaling : bool
+            If True, assume the value provided is in optimizer-scaled space.
+        units : str or None
+            Units of the value, **after** unscaling from the optimizer-scaled space, if applicable.
         """
         problem = self._problem()
         meta = self._designvars[name]
@@ -1251,6 +1256,9 @@ class Driver(object, metaclass=DriverMetaclass):
             if meta['units'] is not None:
                 src_units = problem.model._var_abs2meta['output'][src_name]['units']
                 desvar[loc_idxs] = convert_units(desvar[loc_idxs], meta['units'], src_units)
+            
+
+
 
 
     def get_objective_values(self, driver_scaling=True):
