@@ -2355,26 +2355,7 @@ class System(object, metaclass=SystemMetaclass):
                           "were specified."
                     raise RuntimeError(msg.format(self.msginfo, name, var_units, units))
 
-                # TODO: REMOVE THIS EXPLANATION
-                # Derivation of the total scaler and total adder for design variables:
-                # Given base design variable value y
-                # First we apply the desired unit conversion
-                # y_in_desired_units = unit_scaler * (y + unit_adder)
-                # Then we apply the user-declared scaling
-                # y_opt = declared_scaler * (y_in_desired_units + declared_adder)
-                # Thus
-                # y_opt = declared_scaler * (unit_scaler * (y + unit_adder) + declared_adder)
-                # And collecting terms
-                # y_opt = [declared_scaler * unit_scaler]
-                #         * (y + unit_adder + declared_adder/unit_scaler)
-                # So the total_scaler and total_adder for the optimizer are:
-                # total_scaler = declared_scaler * unit_scaler
-                # total_adder = unit_adder + declared_adder / unit_scaler
-
                 meta['unit_scaler'], meta['unit_adder'] = unit_conversion(var_units, units)
-                declared_adder, declared_scaler = determine_adder_scaler(None, None,
-                                                                         meta['adder'],
-                                                                         meta['scaler'])
 
             if meta['scaler'] is not None or meta['adder'] is not None:
                 has_scaling = True
@@ -2412,10 +2393,7 @@ class System(object, metaclass=SystemMetaclass):
 
                 meta['unit_scaler'], meta['unit_adder'] = unit_conversion(src_units, units)
 
-                declared_adder, declared_scaler =\
-                    determine_adder_scaler(None, None, meta['adder'], meta['scaler'])
-
-                meta['scaler'], meta['adder'] = \
+                meta['adder'], meta['scaler'] = \
                     determine_adder_scaler(None, None, meta['adder'], meta['scaler'])
 
             if meta['scaler'] is not None or meta['adder'] is not None:
