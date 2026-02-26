@@ -5,7 +5,7 @@ from openmdao.drivers.autoscalers.autoscaler import Autoscaler
 from openmdao.vectors.optimizer_vector import OptimizerVector
 
 
-class TestDefaultAutoscalerBasic(unittest.TestCase):
+class TestAutoscaler(unittest.TestCase):
     """Test basic DefaultAutoscaler operations with mock drivers."""
 
     def test_apply_scaling_design_vars_with_scaler_and_adder(self):
@@ -14,7 +14,7 @@ class TestDefaultAutoscalerBasic(unittest.TestCase):
         class MockDriver:
             def __init__(self):
                 self._designvars = {
-                    'x': {'total_scaler': 2.0, 'total_adder': 1.0}
+                    'x': {'scaler': 2.0, 'adder': 1.0}
                 }
                 self._cons = {}
                 self._objs = {}
@@ -40,7 +40,7 @@ class TestDefaultAutoscalerBasic(unittest.TestCase):
         class MockDriver:
             def __init__(self):
                 self._designvars = {
-                    'x': {'total_scaler': 2.0, 'total_adder': 1.0}
+                    'x': {'scaler': 2.0, 'adder': 1.0}
                 }
                 self._cons = {}
                 self._objs = {}
@@ -54,21 +54,18 @@ class TestDefaultAutoscalerBasic(unittest.TestCase):
         # Create design variable vector in optimizer space
         meta = {'x': {'start_idx': 0, 'end_idx': 1, 'size': 1}}
         optimizer_value = np.array([8.0])  # Optimizer space value
-        dv_vector = OptimizerVector('design_var', optimizer_value.copy(), meta)
+        dv_vector = OptimizerVector('design_var', optimizer_value.copy(), meta, driver_scaling=True)
 
         # Unscale: model = optimizer / scaler - adder = 8.0 / 2.0 - 1.0 = 3.0
-        unscaled = autoscaler.apply_vec_unscaling(dv_vector, 'x')
-        self.assertAlmostEqual(unscaled[0], 3.0, places=10)
-
-        # Original vector should be unchanged (apply_unscaling returns a copy)
-        self.assertAlmostEqual(dv_vector.asarray()[0], 8.0, places=10)
+        unscaled = autoscaler.apply_vec_unscaling(dv_vector)
+        self.assertAlmostEqual(unscaled.asarray()[0], 3.0, places=10)
 
     def test_apply_scaling_with_none_scaler_and_adder(self):
         """Test scaling when scaler or adder is None."""
         class MockDriver:
             def __init__(self):
                 self._designvars = {
-                    'x': {'total_scaler': None, 'total_adder': None}
+                    'x': {'scaler': None, 'adder': None}
                 }
                 self._cons = {}
                 self._objs = {}
@@ -91,7 +88,7 @@ class TestDefaultAutoscalerBasic(unittest.TestCase):
         class MockDriver:
             def __init__(self):
                 self._designvars = {
-                    'x': {'total_scaler': 2.0, 'total_adder': None}
+                    'x': {'scaler': 2.0, 'adder': None}
                 }
                 self._cons = {}
                 self._objs = {}
@@ -114,7 +111,7 @@ class TestDefaultAutoscalerBasic(unittest.TestCase):
         class MockDriver:
             def __init__(self):
                 self._designvars = {
-                    'x': {'total_scaler': None, 'total_adder': 1.0}
+                    'x': {'scaler': None, 'adder': 1.0}
                 }
                 self._cons = {}
                 self._objs = {}
@@ -137,7 +134,7 @@ class TestDefaultAutoscalerBasic(unittest.TestCase):
         class MockDriver:
             def __init__(self):
                 self._designvars = {
-                    'x': {'total_scaler': 2.0, 'total_adder': 1.0}
+                    'x': {'scaler': 2.0, 'adder': 1.0}
                 }
                 self._cons = {}
                 self._objs = {}
@@ -167,8 +164,8 @@ class TestDefaultAutoscalerBasic(unittest.TestCase):
         class MockDriver:
             def __init__(self):
                 self._designvars = {
-                    'x1': {'total_scaler': 2.0, 'total_adder': 0.0},
-                    'x2': {'total_scaler': 1.0, 'total_adder': 5.0}
+                    'x1': {'scaler': 2.0, 'adder': 0.0},
+                    'x2': {'scaler': 1.0, 'adder': 5.0}
                 }
                 self._cons = {}
                 self._objs = {}
@@ -196,7 +193,7 @@ class TestDefaultAutoscalerBasic(unittest.TestCase):
         class MockDriver:
             def __init__(self):
                 self._designvars = {
-                    'x': {'total_scaler': 2.0, 'total_adder': 1.0}
+                    'x': {'scaler': 2.0, 'adder': 1.0}
                 }
                 self._cons = {}
                 self._objs = {}
@@ -215,8 +212,8 @@ class TestDefaultAutoscalerBasic(unittest.TestCase):
         self.assertAlmostEqual(dv_vector.asarray()[0], 8.0, places=10)
 
         # Unscale: 8.0 / 2.0 - 1.0 = 3.0
-        unscaled = autoscaler.apply_vec_unscaling(dv_vector, 'x')
-        np.testing.assert_array_almost_equal(unscaled, original_data, decimal=10)
+        unscaled = autoscaler.apply_vec_unscaling(dv_vector)
+        np.testing.assert_array_almost_equal(unscaled.asarray(), original_data, decimal=10)
 
     def test_apply_scaling_constraints(self):
         """Test scaling constraint vectors."""
@@ -224,8 +221,8 @@ class TestDefaultAutoscalerBasic(unittest.TestCase):
             def __init__(self):
                 self._designvars = {}
                 self._cons = {
-                    'c1': {'total_scaler': 0.5, 'total_adder': 2.0},
-                    'c2': {'total_scaler': 1.0, 'total_adder': None}
+                    'c1': {'scaler': 0.5, 'adder': 2.0},
+                    'c2': {'scaler': 1.0, 'adder': None}
                 }
                 self._objs = {}
 
@@ -254,7 +251,7 @@ class TestDefaultAutoscalerBasic(unittest.TestCase):
                 self._designvars = {}
                 self._cons = {}
                 self._objs = {
-                    'obj': {'total_scaler': 10.0, 'total_adder': -5.0}
+                    'obj': {'scaler': 10.0, 'adder': -5.0}
                 }
 
         driver = MockDriver()
@@ -280,11 +277,11 @@ class TestLagrangeMultiplierUnscaling(unittest.TestCase):
         class MockDriver:
             def __init__(self):
                 self._designvars = {
-                    'x': {'total_scaler': 2.0, 'total_adder': 1.0}
+                    'x': {'scaler': 2.0, 'adder': 1.0}
                 }
                 self._cons = {}
                 self._objs = {
-                    'obj': {'total_scaler': 4.0, 'total_adder': None}
+                    'obj': {'scaler': 4.0, 'adder': None}
                 }
 
         driver = MockDriver()
@@ -307,10 +304,10 @@ class TestLagrangeMultiplierUnscaling(unittest.TestCase):
             def __init__(self):
                 self._designvars = {}
                 self._cons = {
-                    'c': {'total_scaler': 0.5, 'total_adder': None}
+                    'c': {'scaler': 0.5, 'adder': None}
                 }
                 self._objs = {
-                    'obj': {'total_scaler': 2.0, 'total_adder': None}
+                    'obj': {'scaler': 2.0, 'adder': None}
                 }
 
         driver = MockDriver()
@@ -332,13 +329,13 @@ class TestLagrangeMultiplierUnscaling(unittest.TestCase):
         class MockDriver:
             def __init__(self):
                 self._designvars = {
-                    'x': {'total_scaler': 2.0, 'total_adder': None}
+                    'x': {'scaler': 2.0, 'adder': None}
                 }
                 self._cons = {
-                    'c': {'total_scaler': 0.5, 'total_adder': None}
+                    'c': {'scaler': 0.5, 'adder': None}
                 }
                 self._objs = {
-                    'obj': {'total_scaler': 4.0, 'total_adder': None}
+                    'obj': {'scaler': 4.0, 'adder': None}
                 }
 
         driver = MockDriver()
@@ -362,11 +359,11 @@ class TestLagrangeMultiplierUnscaling(unittest.TestCase):
         class MockDriver:
             def __init__(self):
                 self._designvars = {
-                    'x': {'total_scaler': None, 'total_adder': None}
+                    'x': {'scaler': None, 'adder': None}
                 }
                 self._cons = {}
                 self._objs = {
-                    'obj': {'total_scaler': None, 'total_adder': None}
+                    'obj': {'scaler': None, 'adder': None}
                 }
 
         driver = MockDriver()
@@ -386,11 +383,11 @@ class TestLagrangeMultiplierUnscaling(unittest.TestCase):
         class MockDriver:
             def __init__(self):
                 self._designvars = {
-                    'x': {'total_scaler': 2.0, 'total_adder': None}
+                    'x': {'scaler': 2.0, 'adder': None}
                 }
                 self._cons = {}
                 self._objs = {
-                    'obj': {'total_scaler': 4.0, 'total_adder': None}
+                    'obj': {'scaler': 4.0, 'adder': None}
                 }
 
         driver = MockDriver()
@@ -417,15 +414,15 @@ class TestLagrangeMultiplierUnscaling(unittest.TestCase):
         class MockDriver:
             def __init__(self):
                 self._designvars = {
-                    'x1': {'total_scaler': 2.0, 'total_adder': None},
-                    'x2': {'total_scaler': 4.0, 'total_adder': None}
+                    'x1': {'scaler': 2.0, 'adder': None},
+                    'x2': {'scaler': 4.0, 'adder': None}
                 }
                 self._cons = {
-                    'c1': {'total_scaler': 0.5, 'total_adder': None},
-                    'c2': {'total_scaler': 1.0, 'total_adder': None}
+                    'c1': {'scaler': 0.5, 'adder': None},
+                    'c2': {'scaler': 1.0, 'adder': None}
                 }
                 self._objs = {
-                    'obj': {'total_scaler': 8.0, 'total_adder': None}
+                    'obj': {'scaler': 8.0, 'adder': None}
                 }
 
         driver = MockDriver()
@@ -463,7 +460,7 @@ class TestLagrangeMultiplierUnscaling(unittest.TestCase):
                 self._designvars = {}
                 self._cons = {}
                 self._objs = {
-                    'obj': {'total_scaler': 2.0, 'total_adder': None}
+                    'obj': {'scaler': 2.0, 'adder': None}
                 }
 
         driver = MockDriver()
@@ -488,7 +485,7 @@ class TestScalingWithArrayValues(unittest.TestCase):
         class MockDriver:
             def __init__(self):
                 self._designvars = {
-                    'x': {'total_scaler': np.array([2.0, 3.0]), 'total_adder': np.array([1.0, 0.5])}
+                    'x': {'scaler': np.array([2.0, 3.0]), 'adder': np.array([1.0, 0.5])}
                 }
                 self._cons = {}
                 self._objs = {}
@@ -513,7 +510,7 @@ class TestScalingWithArrayValues(unittest.TestCase):
         class MockDriver:
             def __init__(self):
                 self._designvars = {
-                    'x': {'total_scaler': np.array([2.0, 3.0]), 'total_adder': np.array([1.0, 0.5])}
+                    'x': {'scaler': np.array([2.0, 3.0]), 'adder': np.array([1.0, 0.5])}
                 }
                 self._cons = {}
                 self._objs = {}
@@ -524,14 +521,14 @@ class TestScalingWithArrayValues(unittest.TestCase):
 
         meta = {'x': {'start_idx': 0, 'end_idx': 2, 'size': 2}}
         optimizer_value = np.array([22.0, 61.5])
-        dv_vector = OptimizerVector('design_var', optimizer_value.copy(), meta)
+        dv_vector = OptimizerVector('design_var', optimizer_value, meta, driver_scaling=True)
 
         # Unscale: optimizer / scaler - adder
         # 22.0 / 2.0 - 1.0 = 10.0
         # 61.5 / 3.0 - 0.5 = 20.0
-        unscaled = autoscaler.apply_vec_unscaling(dv_vector, 'x')
+        unscaled = autoscaler.apply_vec_unscaling(dv_vector)
         expected = np.array([10.0, 20.0])
-        np.testing.assert_array_almost_equal(unscaled, expected, decimal=10)
+        np.testing.assert_array_almost_equal(unscaled.asarray(), expected, decimal=10)
 
 
 if __name__ == '__main__':

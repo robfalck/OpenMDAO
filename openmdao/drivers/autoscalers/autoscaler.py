@@ -308,7 +308,7 @@ class Autoscaler:
         OptimizerVector
             The unscaled optimization vector.
         """
-        if not vec.scaled:
+        if not vec.driver_scaling:
             return vec
         
         for name in vec:
@@ -321,7 +321,7 @@ class Autoscaler:
                 vec[name] /= scaler
             if adder is not None:
                 vec[name] -= adder
-        vec.scaled = False
+        vec._driver_scaling = False
 
         return vec
     
@@ -331,6 +331,8 @@ class Autoscaler:
 
         Scaling is applied to the optimizer vector in-place.
         """
+        if vec.driver_scaling:
+            return vec
         for name in vec:
             # Use cached combined scaler/adder - includes both unit conversion and user scaling
             scaler = self._var_meta[vec.voi_type][name]['scaler']
@@ -341,7 +343,7 @@ class Autoscaler:
                 vec[name] += adder
             if scaler is not None:
                 vec[name] *= scaler
-        vec.scaled = True
+        vec._driver_scaling = True
 
     def apply_mult_unscaling(self, desvar_multipliers, con_multipliers):
         """
@@ -432,19 +434,20 @@ class Autoscaler:
             return desvar_multipliers, con_multipliers
 
         # Get the objective scaler from cached combined scalers
-        obj_name = list(self._var_meta['objective'].keys())[0]
-        obj_scaler = self._combined_scalers['objective'][obj_name]['scaler'] or 1.0
+        obj_meta = self._var_meta['objective']
+        obj_name = list(obj_meta.keys())[0]
+        obj_scaler = obj_meta[obj_name]['scaler'] or 1.0
 
         if desvar_multipliers:
             for name, mult in desvar_multipliers.items():
                 # Get the design variable scaler from cached combined scalers
-                scaler = self._combined_scalers['design_var'][name]['scaler'] or 1.0
+                scaler = self._var_meta['design_var'][name]['scaler'] or 1.0
                 mult *= scaler / obj_scaler
 
         if con_multipliers:
             for name, mult in con_multipliers.items():
                 # Get the constraint scaler from cached combined scalers
-                scaler = self._combined_scalers['constraint'][name]['scaler'] or 1.0
+                scaler = self._var_meta['constraint'][name]['scaler'] or 1.0
                 mult *= scaler / obj_scaler
 
         return desvar_multipliers, con_multipliers

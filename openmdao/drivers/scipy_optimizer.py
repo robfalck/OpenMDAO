@@ -632,17 +632,10 @@ class ScipyOptimizeDriver(Driver):
                 model.comm.Bcast(x_new, root=0)
 
             # Update the cached design variable vector
-            dv_vec.asarray()[...] = x_new
+            dv_vec.set_data(x_new, driver_scaling=True)
 
             # Design variables in dv_vec are now in optimizer scaled space and in driver-units.
             self._set_design_vars(driver_scaling=True)
-
-            # if self._desvar_array_cache is None:
-            #     self._desvar_array_cache = np.empty(x_new.shape, dtype=x_new.dtype)
-
-            # self._desvar_array_cache[:] = x_new
-
-            # self._scipy_update_design_vars(x_new)
 
             with RecordingDebugging(self._get_name(), self.iter_count, self):
                 self.iter_count += 1

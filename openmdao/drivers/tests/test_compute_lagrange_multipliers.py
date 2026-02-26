@@ -34,9 +34,6 @@ class TestComputeLagrangeMultipliers(unittest.TestCase):
 
         prob.driver = driver
 
-        prob.driver.opt_settings['print_level'] = 5
-        prob.driver.opt_settings['derivative_test'] = 'first-order'
-
         model.add_design_var('x', lower=-50.0, upper=50.0, ref=x_ref)
         model.add_design_var('y', lower=y_lower, upper=50.0, ref=y_ref)
         model.add_objective('f_xy', ref=f_xy_ref)
@@ -78,17 +75,13 @@ class TestComputeLagrangeMultipliers(unittest.TestCase):
         Test the computed Lagrange multipliers against IPOPT. Note IPOPT and
         SNOPT use opposite sign conventions on Lagrange multipliers.
         """
-        drivers = {'pos_IPOPT': om.pyOptSparseDriver(optimizer='IPOPT', print_results=True),
+        drivers = {'pos_IPOPT': om.pyOptSparseDriver(optimizer='IPOPT', print_results=False),
                    'pos_SLSQP': om.pyOptSparseDriver(optimizer='SLSQP', print_results=False),
                    'pos_SNOPT': om.pyOptSparseDriver(optimizer=snopt_opt, print_results=False),
                    'scipy_SLSQP': om.ScipyOptimizeDriver(optimizer='SLSQP', disp=False),}
 
         prob = self._make_problem(driver=drivers['pos_IPOPT'], f_xy_ref=0.1, c_ref=15, x_ref=10, y_ref=10)
-        # result = prob.run_driver()
-        prob.find_feasible()
-        prob.list_driver_vars()
         result = prob.run_driver()
-        exit(0)
         self.assertEqual(result.exit_status, 'SUCCESS',
                          msg='Failed to converge baseline IPOPT optimization.')
         reference_multipliers = prob.driver.pyopt_solution.lambdaStar

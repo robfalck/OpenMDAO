@@ -1,6 +1,9 @@
 """Lightweight vector wrapper for driver-level design variables and responses."""
 
-from typing import Any, Literal
+from typing import Any, Literal, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from openmdao.core.driver import Driver
 
 import numpy as np
 
@@ -21,7 +24,9 @@ class OptimizerVector(object):
     metadata : dict
         Metadata dict mapping variable names to index information. Each entry should contain
         'start_idx', 'end_idx', and 'size' keys.
-
+    driver_scaling : bool
+        True if the data provided is in driver/optimizer-scaled space.
+        
     Attributes
     ----------
     voi_type : str ('design_var', 'constraint', or 'objective')
@@ -45,12 +50,13 @@ class OptimizerVector(object):
     ...     print(f"{name}: {value}")
     """
 
-    def __init__(self, voi_type, data, metadata):
+    def __init__(self, voi_type, data, metadata, driver_scaling=False):
         """Initialize OpimizerVector with data array and metadata."""
         self.voi_type: Literal['design_var', 'constraint', 'objective'] = voi_type
         self._data: np.ndarray = data
         self._meta: dict[str, Any] = metadata
         self._filters = {}
+        self._driver_scaling: bool = driver_scaling
 
     def __getitem__(self, name):
         """
@@ -216,22 +222,150 @@ class OptimizerVector(object):
         return np.concatenate([np.arange(start, end, dtype=np.intp)
                               for start, end in ranges])
 
-    # def set_data(self, val, order='C', **kwargs):
-    #     """
-    #     Set the values of the internal vector.
+    def set_data(self, val, driver_scaling=True, order='C'):
+        """
+        Set the values of the internal vector.
 
-    #     The size of val must match the size of the internal data vector.
-    #     val is flattened before being set into _data.
+        The size of val must match the size of the internal data vector.
+        val is flattened before being set into _data.
 
-    #     Parameters
-    #     ----------
-    #     val : ArrayLike
-    #         Values to which the entire internal vector should be set.
+        Parameters
+        ----------
+        val : ArrayLike
+            Values to which the entire internal vector should be set.
+        driver_scaling : bool
+            If True, set the
+        order : str
+            The order in which val is flattened, as accepted by
+        """
+        self._data[:] = np.asarray(val).ravel(order=order)
+        self._driver_scaling = driver_scaling
+    
+    @classmethod
+    def create_from_model(cls, voi_type: Literal['design_var', 'constraint', 'objective'],
+                          driver: 'Driver', driver_scaling: bool=True):
+        """
+        Populate the data in the vector based on values from the model.
 
-    #     order : str
-    #         The order in which val is flattened, as accepted by
-    #     """
-    #     self._data[:] = np.asarray(val).ravel(order=order)
+        Note that this only returns the continuous values.
+
+        Parameters
+        ----------
+        voi_type : str
+            The kind of vector being created ('design_var', 'constraint', or 'objective').
+        driver : Driver
+            The driver that owns this OptimizerVector.
+        driver_scaling : bool
+            If True, return vector values in the optimizer-scaled space. Default is True.
+
+        Returns
+        -------
+        OptimizerVector
+            A new OptimizerVector.
+        """
+        varmeta_map = {'design_var': driver._designvars,
+                       'constraint': driver._cons,
+                       'objective': driver._objs}
+
+        # Determine remote VOIs dict based on type
+        if voi_type == 'design_var':
+            remote_vois = driver._remote_dvs
+        elif voi_type == 'constraint':
+            remote_vois = driver._remote_cons
+        else:  # objective
+            remote_vois = driver._remote_objs
+
+        # Build metadata for OptimizerVector with flat array indexing
+        vecmeta = {}
+        voi_array = []
+        idx = 0
+
+        for name, meta in varmeta_map[voi_type].items():
+            if meta['discrete']:
+                continue
+            size = meta['global_size'] if meta['distributed'] else meta['size']
+
+            vecmeta[name] = {
+                'start_idx': idx,
+                'end_idx': idx + size,
+                'size': size,
+            }
+
+            # Meta that only applies to constraints and/or design vars
+            if 'linear' in meta:
+                vecmeta[name]['linear'] = meta.get('linear')
+            if 'equals' in meta:
+                vecmeta[name]['equals'] = meta.get('equals')
+            if 'lower' in meta:
+                vecmeta[name]['lower'] = meta.get('lower')
+            if 'upper' in meta:
+                vecmeta[name]['upper'] = meta.get('upper')
+
+            val = driver._get_voi_val(name, meta, remote_vois,
+                                      get_remote=True, driver_units=True)
+            voi_array.append(np.atleast_1d(val).flat)
+
+            idx += size
+
+        flat_array = np.concatenate(voi_array) if voi_array else np.array([])
+        out = OptimizerVector(voi_type, flat_array, vecmeta)
+
+        # Apply autoscaler to the vector
+        if driver_scaling:
+            driver._autoscaler.apply_vec_scaling(out)
+        
+        out.driver_scaling = driver_scaling
+
+        return out
+
+    def update_from_model(self, driver, driver_scaling=True):
+        """
+        Populate the data in the vector based on values from the model.
+
+        Note that this only returns the continuous values.
+
+        Parameters
+        ----------
+        driver : Driver
+            The driver that owns this OptimizerVector.
+        driver_scaling : bool
+            If True, return vector values in the optimizer-scaled space. Default is True.
+        """
+        varmeta_map = {'design_var': driver._designvars,
+                       'constraint': driver._cons,
+                       'objective': driver._objs}
+
+        voi_type = self.voi_type
+
+        # Determine remote VOIs dict based on type
+        if voi_type == 'design_var':
+            remote_vois = driver._remote_dvs
+        elif voi_type == 'constraint':
+            remote_vois = driver._remote_cons
+        else:  # objective
+            remote_vois = driver._remote_objs
+
+        # Mark as unscaled since we're about to populate with new unscaled data
+        self._driver_scaling = False
+
+        # Populate the vector in-place
+        idx = 0
+
+        for name, meta in varmeta_map[voi_type].items():
+            if meta['discrete']:
+                continue
+            size = meta['global_size'] if meta['distributed'] else meta['size']
+
+            # The vector already exists, just populate it
+            self.asarray()[idx:idx + size] = driver._get_voi_val(name, meta, remote_vois,
+                                                                 get_remote=True,
+                                                                 driver_units=True)
+
+            idx += size
+
+        # Apply autoscaler to the vector
+        if driver_scaling:
+            driver._autoscaler.apply_vec_scaling(self)
 
     def asarray(self, **kwargs) -> np.ndarray:
         """
@@ -377,4 +511,27 @@ class OptimizerVector(object):
         """
         return self._meta
 
+    @property
+    def driver_scaling(self):
+        """
+        Get the current scaling status of the vector.
+
+        Returns
+        -------
+        bool
+            True if the vector is currently in driver/optimizer-scaled space.
+        """
+        return self._driver_scaling
+    
+    @driver_scaling.setter
+    def driver_scaling(self, b):
+        """
+        Set the current scaling status of the vector.
+
+        Parameters
+        ----------
+        b : bool
+            True if the vector is currently in driver/optimizer-scaled space, otherwise False.
+        """
+        self._driver_scaling = b
 
