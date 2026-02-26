@@ -231,14 +231,20 @@ class OptimizerVector(object):
 
         Parameters
         ----------
-        val : ArrayLike
-            Values to which the entire internal vector should be set.
+        val : ArrayLike or dict[str, ArrayLike]
+            Values to which the entire internal vector should be set. May be given
+            as an array-like value or as a dict (as in pyoptsparse) that maps
+            names to associated values.
         driver_scaling : bool
             If True, set the
         order : str
             The order in which val is flattened, as accepted by
         """
-        self._data[:] = np.asarray(val).ravel(order=order)
+        if isinstance(val, dict):
+            for n, v in val.items():
+                self[n] = v
+        else:
+            self._data[:] = np.asarray(val).ravel(order=order)
         self._driver_scaling = driver_scaling
     
     @classmethod

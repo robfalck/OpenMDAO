@@ -528,7 +528,7 @@ class Autoscaler:
 
             # Determine input scaler
             if in_name in self._var_meta['design_var']:
-                in_scaler = self._design_var['design_var'][in_name]['scaler']
+                in_scaler = self._var_meta['design_var'][in_name]['scaler']
             else:
                 # Unknown input, skip scaling this entry
                 continue
