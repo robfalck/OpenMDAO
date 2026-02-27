@@ -31,7 +31,7 @@ class TestAutoscaler(unittest.TestCase):
         dv_vector = OptimizerVector('design_var', model_value.copy(), meta)
 
         # Scale: optimizer = (model + adder) * scaler = (3.0 + 1.0) * 2.0 = 8.0
-        autoscaler.apply_vec_scaling(dv_vector)
+        autoscaler._apply_vec_scaling(dv_vector)
         scaled_value = dv_vector.asarray()[0]
         self.assertAlmostEqual(scaled_value, 8.0, places=10)
 
@@ -57,7 +57,7 @@ class TestAutoscaler(unittest.TestCase):
         dv_vector = OptimizerVector('design_var', optimizer_value.copy(), meta, driver_scaling=True)
 
         # Unscale: model = optimizer / scaler - adder = 8.0 / 2.0 - 1.0 = 3.0
-        unscaled = autoscaler.apply_vec_unscaling(dv_vector)
+        unscaled = autoscaler._apply_vec_unscaling(dv_vector)
         self.assertAlmostEqual(unscaled.asarray()[0], 3.0, places=10)
 
     def test_apply_scaling_with_none_scaler_and_adder(self):
@@ -79,7 +79,7 @@ class TestAutoscaler(unittest.TestCase):
         dv_vector = OptimizerVector('design_var', original_value.copy(), meta)
 
         # With None values, scaling should have no effect
-        autoscaler.apply_vec_scaling(dv_vector)
+        autoscaler._apply_vec_scaling(dv_vector)
         scaled_value = dv_vector.asarray()[0]
         self.assertAlmostEqual(scaled_value, 3.0, places=10)
 
@@ -102,7 +102,7 @@ class TestAutoscaler(unittest.TestCase):
         dv_vector = OptimizerVector('design_var', model_value.copy(), meta)
 
         # Scale: optimizer = (model + None) * scaler = 3.0 * 2.0 = 6.0
-        autoscaler.apply_vec_scaling(dv_vector)
+        autoscaler._apply_vec_scaling(dv_vector)
         scaled_value = dv_vector.asarray()[0]
         self.assertAlmostEqual(scaled_value, 6.0, places=10)
 
@@ -125,7 +125,7 @@ class TestAutoscaler(unittest.TestCase):
         dv_vector = OptimizerVector('design_var', model_value.copy(), meta)
 
         # Scale: optimizer = (model + adder) * None = (3.0 + 1.0) = 4.0
-        autoscaler.apply_vec_scaling(dv_vector)
+        autoscaler._apply_vec_scaling(dv_vector)
         scaled_value = dv_vector.asarray()[0]
         self.assertAlmostEqual(scaled_value, 4.0, places=10)
 
@@ -152,7 +152,7 @@ class TestAutoscaler(unittest.TestCase):
         initial_id = id(data_ref)
 
         # Scale
-        autoscaler.apply_vec_scaling(dv_vector)
+        autoscaler._apply_vec_scaling(dv_vector)
 
         # Verify data is modified in-place
         final_id = id(dv_vector.asarray())
@@ -182,7 +182,7 @@ class TestAutoscaler(unittest.TestCase):
         dv_vector = OptimizerVector('design_var', data, meta)
 
         # Scale
-        autoscaler.apply_vec_scaling(dv_vector)
+        autoscaler._apply_vec_scaling(dv_vector)
 
         # x1: (3.0 + 0.0) * 2.0 = 6.0
         # x2: (10.0 + 5.0) * 1.0 = 15.0
@@ -208,11 +208,11 @@ class TestAutoscaler(unittest.TestCase):
         original_data = dv_vector.asarray().copy()
 
         # Scale: (3.0 + 1.0) * 2.0 = 8.0
-        autoscaler.apply_vec_scaling(dv_vector)
+        autoscaler._apply_vec_scaling(dv_vector)
         self.assertAlmostEqual(dv_vector.asarray()[0], 8.0, places=10)
 
         # Unscale: 8.0 / 2.0 - 1.0 = 3.0
-        unscaled = autoscaler.apply_vec_unscaling(dv_vector)
+        unscaled = autoscaler._apply_vec_unscaling(dv_vector)
         np.testing.assert_array_almost_equal(unscaled.asarray(), original_data, decimal=10)
 
     def test_apply_scaling_constraints(self):
@@ -238,7 +238,7 @@ class TestAutoscaler(unittest.TestCase):
         cons_vector = OptimizerVector('constraint', data, meta)
 
         # Scale
-        autoscaler.apply_vec_scaling(cons_vector)
+        autoscaler._apply_vec_scaling(cons_vector)
 
         # c1: (5.0 + 2.0) * 0.5 = 3.5
         # c2: (10.0 + None) * 1.0 = 10.0
@@ -265,7 +265,7 @@ class TestAutoscaler(unittest.TestCase):
         objs_vector = OptimizerVector('objective', data, meta)
 
         # Scale: (100.0 + (-5.0)) * 10.0 = 950.0
-        autoscaler.apply_vec_scaling(objs_vector)
+        autoscaler._apply_vec_scaling(objs_vector)
         self.assertAlmostEqual(objs_vector.asarray()[0], 950.0, places=10)
 
 
@@ -501,7 +501,7 @@ class TestScalingWithArrayValues(unittest.TestCase):
         # Scale: (model + adder) * scaler
         # (10.0 + 1.0) * 2.0 = 22.0
         # (20.0 + 0.5) * 3.0 = 61.5
-        autoscaler.apply_vec_scaling(dv_vector)
+        autoscaler._apply_vec_scaling(dv_vector)
         expected = np.array([22.0, 61.5])
         np.testing.assert_array_almost_equal(dv_vector.asarray(), expected, decimal=10)
 
@@ -526,7 +526,7 @@ class TestScalingWithArrayValues(unittest.TestCase):
         # Unscale: optimizer / scaler - adder
         # 22.0 / 2.0 - 1.0 = 10.0
         # 61.5 / 3.0 - 0.5 = 20.0
-        unscaled = autoscaler.apply_vec_unscaling(dv_vector)
+        unscaled = autoscaler._apply_vec_unscaling(dv_vector)
         expected = np.array([10.0, 20.0])
         np.testing.assert_array_almost_equal(unscaled.asarray(), expected, decimal=10)
 

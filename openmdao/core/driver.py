@@ -500,7 +500,7 @@ class Driver(object, metaclass=DriverMetaclass):
         desvar_vec = self._vectors['design_var']
 
         if driver_scaling:
-            desvar_vec = self._autoscaler.apply_vec_unscaling(desvar_vec)
+            self._autoscaler.apply_design_var_unscaling(desvar_vec)
 
         desvar_names = desvar_names if desvar_names is not None else meta.keys()
 
@@ -1260,7 +1260,7 @@ class Driver(object, metaclass=DriverMetaclass):
         # If we computed violations, those were unscaled.
         # Now scale them.
         if driver_scaling and viol:
-            self._autoscaler.apply_vec_scaling(con_vec)
+            self._autoscaler.apply_constraint_scaling(con_vec)
 
         return con_dict
 

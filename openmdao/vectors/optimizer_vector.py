@@ -319,14 +319,19 @@ class OptimizerVector(object):
             idx += size
 
         flat_array = np.concatenate(voi_array) if voi_array else np.array([])
-        out = OptimizerVector(voi_type, flat_array, vecmeta)
+        out = cls(voi_type, flat_array, vecmeta)
 
         # Set distributed variable info for get_remote handling
         out._dist_driver_vars = driver._dist_driver_vars
 
         # Apply autoscaler to the vector
         if driver_scaling:
-            driver._autoscaler.apply_vec_scaling(out)
+            if voi_type == 'design_var':
+                driver._autoscaler.apply_design_var_scaling(out)
+            elif voi_type == 'constraint':
+                driver._autoscaler.apply_constraint_scaling(out)
+            else:
+                driver._autoscaler.apply_objective_scaling(out)
 
         out.driver_scaling = driver_scaling
 
@@ -379,7 +384,12 @@ class OptimizerVector(object):
 
         # Apply autoscaler to the vector
         if driver_scaling:
-            driver._autoscaler.apply_vec_scaling(self)
+            if voi_type == 'design_var':
+                driver._autoscaler.apply_design_var_scaling(self)
+            elif voi_type == 'constraint':
+                driver._autoscaler.apply_constraint_scaling(self)
+            else:
+                driver._autoscaler.apply_objective_scaling(self)
 
     def asarray(self, **kwargs) -> np.ndarray:
         """
@@ -560,3 +570,73 @@ class OptimizerVector(object):
         """
         self._driver_scaling = b
 
+
+# TODO: Remove these if unused
+# class DesignVarVector(OptimizerVector):
+#     """
+#     An design variable-specific implementation of OptimizerVector
+
+#     Parameters
+#     ----------
+#     data : ndarray
+#         Flat numpy array containing variable values.
+#     metadata : dict
+#         Metadata dict mapping variable names to index information. Each entry should contain
+#         'start_idx', 'end_idx', and 'size' keys.
+#     driver_scaling : bool
+#         True if the data provided is in driver/optimizer-scaled space.
+#     """
+
+#     def __init__(self, data, metadata, driver_scaling=False):
+#         """Initialize DesignVarVector with data array and metadata."""
+#         super().__init__('objective', data, metadata, driver_scaling)
+
+#     def apply_scaling(self, driver):
+#         driver._autoscaler.apply_design_var_scaling(self)
+
+#     def apply_unscaling(self, driver):
+#         driver._autoscaler.apply_design_var_unscaling(self)
+
+# class Constraint(OptimizerVector):
+#     """
+#     An constraint-specific implementation of OptimizerVector
+
+#     Parameters
+#     ----------
+#     data : ndarray
+#         Flat numpy array containing variable values.
+#     metadata : dict
+#         Metadata dict mapping variable names to index information. Each entry should contain
+#         'start_idx', 'end_idx', and 'size' keys.
+#     driver_scaling : bool
+#         True if the data provided is in driver/optimizer-scaled space.
+#     """
+
+#     def __init__(self, data, metadata, driver_scaling=False):
+#         """Initialize ConstraintVector with data array and metadata."""
+#         super().__init__('constraint', data, metadata, driver_scaling)
+
+#     def apply_scaling(self, driver):
+#         driver._autoscaler.apply_constraint_scaling(self)
+
+# class ObjectiveVector(OptimizerVector):
+#     """
+#     An objective-specific implementation of OptimizerVector
+
+#     Parameters
+#     ----------
+#     data : ndarray
+#         Flat numpy array containing variable values.
+#     metadata : dict
+#         Metadata dict mapping variable names to index information. Each entry should contain
+#         'start_idx', 'end_idx', and 'size' keys.
+#     driver_scaling : bool
+#         True if the data provided is in driver/optimizer-scaled space.
+#     """
+
+#     def __init__(self, data, metadata, driver_scaling=False):
+#         """Initialize ObjectiveVector with data array and metadata."""
+#         super().__init__('objective', data, metadata, driver_scaling)
+
+#     def apply_scaling(self, driver):
+#         driver._autoscaler.apply_objective_scaling(self)

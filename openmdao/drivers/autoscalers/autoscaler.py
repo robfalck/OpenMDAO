@@ -297,7 +297,7 @@ class Autoscaler:
                 self._scaled_upper[voi_type],
                 self._scaled_equals[voi_type])
 
-    def apply_vec_unscaling(self, vec: 'OptimizerVector'):
+    def _apply_vec_unscaling(self, vec: 'OptimizerVector'):
         """
         Unscale the optmization variables from the optimizer space to the model space, in place.
 
@@ -329,8 +329,52 @@ class Autoscaler:
         vec._driver_scaling = False
 
         return vec
+
+    def apply_design_var_unscaling(self, vec: 'OptimizerVector'):
+        """
+        Unscale the design variables from the optimizer space to the model space.
+
+        Parameters
+        ----------
+        vec : OptimizerVector
+            An OptimizerVector with voi_type='design_var'.
+        """
+        self._apply_vec_unscaling(vec)
+
+    def apply_design_var_scaling(self, vec: 'OptimizerVector'):
+        """
+        Scale the design variables from the model space to the optimizer space.
+
+        Parameters
+        ----------
+        vec : OptimizerVector
+            An OptimizerVector with voi_type='design_var'.
+        """
+        self._apply_vec_scaling(vec)
+
+    def apply_constraint_scaling(self, vec: 'OptimizerVector'):
+        """
+        Unscale the design variables from the optimizer space to the model space.
+
+        Parameters
+        ----------
+        vec : OptimizerVector
+            An OptimizerVector with voi_type='design_var'.
+        """
+        self._apply_vec_scaling(vec)
+
+    def apply_objective_scaling(self, vec: 'OptimizerVector'):
+        """
+        Unscale the design variables from the optimizer space to the model space.
+
+        Parameters
+        ----------
+        vec : OptimizerVector
+            An OptimizerVector with voi_type='objective'.
+        """
+        self._apply_vec_scaling(vec)
     
-    def apply_vec_scaling(self, vec: 'OptimizerVector'):
+    def _apply_vec_scaling(self, vec: 'OptimizerVector'):
         """
         Scale the vector from the model space to the optimizer space.
 
