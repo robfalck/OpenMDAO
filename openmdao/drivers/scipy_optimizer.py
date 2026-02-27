@@ -252,7 +252,7 @@ class ScipyOptimizeDriver(Driver):
                     added = True
             if added:
                 # Refresh constraint bounds cache to include the newly-added entries
-                self._autoscaler.refresh_bounds_cache('constraint')
+                self._autoscaler._compute_scaled_bounds('constraint')
 
     def run(self):
         """

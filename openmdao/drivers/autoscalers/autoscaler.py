@@ -83,6 +83,13 @@ class Autoscaler:
 
     """
 
+    def __init__(self):
+        self._var_meta : dict[str, dict[str, dict]] = {}
+        self._has_scaling : bool = False
+        self._scaled_lower = {}
+        self._scaled_upper = {}
+        self._scaled_equals = {}
+
     def setup(self, driver: 'Driver'):
         """
         Perform setup of autoscaler during final setup of the problem.
@@ -101,7 +108,7 @@ class Autoscaler:
         self._has_scaling = False
 
         for voi_type in ['design_var', 'constraint', 'objective']:
-            for name, meta in self._var_meta[voi_type].items():
+            for meta in self._var_meta[voi_type].values():
                 scaler, adder = meta['total_scaler'], meta['total_adder']
                 self._has_scaling = self._has_scaling \
                     or (scaler is not None) \
@@ -289,22 +296,6 @@ class Autoscaler:
         return (self._scaled_lower[voi_type],
                 self._scaled_upper[voi_type],
                 self._scaled_equals[voi_type])
-
-    def refresh_bounds_cache(self, voi_type):
-        """
-        Re-compute and cache scaled bounds for the given variable type.
-
-        Call this after modifying the constraint or design variable metadata post-setup,
-        for example when a driver adds entries to _cons dynamically during _setup_driver.
-
-        Parameters
-        ----------
-        voi_type : str
-            One of 'design_var' or 'constraint'.
-        """
-        (self._scaled_lower[voi_type],
-         self._scaled_upper[voi_type],
-         self._scaled_equals[voi_type]) = self._compute_scaled_bounds(voi_type)
 
     def apply_vec_unscaling(self, vec: 'OptimizerVector'):
         """
