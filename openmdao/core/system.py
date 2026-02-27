@@ -1006,7 +1006,7 @@ class System(object, metaclass=SystemMetaclass):
             msg = "{}: set_design_var_options called with design variable '{}' that does not exist."
             raise RuntimeError(msg.format(self.msginfo, name))
 
-        existing_dv_meta = design_vars[name]
+        new_desvar_metadata = {}
 
         if are_new_bounds:
             # wipe out all the bounds and only use what is set by the arguments to this call
@@ -1014,9 +1014,22 @@ class System(object, metaclass=SystemMetaclass):
                 lower = None
             if is_undefined(upper):
                 upper = None
-        else:
-            lower = existing_dv_meta['lower']
-            upper = existing_dv_meta['upper']
+
+            if lower is None:
+                # if not set, set lower to -INF_BOUND and don't apply adder/scaler
+                lower = -INF_BOUND
+            else:
+                # Convert lower to ndarray/float as necessary
+                lower = format_as_float_or_array('lower', lower, flatten=True)
+
+            if upper is None:
+                # if not set, set upper to INF_BOUND and don't apply adder/scaler
+                upper = INF_BOUND
+            else:
+                # Convert upper to ndarray/float as necessary
+                upper = format_as_float_or_array('upper', upper, flatten=True)
+            
+            new_desvar_metadata.update({'lower': lower, 'upper': upper})
 
         # Now figure out scaling
         if are_new_scaling:
@@ -1062,45 +1075,21 @@ class System(object, metaclass=SystemMetaclass):
 
             # Compute the combined total_adder and total_scaler from whichever pair is active
             total_adder, total_scaler = determine_adder_scaler(ref0, ref, adder, scaler)
+        
+            if isinstance(total_scaler, np.ndarray):
+                if np.all(total_scaler == 1.0):
+                    total_scaler = None
+            elif total_scaler == 1.0 if total_scaler is not None else False:
+                total_scaler = None
 
-        if lower is None:
-            # if not set, set lower to -INF_BOUND and don't apply adder/scaler
-            lower = -INF_BOUND
-        else:
-            # Convert lower to ndarray/float as necessary
-            lower = format_as_float_or_array('lower', lower, flatten=True)
-
-        if upper is None:
-            # if not set, set upper to INF_BOUND and don't apply adder/scaler
-            upper = INF_BOUND
-        else:
-            # Convert upper to ndarray/float as necessary
-            upper = format_as_float_or_array('upper', upper, flatten=True)
-
-        if isinstance(scaler, np.ndarray):
-            if np.all(scaler == 1.0):
-                scaler = None
-        elif scaler == 1.0 if scaler is not None else False:
-            scaler = None
-
-        if isinstance(adder, np.ndarray):
-            if not np.any(adder):
-                adder = None
-        elif adder == 0.0 if adder is not None else False:
-            adder = None
-
-        # Put together a dict of the new values so they can be used to update the metadata for
-        #   this var
-        new_desvar_metadata = {
-            'scaler': scaler,
-            'adder': adder,
-            'upper': upper,
-            'lower': lower,
-            'ref': ref,
-            'ref0': ref0,
-            'total_adder': total_adder,
-            'total_scaler': total_scaler,
-        }
+            if isinstance(total_adder, np.ndarray):
+                if not np.any(total_adder):
+                    total_adder = None
+            elif total_adder == 0.0 if total_adder is not None else False:
+                total_adder = None
+    
+            new_desvar_metadata.update({'ref0': ref0, 'ref': ref, 'scaler': scaler, 'adder': adder,
+                                        'total_scaler': total_scaler, 'total_adder': total_adder})
 
         design_vars[name].update(new_desvar_metadata)
 
