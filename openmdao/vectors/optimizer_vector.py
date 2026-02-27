@@ -2,10 +2,12 @@
 
 from typing import Any, Literal, TYPE_CHECKING
 
+import numpy as np
+
+from openmdao.utils.mpi import MPI
+
 if TYPE_CHECKING:
     from openmdao.core.driver import Driver
-
-import numpy as np
 
 
 class OptimizerVector(object):
@@ -57,6 +59,7 @@ class OptimizerVector(object):
         self._meta: dict[str, Any] = metadata
         self._filters = {}
         self._driver_scaling: bool = driver_scaling
+        self._dist_driver_vars = {}  # Mapping of distributed var names to (local_indices, sizes, _)
 
     def __getitem__(self, name):
         """
@@ -316,10 +319,13 @@ class OptimizerVector(object):
         flat_array = np.concatenate(voi_array) if voi_array else np.array([])
         out = OptimizerVector(voi_type, flat_array, vecmeta)
 
+        # Set distributed variable info for get_remote handling
+        out._dist_driver_vars = driver._dist_driver_vars
+
         # Apply autoscaler to the vector
         if driver_scaling:
             driver._autoscaler.apply_vec_scaling(out)
-        
+
         out.driver_scaling = driver_scaling
 
         return out
@@ -464,7 +470,7 @@ class OptimizerVector(object):
 
             self._data[meta['start_idx']:meta['end_idx']] = value
 
-    def _to_dict(self, **filters):
+    def _to_dict(self, get_remote=True, **filters):
         """
         Convert this OptimizerVector to a dictionary of variables.
 
@@ -475,6 +481,8 @@ class OptimizerVector(object):
 
         Parameters
         ----------
+        get_remote : bool
+            If False, only return those items or indices of each variable on the local proc.
         **filters : dict
             Optional filter criteria based on metadata keys. For example:
             - linear=False : only nonlinear constraints
@@ -502,7 +510,16 @@ class OptimizerVector(object):
         for name, meta in self._meta.items():
             # Check if all filter criteria match this variable's metadata
             if all(meta.get(key) == value for key, value in filters.items()):
-                result[name] = self[name].copy()  # Use copy to return independent array
+                val = self[name].copy()  # Use copy to return independent array (gathered array)
+
+                # For distributed variables with get_remote=False, extract only local portion
+                if not get_remote and MPI and name in self._dist_driver_vars:
+                    local_indices, sizes, distributed_indices = self._dist_driver_vars[name]
+                    # distributed_indices is a slice/array indicating which elements in the full
+                    # distributed array belong to this rank. Use it to extract only local elements.
+                    val = val[distributed_indices]
+
+                result[name] = val
         return result
 
     @property

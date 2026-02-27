@@ -1092,8 +1092,9 @@ class Driver(object, metaclass=DriverMetaclass):
         """
         dv_vec = self._vectors['design_var']
         dv_vec.update_from_model(driver=self, driver_scaling=driver_scaling)
-        
-        dvs = dv_vec._to_dict()
+
+        dvs = dv_vec._to_dict(get_remote=get_remote)
+
         discrete_dvs = {n: self._get_voi_val(n, dvmeta, self._remote_dvs, get_remote=get_remote)
                         for n, dvmeta in self._designvars.items() if dvmeta['discrete']}
         dvs.update(discrete_dvs)
@@ -1248,8 +1249,8 @@ class Driver(object, metaclass=DriverMetaclass):
                 else:
                     lower_viol_idxs = np.where(con_val < meta['lower'])[0]
                     upper_viol_idxs = np.where(con_val > meta['upper'])[0]
-                    non_viol_idxs = np.where(con_val >= meta['lower'] 
-                                             and con_val <= meta['upper'])[0]
+                    non_viol_idxs = np.where((con_val >= meta['lower'])
+                                             & (con_val <= meta['upper']))[0]
                     con_val[lower_viol_idxs] -= meta['lower']
                     con_val[upper_viol_idxs] -=  meta['upper']
                     con_val[non_viol_idxs] = 0.0
