@@ -10,33 +10,33 @@ if TYPE_CHECKING:
 
 
 class Autoscaler:
-    """
-    Base class of autoscalers that transform optimizer variables between model and optimizer spaces.
+    """Transform optimizer variables between model and optimizer spaces.
+
+    Base class of autoscalers that transform optimizer variables between model and optimizer
+    spaces.
 
     Autoscalers apply scaling transformations to **continuous** design variables, constraints,
-    and objectives, converting between physical (model) space and optimizer (scaled) space
-    They also handle transformation of Lagrange multipliers from optimizer space back to physical
-    (model) space and of jacobians from model space to optimizer space.
+    and objectives, converting between physical (model) space and optimizer (scaled) space.
+    They also handle transformation of Lagrange multipliers from optimizer space back to
+    physical (model) space and of jacobians from model space to optimizer space.
 
-    Discrete design variables, constraints, and objectives are not scaled/unscaled by autoscalers.
+    Discrete design variables, constraints, and objectives are not scaled/unscaled by
+    autoscalers.
 
     This autoscaler performs an affine scaling:
         x_scaled = (x_model' + adder) * scaler
 
     Here x_model' is assumed to be the value of the variable in the model but converted
-    to the units specified for the variable of interest (design variable, constraint, or objective).
-    If the units of the VOI are `None`, then x_model' is the same as the value of the associated
-    output in the model.
+    to the units specified for the variable of interest (design variable, constraint, or
+    objective). If the units of the VOI are `None`, then x_model' is the same as the value
+    of the associated output in the model.
 
-    If implementing specialized autoscaler algorithms that derive from this class,
-    the developer could choose to utilize or ignore the scaling applied with the optimizer
-    variables via scaler/adder/ref0/ref. However, the unit conversions (which are part of
-    the combined scaling) will need to be accounted for to maintain physical correctness.
+    If implementing specialized autoscaler algorithms that derive from this class, the
+    developer could choose to utilize or ignore the scaling applied with the optimizer
+    variables via scaler/adder/ref0/ref.
 
     Subclasses must implement the following methods:
 
-    Methods
-    -------
     setup(driver)
         Initialize the autoscaler with driver metadata.
         Called once during driver setup.
@@ -58,11 +58,28 @@ class Autoscaler:
         Unscale Lagrange multipliers from optimizer space to physical space.
         Modifies the input dictionaries in-place.
     
-    apply_jac_scaling
-        TBD
+    apply_jac_scaling(jac_dict)
+        Scale the computed total jacobian from the model/physical space to optmizer space.
 
     This flexible interface allows autoscalers to choose any implementation strategy,
     from simple loops to complex matrix operations.
+
+    Attributes
+    ----------
+    _var_meta : dict[str, dict[str, dict]]
+        Dictionary mapping variable of interest (VOI) type ('design_var', 'constraint',
+        'objective') to the corresponding metadata dictionaries from the driver.
+    _has_scaling : bool
+        Flag indicating whether any scaling is applied to design variables, constraints,
+        or objectives.
+    _scaled_lower : dict
+        Dictionary mapping VOI type to scaled lower bound arrays for design variables and
+        constraints.
+    _scaled_upper : dict
+        Dictionary mapping VOI type to scaled upper bound arrays for design variables and
+        constraints.
+    _scaled_equals : dict
+        Dictionary mapping VOI type to scaled equality constraint value arrays.
 
     """
 
@@ -81,13 +98,9 @@ class Autoscaler:
             'objective': driver._objs
         }
 
-        # Compute and cache combined scalers for all variables
-        self._combined_scalers = {}
-
         self._has_scaling = False
 
         for voi_type in ['design_var', 'constraint', 'objective']:
-            self._combined_scalers[voi_type] = {}
             for name, meta in self._var_meta[voi_type].items():
                 scaler, adder = meta['total_scaler'], meta['total_adder']
                 self._has_scaling = self._has_scaling \
