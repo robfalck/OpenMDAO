@@ -1810,11 +1810,11 @@ class TestProblem(unittest.TestCase):
         finally:
             sys.stdout = stdout
         output = strout.getvalue().split('\n')
-        self.assertEqual(output[1], r'Design Variables')
+        self.assertEqual(output[1], r'Design Variables (scaled)')
         self.assertRegex(output[5], r'^z +\|[0-9. e+-]+\| +2')
-        self.assertEqual(output[9], r'Constraints')
+        self.assertEqual(output[9], r'Constraints (saled)')
         self.assertRegex(output[14], r'^con2 +\[[0-9. e+-]+\] +1')
-        self.assertEqual(output[17], r'Objectives')
+        self.assertEqual(output[17], r'Objectives (scaled)')
         self.assertRegex(output[21], r'^obj +\[[0-9. e+-]+\] +1')
 
         # General make sure that the default settings print all columns.

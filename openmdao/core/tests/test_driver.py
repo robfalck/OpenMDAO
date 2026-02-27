@@ -513,14 +513,21 @@ class TestDriver(unittest.TestCase):
 
         prob.run_driver()
 
+        x = prob.get_val('x')
+        y2 = prob.get_val('y2')
+        y1 = prob.get_val('y1')
+
+        # dv, obj, and con are retrieved in driver scaling and units (degC)
+
         dv = prob.driver.get_design_var_values()
-        assert_near_equal(dv['x'][0], 3.0 * 5 / 9, 1e-8)
+        assert_near_equal(dv['x'][0], om.convert_units(x, 'degF', 'degC'), 1e-8)
 
         obj = prob.driver.get_objective_values(driver_scaling=True)
-        assert_near_equal(obj['y2'][0], 73.0 * 5 / 9, 1e-8)
+        print(y2, obj['y2'], flush=True)
+        assert_near_equal(obj['y2'][0], om.convert_units(y2, 'degF', 'degC'), 1e-8)
 
         con = prob.driver.get_constraint_values(driver_scaling=True)
-        assert_near_equal(con['y1'][0], 38.0 * 5 / 9, 1e-8)
+        assert_near_equal(con['y1'][0], om.convert_units(y1, 'degF', 'degC'), 1e-8)
 
         meta = model.get_design_vars()
         assert_near_equal(meta['x']['lower'], 0.0, 1e-7)
