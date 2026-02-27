@@ -1029,10 +1029,14 @@ class System(object, metaclass=SystemMetaclass):
                 # User is setting scaler/adder, so clear ref/ref0
                 ref = None
                 ref0 = None
+                adder = None if is_undefined(adder) else adder
+                scaler = None if is_undefined(scaler) else scaler
             elif has_ref and not has_scaler_adder:
                 # User is setting ref/ref0, so clear scaler/adder
                 scaler = None
                 adder = None
+                ref0 = None if is_undefined(ref0) else ref0
+                ref = None if is_undefined(ref) else ref
             else:
                 # User didn't provide either pair explicitly, use what's provided
                 if is_undefined(scaler):
@@ -1227,10 +1231,14 @@ class System(object, metaclass=SystemMetaclass):
                 # User is setting scaler/adder, so clear ref/ref0
                 ref = None
                 ref0 = None
+                adder = None if is_undefined(adder) else adder
+                scaler = None if is_undefined(scaler) else scaler
             elif has_ref and not has_scaler_adder:
                 # User is setting ref/ref0, so clear scaler/adder
                 scaler = None
                 adder = None
+                ref0 = None if is_undefined(ref0) else ref0
+                ref = None if is_undefined(ref) else ref
             else:
                 # User didn't provide either pair explicitly, use what's provided
                 if is_undefined(scaler):

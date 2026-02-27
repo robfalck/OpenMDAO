@@ -42,6 +42,8 @@ class OptimizerVector(object):
         Cache for computed filter indices. Keys are tuples of sorted (key, value)
         filter criteria, values are integer arrays of indices into _data.
         Used by asarray() to avoid recomputing indices for repeated filter calls.
+    _dist_driver_vars : dict[str, tuple]
+        Mapping of distributed driver variables to (local_inices, sizes, _)
 
     Examples
     --------
