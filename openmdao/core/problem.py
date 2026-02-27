@@ -1963,17 +1963,11 @@ class Problem(object, metaclass=ProblemMetaclass):
         if ('lower' in desvar_opts or 'upper' in desvar_opts) and driver_scaling:
             lower, upper, _ = self.driver._autoscaler.get_bounds_scaling('design_var')
             for name in desvars:
-                if desvars[name]['discrete']:
+                if not desvars[name]['discrete']:
                     if 'lower' in desvar_opts:
                         desvars[name]['lower'] = lower[name]
                     if 'upper' in desvar_opts:
-                        desvars[name]['upper'] = upper[name]             
-                
-
-                if 'lower' in desvar_opts:
-                    desvars[name]['lower'] = lower[name]
-                if 'upper' in desvar_opts:
-                    desvars[name]['upper'] = upper[name]
+                        desvars[name]['upper'] = upper[name]
 
         # include units in our outputs if any constraints have units that are not None
         has_units = any(dvmeta.get('units', None) is not None for dvname, dvmeta in desvars.items())

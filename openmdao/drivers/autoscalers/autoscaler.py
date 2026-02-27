@@ -89,7 +89,7 @@ class Autoscaler:
         for voi_type in ['design_var', 'constraint', 'objective']:
             self._combined_scalers[voi_type] = {}
             for name, meta in self._var_meta[voi_type].items():
-                scaler, adder = meta['scaler'], meta['adder']
+                scaler, adder = meta['total_scaler'], meta['total_adder']
                 self._has_scaling = self._has_scaling \
                     or (scaler is not None) \
                     or (adder is not None)
@@ -220,13 +220,13 @@ class Autoscaler:
 
         for name, vmeta in vecmeta.items():
             meta = self._var_meta[voi_type][name]
-            if meta['discrete']:
+            if meta.get('discrete', False):
                 continue
             size = vmeta['size']
             start = vmeta['start_idx']
             end = vmeta['end_idx']
-            adder = self._var_meta[voi_type][name]['adder']
-            scaler = self._var_meta[voi_type][name]['scaler']
+            adder = self._var_meta[voi_type][name]['total_adder']
+            scaler = self._var_meta[voi_type][name]['total_scaler']
 
             lower_data[start:end] = self._scale_bound(
                 meta.get('lower', -INF_BOUND), adder, scaler, size, is_lower=True)
@@ -314,8 +314,8 @@ class Autoscaler:
         
         for name in vec:
             # Use cached combined scaler/adder - includes both unit conversion and user scaling
-            scaler = self._var_meta[vec.voi_type][name]['scaler']
-            adder = self._var_meta[vec.voi_type][name]['adder']
+            scaler = self._var_meta[vec.voi_type][name]['total_scaler']
+            adder = self._var_meta[vec.voi_type][name]['total_adder']
 
             # Unscale: x_model = x_optimizer / scaler - adder
             if scaler is not None:
@@ -336,8 +336,8 @@ class Autoscaler:
             return vec
         for name in vec:
             # Use cached combined scaler/adder - includes both unit conversion and user scaling
-            scaler = self._var_meta[vec.voi_type][name]['scaler']
-            adder = self._var_meta[vec.voi_type][name]['adder']
+            scaler = self._var_meta[vec.voi_type][name]['total_scaler']
+            adder = self._var_meta[vec.voi_type][name]['total_adder']
 
             # Scale: x_optimizer = (x_model + adder) * scaler
             if adder is not None:
@@ -437,18 +437,18 @@ class Autoscaler:
         # Get the objective scaler from cached combined scalers
         obj_meta = self._var_meta['objective']
         obj_name = list(obj_meta.keys())[0]
-        obj_scaler = obj_meta[obj_name]['scaler'] or 1.0
+        obj_scaler = obj_meta[obj_name]['total_scaler'] or 1.0
 
         if desvar_multipliers:
             for name, mult in desvar_multipliers.items():
                 # Get the design variable scaler from cached combined scalers
-                scaler = self._var_meta['design_var'][name]['scaler'] or 1.0
+                scaler = self._var_meta['design_var'][name]['total_scaler'] or 1.0
                 mult *= scaler / obj_scaler
 
         if con_multipliers:
             for name, mult in con_multipliers.items():
                 # Get the constraint scaler from cached combined scalers
-                scaler = self._var_meta['constraint'][name]['scaler'] or 1.0
+                scaler = self._var_meta['constraint'][name]['total_scaler'] or 1.0
                 mult *= scaler / obj_scaler
 
         return desvar_multipliers, con_multipliers
@@ -495,16 +495,16 @@ class Autoscaler:
                 for in_name, block in jac_block.items():
                     # Determine output scaler
                     if out_name in self._var_meta['objective']:
-                        out_scaler = self._var_meta['objective'][out_name]['scaler']
+                        out_scaler = self._var_meta['objective'][out_name]['total_scaler']
                     elif out_name in self._var_meta['constraint']:
-                        out_scaler = self._var_meta['constraint'][out_name]['scaler']
+                        out_scaler = self._var_meta['constraint'][out_name]['total_scaler']
                     else:
                         # Unknown output, skip scaling this row
                         continue
 
                     # Determine input scaler
                     if in_name in self._var_meta['design_var']:
-                        in_scaler = self._var_meta['design_var'][in_name]['scaler']
+                        in_scaler = self._var_meta['design_var'][in_name]['total_scaler']
                     else:
                         # Unknown input, skip scaling this entry
                         continue
@@ -520,16 +520,16 @@ class Autoscaler:
             # Handle flat dict format (key is a tuple)
             # Determine output scaler
             if out_name in self._var_meta['objective']:
-                out_scaler = self._var_meta['objective'][out_name]['scaler']
+                out_scaler = self._var_meta['objective'][out_name]['total_scaler']
             elif out_name in self._var_meta['constraint']:
-                out_scaler = self._var_meta['constraint'][out_name]['scaler']
+                out_scaler = self._var_meta['constraint'][out_name]['total_scaler']
             else:
                 # Unknown output, skip scaling this entry
                 continue
 
             # Determine input scaler
             if in_name in self._var_meta['design_var']:
-                in_scaler = self._var_meta['design_var'][in_name]['scaler']
+                in_scaler = self._var_meta['design_var'][in_name]['total_scaler']
             else:
                 # Unknown input, skip scaling this entry
                 continue
@@ -560,9 +560,12 @@ class Autoscaler:
             An unscaled copy of the variable if scaling was defined, otherwise
             val is returned unchanged.
         """ 
-        combined = self._combined_scalers[voi_type][name]
-        scaler = combined['scaler']
-        adder = combined['adder']
+        meta = self._var_meta[voi_type][name]
+        if not meta.get('discrete', False):
+            raise RuntimeError('Variable {name} is not discrete.')
+        
+        scaler = meta['total_scaler']
+        adder = meta['total_adder']
 
         # Unscale: x_model = x_optimizer / scaler - adder
         if scaler or adder:
@@ -594,10 +597,12 @@ class Autoscaler:
             An scaled copy of the variable if scaling was defined, otherwise
             val is returned unchanged.
         """
-        # Use cached combined scaler/adder - includes both unit conversion and user scaling
-        combined = self._combined_scalers[voi_type][name]
-        scaler = combined['scaler']
-        adder = combined['adder']
+        meta = self._var_meta[voi_type][name]
+        if not meta.get('discrete', False):
+            raise RuntimeError('Variable {name} is not discrete.')
+        
+        scaler = meta['total_scaler']
+        adder = meta['total_adder']
 
         # Scale: x_optimizer = (x_model + adder) * scaler
         if scaler or adder:

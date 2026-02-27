@@ -1020,26 +1020,44 @@ class System(object, metaclass=SystemMetaclass):
 
         # Now figure out scaling
         if are_new_scaling:
-            if is_undefined(scaler):
-                scaler = None
-            if is_undefined(adder):
-                adder = None
-            if is_undefined(ref):
+            # When new scaling is provided, only ref0/ref OR scaler/adder should be active.
+            # If the user provides one pair, clear the other.
+            has_scaler_adder = scaler is not _UNDEFINED or adder is not _UNDEFINED
+            has_ref = ref is not _UNDEFINED or ref0 is not _UNDEFINED
+
+            if has_scaler_adder and not has_ref:
+                # User is setting scaler/adder, so clear ref/ref0
                 ref = None
-            if is_undefined(ref0):
                 ref0 = None
-        else:
-            scaler = existing_dv_meta['scaler']
-            adder = existing_dv_meta['adder']
-            ref = existing_dv_meta['ref']
-            ref0 = existing_dv_meta['ref0']
+            elif has_ref and not has_scaler_adder:
+                # User is setting ref/ref0, so clear scaler/adder
+                scaler = None
+                adder = None
+            else:
+                # User didn't provide either pair explicitly, use what's provided
+                if is_undefined(scaler):
+                    scaler = None
+                if is_undefined(adder):
+                    adder = None
+                if is_undefined(ref):
+                    ref = None
+                if is_undefined(ref0):
+                    ref0 = None
 
-        # Convert ref/ref0 to ndarray/float as necessary
-        ref = format_as_float_or_array('ref', ref, val_if_none=None, flatten=True)
-        ref0 = format_as_float_or_array('ref0', ref0, val_if_none=None, flatten=True)
+            # Convert to ndarray/float as necessary - only for values that will be used
+            if ref is not None or ref0 is not None:
+                # ref/ref0 pair is active
+                ref = format_as_float_or_array('ref', ref, val_if_none=None, flatten=True)
+                ref0 = format_as_float_or_array('ref0', ref0, val_if_none=None, flatten=True)
+                # scaler/adder should already be None, don't convert them
+            else:
+                # scaler/adder pair is active
+                scaler = format_as_float_or_array('scaler', scaler, val_if_none=None, flatten=True)
+                adder = format_as_float_or_array('adder', adder, val_if_none=None, flatten=True)
+                # ref/ref0 should already be None, don't convert them
 
-        # determine adder and scaler based on args
-        adder, scaler = determine_adder_scaler(ref0, ref, adder, scaler)
+            # Compute the combined total_adder and total_scaler from whichever pair is active
+            total_adder, total_scaler = determine_adder_scaler(ref0, ref, adder, scaler)
 
         if lower is None:
             # if not set, set lower to -INF_BOUND and don't apply adder/scaler
@@ -1058,13 +1076,13 @@ class System(object, metaclass=SystemMetaclass):
         if isinstance(scaler, np.ndarray):
             if np.all(scaler == 1.0):
                 scaler = None
-        elif scaler == 1.0:
+        elif scaler == 1.0 if scaler is not None else False:
             scaler = None
 
         if isinstance(adder, np.ndarray):
             if not np.any(adder):
                 adder = None
-        elif adder == 0.0:
+        elif adder == 0.0 if adder is not None else False:
             adder = None
 
         # Put together a dict of the new values so they can be used to update the metadata for
@@ -1076,6 +1094,8 @@ class System(object, metaclass=SystemMetaclass):
             'lower': lower,
             'ref': ref,
             'ref0': ref0,
+            'total_adder': total_adder,
+            'total_scaler': total_scaler,
         }
 
         design_vars[name].update(new_desvar_metadata)
@@ -1198,35 +1218,59 @@ class System(object, metaclass=SystemMetaclass):
 
         # Now figure out scaling
         if are_new_scaling:
-            if is_undefined(scaler):
-                scaler = None
-            if is_undefined(adder):
-                adder = None
-            if is_undefined(ref):
+            # When new scaling is provided, only ref0/ref OR scaler/adder should be active.
+            # If the user provides one pair, clear the other.
+            has_scaler_adder = scaler is not _UNDEFINED or adder is not _UNDEFINED
+            has_ref = ref is not _UNDEFINED or ref0 is not _UNDEFINED
+
+            if has_scaler_adder and not has_ref:
+                # User is setting scaler/adder, so clear ref/ref0
                 ref = None
-            if is_undefined(ref0):
                 ref0 = None
+            elif has_ref and not has_scaler_adder:
+                # User is setting ref/ref0, so clear scaler/adder
+                scaler = None
+                adder = None
+            else:
+                # User didn't provide either pair explicitly, use what's provided
+                if is_undefined(scaler):
+                    scaler = None
+                if is_undefined(adder):
+                    adder = None
+                if is_undefined(ref):
+                    ref = None
+                if is_undefined(ref0):
+                    ref0 = None
 
-            # Convert ref/ref0 to ndarray/float as necessary
-            ref = format_as_float_or_array('ref', ref, val_if_none=None, flatten=True)
-            ref0 = format_as_float_or_array('ref0', ref0, val_if_none=None, flatten=True)
+            # Convert to ndarray/float as necessary - only for values that will be used
+            if ref is not None or ref0 is not None:
+                # ref/ref0 pair is active
+                ref = format_as_float_or_array('ref', ref, val_if_none=None, flatten=True)
+                ref0 = format_as_float_or_array('ref0', ref0, val_if_none=None, flatten=True)
+                # scaler/adder should already be None, don't convert them
+            else:
+                # scaler/adder pair is active
+                scaler = format_as_float_or_array('scaler', scaler, val_if_none=None, flatten=True)
+                adder = format_as_float_or_array('adder', adder, val_if_none=None, flatten=True)
+                # ref/ref0 should already be None, don't convert them
 
-            # determine adder and scaler based on args
-            adder, scaler = determine_adder_scaler(ref0, ref, adder, scaler)
+            # Compute the combined total_adder and total_scaler from whichever pair is active
+            total_adder, total_scaler = determine_adder_scaler(ref0, ref, adder, scaler)
 
             if isinstance(scaler, np.ndarray):
                 if np.all(scaler == 1.0):
                     scaler = None
-            elif scaler == 1.0:
+            elif scaler == 1.0 if scaler is not None else False:
                 scaler = None
 
             if isinstance(adder, np.ndarray):
                 if not np.any(adder):
                     adder = None
-            elif adder == 0.0:
+            elif adder == 0.0 if adder is not None else False:
                 adder = None
-            
-            new_cons_metadata.update({'scaler': scaler, 'adder': adder})
+
+            new_cons_metadata.update({'ref0': ref0, 'ref': ref, 'scaler': scaler, 'adder': adder,
+                                      'total_scaler': total_scaler, 'total_adder': total_adder})
 
         responses[name].update(new_cons_metadata)
 
@@ -1293,34 +1337,55 @@ class System(object, metaclass=SystemMetaclass):
                 f"an alias, use that in place of its name for set_objective_options."
             raise RuntimeError(msg)
 
-        # Since one or more of these are being set by the incoming arguments, the
-        #   ones that are not being set should be set to None since they will be re-computed below
-        if is_undefined(scaler):
-            scaler = None
-        if is_undefined(adder):
-            adder = None
-        if is_undefined(ref):
+        # When new scaling is provided, only ref0/ref OR scaler/adder should be active.
+        # If the user provides one pair, clear the other.
+        has_scaler_adder = scaler is not _UNDEFINED or adder is not _UNDEFINED
+        has_ref = ref is not _UNDEFINED or ref0 is not _UNDEFINED
+
+        if has_scaler_adder and not has_ref:
+            # User is setting scaler/adder, so clear ref/ref0
             ref = None
-        if is_undefined(ref0):
             ref0 = None
+        elif has_ref and not has_scaler_adder:
+            # User is setting ref/ref0, so clear scaler/adder
+            scaler = None
+            adder = None
+        else:
+            # User didn't provide either pair explicitly, use what's provided
+            if is_undefined(scaler):
+                scaler = None
+            if is_undefined(adder):
+                adder = None
+            if is_undefined(ref):
+                ref = None
+            if is_undefined(ref0):
+                ref0 = None
 
-        # Convert ref/ref0 to ndarray/float as necessary
-        ref = format_as_float_or_array('ref', ref, val_if_none=None, flatten=True)
-        ref0 = format_as_float_or_array('ref0', ref0, val_if_none=None, flatten=True)
+        # Convert to ndarray/float as necessary - only for values that will be used
+        if ref is not None or ref0 is not None:
+            # ref/ref0 pair is active
+            ref = format_as_float_or_array('ref', ref, val_if_none=None, flatten=True)
+            ref0 = format_as_float_or_array('ref0', ref0, val_if_none=None, flatten=True)
+            # scaler/adder should already be None, don't convert them
+        else:
+            # scaler/adder pair is active
+            scaler = format_as_float_or_array('scaler', scaler, val_if_none=None, flatten=True)
+            adder = format_as_float_or_array('adder', adder, val_if_none=None, flatten=True)
+            # ref/ref0 should already be None, don't convert them
 
-        # determine adder and scaler based on args
-        adder, scaler = determine_adder_scaler(ref0, ref, adder, scaler)
+        # Compute total values from active pair
+        total_adder, total_scaler = determine_adder_scaler(ref0, ref, adder, scaler)
 
         if isinstance(scaler, np.ndarray):
             if np.all(scaler == 1.0):
                 scaler = None
-        elif scaler == 1.0:
+        elif scaler == 1.0 if scaler is not None else False:
             scaler = None
 
         if isinstance(adder, np.ndarray):
             if not np.any(adder):
                 adder = None
-        elif adder == 0.0:
+        elif adder == 0.0 if adder is not None else False:
             adder = None
 
         new_obj_metadata = {
@@ -1328,6 +1393,8 @@ class System(object, metaclass=SystemMetaclass):
             'ref0': ref0,
             'adder': adder,
             'scaler': scaler,
+            'total_adder': total_adder,
+            'total_scaler': total_scaler,
         }
 
         responses[name].update(new_obj_metadata)
@@ -3242,9 +3309,6 @@ class System(object, metaclass=SystemMetaclass):
         ref = format_as_float_or_array('ref', ref, val_if_none=None, flatten=True)
         ref0 = format_as_float_or_array('ref0', ref0, val_if_none=None, flatten=True)
 
-        # determine adder and scaler based on args
-        adder, scaler = determine_adder_scaler(ref0, ref, adder, scaler)
-
         if lower is None:
             lower = -INF_BOUND
         else:
@@ -3271,6 +3335,9 @@ class System(object, metaclass=SystemMetaclass):
                 adder = None
         elif adder == 0.0:
             adder = None
+        
+        # determine adder and scaler based on args
+        total_adder, total_scaler = determine_adder_scaler(ref0, ref, adder, scaler)
 
         if indices is not None:
             indices, size = self._create_indexer(indices, 'design var', name,
@@ -3295,6 +3362,8 @@ class System(object, metaclass=SystemMetaclass):
             'flat_indices': flat_indices,
             'parallel_deriv_color': parallel_deriv_color,
             'size': size,
+            'total_adder': total_adder,
+            'total_scaler': total_scaler
         }
 
     def add_response(self, name, type_, lower=None, upper=None, equals=None,
@@ -3398,9 +3467,6 @@ class System(object, metaclass=SystemMetaclass):
         ref = format_as_float_or_array('ref', ref, val_if_none=None, flatten=True)
         ref0 = format_as_float_or_array('ref0', ref0, val_if_none=None, flatten=True)
 
-        # determine adder and scaler based on args
-        adder, scaler = determine_adder_scaler(ref0, ref, adder, scaler)
-
         # A constraint cannot be an equality and inequality constraint
         if equals is not None and (lower is not None or upper is not None):
             msg = "{}: Constraint '{}' cannot be both equality and inequality."
@@ -3479,6 +3545,10 @@ class System(object, metaclass=SystemMetaclass):
 
         resp['ref'] = ref
         resp['ref0'] = ref0
+
+        # Compute the adder/scaler we'll actually use, but keep the others for reference.
+        resp['total_adder'], resp['total_scaler'] = determine_adder_scaler(ref0, ref, adder, scaler)
+
         resp['type'] = type_
         resp['units'] = units
         resp['cache_linear_solution'] = cache_linear_solution

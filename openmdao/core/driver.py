@@ -2154,47 +2154,6 @@ class Driver(object, metaclass=DriverMetaclass):
         self._exc_info = None  # clear since we're done with it
         raise exc_info[1].with_traceback(exc_info[2])
 
-    # def _scipy_update_design_vars(self, x_new, desvar_names=None):
-    #     """
-    #     Update the design variables in the model.
-
-    #     This interface is used
-    #     by scipy minimize and least_squares.
-
-    #     Parameters
-    #     ----------
-    #     x_new : ndarray
-    #         Array containing input values at new design point in optimizer-scaled space.
-    #         Note this may exclude some design variables in the model.
-    #     desvar_names : Sequence[str] or None
-    #         If given, the names of the design variables represented in x_new.
-    #         For the Driver.find_feasible excludes argument, one or more design
-    #         variables may be excluded from the feasibility search. If None,
-    #         assume all design variables are present in x_new.
-    #     """
-    #     excludes = desvar_names is not None
-
-    #     if desvar_names is None:
-    #         desvar_names = self._designvars.keys()
-
-    #     if excludes:
-    #         # If dealing with find feasible with excluded variables, update entire vector
-    #         # with scaled values so we can selectively replace some elements and then
-    #         # unscale it when setting it into the model.
-    #         dv_vec = self._get_vector_from_model('design_var', driver_scaling=True, in_place=True)
-    #     else:
-    #         dv_vec = self._vectors['design_var']
-
-    #     dv_meta = dv_vec.metadata
-
-    #     for dv_name in desvar_names:
-    #         # TODO STart and end apply to the full x_new vector, not when some elements excluded!
-    #         start = dv_meta[dv_name]['start']
-    #         end = dv_meta[dv_name]['end']
-    #         dv_vec[dv_name] = x_new[start:end]
-            
-    #     self._set_design_vars(unscale=False)
-
     def _scipy_update_design_vars(self, x_new, desvar_names=None):
         """
         Update the design variables in the model.
