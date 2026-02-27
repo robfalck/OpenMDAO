@@ -59,7 +59,7 @@ class Autoscaler:
         Modifies the input dictionaries in-place.
     
     apply_jac_scaling(jac_dict)
-        Scale the computed total jacobian from the model/physical space to optmizer space.
+        Scale the computed total jacobian from the model/physical space to optimizer space.
 
     This flexible interface allows autoscalers to choose any implementation strategy,
     from simple loops to complex matrix operations.

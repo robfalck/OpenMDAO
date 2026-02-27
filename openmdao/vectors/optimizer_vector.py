@@ -43,7 +43,7 @@ class OptimizerVector(object):
         filter criteria, values are integer arrays of indices into _data.
         Used by asarray() to avoid recomputing indices for repeated filter calls.
     _dist_driver_vars : dict[str, tuple]
-        Mapping of distributed driver variables to (local_inices, sizes, _)
+        Mapping of distributed driver variables to (local_indices, sizes, _)
 
     Examples
     --------
