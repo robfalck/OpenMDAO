@@ -1963,6 +1963,13 @@ class Problem(object, metaclass=ProblemMetaclass):
         if ('lower' in desvar_opts or 'upper' in desvar_opts) and driver_scaling:
             lower, upper, _ = self.driver._autoscaler.get_bounds_scaling('design_var')
             for name in desvars:
+                if desvars[name]['discrete']:
+                    if 'lower' in desvar_opts:
+                        desvars[name]['lower'] = lower[name]
+                    if 'upper' in desvar_opts:
+                        desvars[name]['upper'] = upper[name]             
+                
+
                 if 'lower' in desvar_opts:
                     desvars[name]['lower'] = lower[name]
                 if 'upper' in desvar_opts:

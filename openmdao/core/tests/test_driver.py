@@ -638,13 +638,14 @@ class TestDriver(unittest.TestCase):
         con = prob.driver.get_constraint_values(driver_scaling=True)
         assert_near_equal(con['y1'][0], ((38.0 * 5 / 9) + 77.0) * 3.5, 1e-8)
 
+        # Test that bounds are in their declared units.
         meta = model.get_design_vars()
-        assert_near_equal(meta['x']['lower'], ((0.0) + 77.0) * 3.5, 1e-7)
-        assert_near_equal(meta['x']['upper'], ((100.0) + 77.0) * 3.5, 1e-7)
+        assert_near_equal(meta['x']['lower'], 0.0, 1e-7)
+        assert_near_equal(meta['x']['upper'], 100.0, 1e-7)
 
         meta = model.get_constraints()
-        assert_near_equal(meta['y1']['lower'], ((0.0) + 77.0) * 3.5, 1e-7)
-        assert_near_equal(meta['y1']['upper'], ((100.0) + 77.0) * 3.5, 1e-7)
+        assert_near_equal(meta['y1']['lower'], 0.0, 1e-7)
+        assert_near_equal(meta['y1']['upper'], 100.0, 1e-7)
 
         stdout = sys.stdout
         strout = StringIO()
@@ -668,14 +669,25 @@ class TestDriver(unittest.TestCase):
         cases = cr.list_cases('driver', out_stream=None)
         case = cr.get_case(cases[0])
 
+        # Test the results in the VOI specified units
         dv = case.get_design_vars()
-        assert_near_equal(dv['x'][0], ((3.0 * 5 / 9) + 77.0) * 3.5, 1e-8)
+        assert_near_equal(dv['x'][0], om.convert_units(35.0, 'degF', 'degC'), 1e-8)
 
         obj = case.get_objectives()
-        assert_near_equal(obj['y2'][0], ((73.0 * 5 / 9) + 77.0) * 3.5, 1e-8)
+        assert_near_equal(obj['y2'][0], om.convert_units(105.0, 'degF', 'degC'), 1e-8)
 
         con = case.get_constraints()
-        assert_near_equal(con['y1'][0], ((38.0 * 5 / 9) + 77.0) * 3.5, 1e-8)
+        assert_near_equal(con['y1'][0], om.convert_units(70.0, 'degF', 'degC'), 1e-8)
+
+        # Test the results in the model units
+        dv = case.get_design_vars(driver_units=False)
+        assert_near_equal(dv['x'][0], 35.0, 1e-8)
+
+        obj = case.get_objectives(driver_units=False)
+        assert_near_equal(obj['y2'][0], 105.0, 1e-8)
+
+        con = case.get_constraints(driver_units=False)
+        assert_near_equal(con['y1'][0], 70.0, 1e-8)
 
     def test_units_compute_totals(self):
         p = om.Problem()

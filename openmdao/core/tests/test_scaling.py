@@ -1327,7 +1327,9 @@ class TestScaling(unittest.TestCase):
             with self.subTest(f'{g_ref=}'):
 
                 prob.model.set_constraint_options('paraboloid.g', ref=g_ref)
-                prob.run_driver()
+                result = prob.run_driver()
+
+                self.assertTrue(result.success)
 
                 g = prob.get_val('paraboloid.g')
                 # g should be active on its lower bound of 0.0

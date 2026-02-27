@@ -3063,7 +3063,7 @@ class TestSqliteCaseReader(unittest.TestCase):
         assert_near_equal(derivs['con|with->scaling', 'exec.a'].ravel(), 4.0/11.0)
 
         cons = case.get_constraints()
-        con_vals = driver.get_constraint_values()
+        con_vals = driver.get_constraint_values(driver_scaling=False)
 
         assert_near_equal(cons['exec.z'], con_vals['exec.z'])
         assert_near_equal(cons['ALIAS_TEST'], con_vals['ALIAS_TEST'])

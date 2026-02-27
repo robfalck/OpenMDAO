@@ -1151,17 +1151,9 @@ class System(object, metaclass=SystemMetaclass):
                 f"an alias, use that in place of its name for set_constraint_options."
             raise RuntimeError(msg)
 
-        existing_cons_meta = responses[name]
-        are_existing_scaling = existing_cons_meta['scaler'] is not None or \
-            existing_cons_meta['adder'] is not None or \
-            existing_cons_meta['ref'] is not None or \
-            existing_cons_meta['ref0'] is not None
-        are_existing_bounds = existing_cons_meta['equals'] is not None or \
-            existing_cons_meta['lower'] is not None or \
-            existing_cons_meta['upper'] is not None
+        new_cons_metadata = {}
 
-        # figure out the bounds (equals, lower, upper) based on what is passed to this
-        #   method and what were the existing bounds
+        # figure out the bounds
         if are_new_bounds:
             # wipe the slate clean and only use what is set by the arguments to this call
             if is_undefined(equals):
@@ -1170,24 +1162,39 @@ class System(object, metaclass=SystemMetaclass):
                 lower = None
             if is_undefined(upper):
                 upper = None
-        else:
-            equals = existing_cons_meta['equals']
-            lower = existing_cons_meta['lower']
-            upper = existing_cons_meta['upper']
 
-        if are_new_scaling and are_existing_scaling and are_existing_bounds and not are_new_bounds:
-            # need to unscale bounds using the existing scaling so the new scaling can
-            # be applied
-            existing_scaler = existing_cons_meta['scaler'] \
-                if existing_cons_meta['scaler'] is not None else 1.0
-            existing_adder = existing_cons_meta['adder'] \
-                if existing_cons_meta['adder'] is not None else 0.0
-            if lower is not None:
-                lower = lower / existing_scaler - existing_adder
-            if upper is not None:
-                upper = upper / existing_scaler - existing_adder
+            # Convert lower to ndarray/float as necessary
+            try:
+                if lower is None:
+                    lower = -INF_BOUND
+                else:
+                    lower = format_as_float_or_array('lower', lower, flatten=True)
+            except (TypeError, ValueError):
+                raise TypeError("Argument 'lower' can not be a string ('{}' given). You can not "
+                                "specify a variable as lower bound. You can only provide constant "
+                                "float values".format(lower))
+
+            # Convert upper to ndarray/float as necessary
+            try:
+                if upper is None:
+                    upper = INF_BOUND
+                else:
+                    upper = format_as_float_or_array('upper', upper, flatten=True)
+            except (TypeError, ValueError):
+                raise TypeError("Argument 'upper' can not be a string ('{}' given). You can not "
+                                "specify a variable as upper bound. You can only provide constant "
+                                "float values".format(upper))
+
+            # Convert equals to ndarray/float as necessary
             if equals is not None:
-                equals = equals / existing_scaler - existing_adder
+                try:
+                    equals = format_as_float_or_array('equals', equals, flatten=True)
+                except (TypeError, ValueError):
+                    raise TypeError("Argument 'equals' can not be a string ('{}' given). You can "
+                                    "not specify a variable as equals bound. You can only provide "
+                                    "constant float values".format(equals))
+
+            new_cons_metadata.update({'lower': lower, 'upper': upper, 'equals': equals})
 
         # Now figure out scaling
         if are_new_scaling:
@@ -1199,78 +1206,27 @@ class System(object, metaclass=SystemMetaclass):
                 ref = None
             if is_undefined(ref0):
                 ref0 = None
-        else:
-            scaler = existing_cons_meta['scaler']
-            adder = existing_cons_meta['adder']
-            ref = existing_cons_meta['ref']
-            ref0 = existing_cons_meta['ref0']
 
-        # Convert ref/ref0 to ndarray/float as necessary
-        ref = format_as_float_or_array('ref', ref, val_if_none=None, flatten=True)
-        ref0 = format_as_float_or_array('ref0', ref0, val_if_none=None, flatten=True)
+            # Convert ref/ref0 to ndarray/float as necessary
+            ref = format_as_float_or_array('ref', ref, val_if_none=None, flatten=True)
+            ref0 = format_as_float_or_array('ref0', ref0, val_if_none=None, flatten=True)
 
-        # determine adder and scaler based on args
-        adder, scaler = determine_adder_scaler(ref0, ref, adder, scaler)
+            # determine adder and scaler based on args
+            adder, scaler = determine_adder_scaler(ref0, ref, adder, scaler)
 
-        # Convert lower to ndarray/float as necessary
-        try:
-            if lower is None:
-                # don't apply adder/scaler if lower not set
-                lower = -INF_BOUND
-            else:
-                lower = format_as_float_or_array('lower', lower, flatten=True)
-                if lower != - INF_BOUND:
-                    lower = (lower + adder) * scaler
-        except (TypeError, ValueError):
-            raise TypeError("Argument 'lower' can not be a string ('{}' given). You can not "
-                            "specify a variable as lower bound. You can only provide constant "
-                            "float values".format(lower))
-
-        # Convert upper to ndarray/float as necessary
-        try:
-            if upper is None:
-                # don't apply adder/scaler if upper not set
-                upper = INF_BOUND
-            else:
-                upper = format_as_float_or_array('upper', upper, flatten=True)
-                if upper != INF_BOUND:
-                    upper = (upper + adder) * scaler
-        except (TypeError, ValueError):
-            raise TypeError("Argument 'upper' can not be a string ('{}' given). You can not "
-                            "specify a variable as upper bound. You can only provide constant "
-                            "float values".format(upper))
-
-        # Convert equals to ndarray/float as necessary
-        if equals is not None:
-            try:
-                equals = format_as_float_or_array('equals', equals, flatten=True)
-            except (TypeError, ValueError):
-                raise TypeError("Argument 'equals' can not be a string ('{}' given). You can "
-                                "not specify a variable as equals bound. You can only provide "
-                                "constant float values".format(equals))
-            equals = (equals + adder) * scaler
-
-        if isinstance(scaler, np.ndarray):
-            if np.all(scaler == 1.0):
+            if isinstance(scaler, np.ndarray):
+                if np.all(scaler == 1.0):
+                    scaler = None
+            elif scaler == 1.0:
                 scaler = None
-        elif scaler == 1.0:
-            scaler = None
 
-        if isinstance(adder, np.ndarray):
-            if not np.any(adder):
+            if isinstance(adder, np.ndarray):
+                if not np.any(adder):
+                    adder = None
+            elif adder == 0.0:
                 adder = None
-        elif adder == 0.0:
-            adder = None
-
-        new_cons_metadata = {
-            'ref': ref,
-            'ref0': ref0,
-            'equals': equals,
-            'lower': lower,
-            'upper': upper,
-            'adder': adder,
-            'scaler': scaler,
-        }
+            
+            new_cons_metadata.update({'scaler': scaler, 'adder': adder})
 
         responses[name].update(new_cons_metadata)
 

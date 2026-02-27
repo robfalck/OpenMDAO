@@ -220,6 +220,8 @@ class Autoscaler:
 
         for name, vmeta in vecmeta.items():
             meta = self._var_meta[voi_type][name]
+            if meta['discrete']:
+                continue
             size = vmeta['size']
             start = vmeta['start_idx']
             end = vmeta['end_idx']
@@ -236,7 +238,6 @@ class Autoscaler:
                 if eq is not None:
                     equals_data[start:end] = self._scale_bound(
                         eq, adder, scaler, size, is_lower=False)
-                # else: np.nan sentinel already in place
 
         lower_vec = OptimizerVector(voi_type, lower_data, vecmeta)
         upper_vec = OptimizerVector(voi_type, upper_data, vecmeta)
