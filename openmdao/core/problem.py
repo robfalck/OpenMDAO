@@ -1964,9 +1964,9 @@ class Problem(object, metaclass=ProblemMetaclass):
             lower, upper, _ = self.driver._autoscaler.get_bounds_scaling('design_var')
             for name in desvars:
                 if 'lower' in desvar_opts:
-                    desvars[name]['lower'] = np.mean(lower.asarray())
+                    desvars[name]['lower'] = lower[name]
                 if 'upper' in desvar_opts:
-                    desvars[name]['upper'] = np.mean(upper.asarray())
+                    desvars[name]['upper'] = upper[name]
 
         # include units in our outputs if any constraints have units that are not None
         has_units = any(dvmeta.get('units', None) is not None for dvname, dvmeta in desvars.items())
@@ -2011,11 +2011,11 @@ class Problem(object, metaclass=ProblemMetaclass):
             lower, upper, equals = self.driver._autoscaler.get_bounds_scaling('constraint')
             for name in cons:
                 if 'lower' in cons_opts:
-                    cons[name]['lower'] = np.mean(lower.asarray())
+                    cons[name]['lower'] = lower[name]
                 if 'upper' in cons_opts:
-                    cons[name]['upper'] = np.mean(upper.asarray())
+                    cons[name]['upper'] = upper[name]
                 if 'equals' in cons_opts:
-                    cons[name]['equals'] = np.mean(equals.asarray())
+                    cons[name]['equals'] = equals[name]
         col_names = default_col_names + def_cons_opts + cons_opts
         if 'units' in col_names and driver_scaling:
             for c in cons:
