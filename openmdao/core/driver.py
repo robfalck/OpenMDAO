@@ -2244,13 +2244,16 @@ class Driver(object, metaclass=DriverMetaclass):
             A flat vector of constraint violations, ordered with the linear constraints first.
         """
         model = self._problem().model
+        dv_vec = self._vectors['design_var']
 
         try:
             # Pass in new inputs
             if MPI and model.comm.size > 1:
                 model.comm.Bcast(x_new, root=0)
 
-            self._scipy_update_design_vars(x_new, desvar_names)
+            dv_vec.set_data(x_new, driver_scaling=True)
+            self._set_design_vars(desvar_names=desvar_names, driver_scaling=True)
+            # self._scipy_update_design_vars(x_new, desvar_names)
 
             with RecordingDebugging(self._get_name(), self.iter_count, self):
                 self.iter_count += 1
