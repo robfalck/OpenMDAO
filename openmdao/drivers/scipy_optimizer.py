@@ -418,13 +418,8 @@ class ScipyOptimizeDriver(Driver):
                             # TODO add option for Hessian
                             # Double-sided constraints are accepted by the algorithm
                             args = [name, False, j]
-                            lb_j = float(lb[j])
-                            ub_j = float(ub[j])
-                            if lb_j <= -INF_BOUND or np.isnan(lb_j):
-                                lb_j = -np.inf
-                            if ub_j >= INF_BOUND or np.isnan(ub_j):
-                                ub_j = np.inf
-                            print(j, lb_j, ub_j)
+                            lb_j = np.maximum(lb[j], -INF_BOUND)
+                            ub_j = np.minimum(ub[j], INF_BOUND)
                             con = NonlinearConstraint(
                                 fun=signature_extender(
                                     WeakMethodWrapper(self, '_con_val_func'), args),
