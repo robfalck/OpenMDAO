@@ -30,7 +30,7 @@ else:
     pyoptsparse_version = None
 
 # All optimizers in pyoptsparse
-optlist = {'ALPSO', 'CONMIN', 'IPOPT', 'NLPQLP', 'NSGA2', 'ParOpt', 'PSQP', 'SLSQP', 'SNOPT'}
+optlist = {'ALPSO', 'CONMIN', 'IPOPT', 'NLPQLP', 'NSGA2', 'ParOpt', 'PSQP', 'SLSQP', 'SNOPT', 'UNO'}
 
 if pyoptsparse_version is None or pyoptsparse_version < Version('2.6.0'):
     optlist.add('NOMAD')
@@ -40,7 +40,7 @@ if pyoptsparse_version is None or pyoptsparse_version < Version('2.1.2'):
 
 # names of optimizers that use gradients
 grad_drivers = optlist.intersection({'CONMIN', 'FSQP', 'IPOPT', 'NLPQLP', 'PSQP',
-                                     'SLSQP', 'SNOPT', 'NLPY_AUGLAG', 'ParOpt'})
+                                     'SLSQP', 'SNOPT', 'NLPY_AUGLAG', 'ParOpt', 'UNO'})
 
 # names of optimizers that allow multiple objectives
 multi_obj_drivers = {'NSGA2'}
@@ -65,6 +65,7 @@ respects_fail_flag = {
     'ParOpt': True,
     'SLSQP': False,
     'SNOPT': True,           # as of v2.0.0, requires SNOPT 7.7
+    'UNO': True,             # as of unopy 0.3.0
     'FSQP': False,           # no longer supported as of v2.1.2
     'NLPY_AUGLAG': False,    # no longer supported as of v2.1.2
     'NOMAD': False           # no longer supported as of v2.6.0
@@ -132,7 +133,7 @@ class pyOptSparseDriver(Driver):
     constrained optimization problems, with additional MPI capability.
     pypptsparse has interfaces to the following optimizers:
     ALPSO, CONMIN, FSQP, IPOPT, NLPQLP, NSGA2, PSQP, SLSQP,
-    SNOPT, NLPY_AUGLAG, NOMAD, ParOpt.
+    SNOPT, NLPY_AUGLAG, NOMAD, ParOpt, and UNO.
     Note that some of these are not open source and therefore not included
     in the pyoptsparse source code.
 
