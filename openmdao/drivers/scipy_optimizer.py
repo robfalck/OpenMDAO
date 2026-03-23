@@ -198,7 +198,7 @@ class ScipyOptimizeDriver(Driver):
                              "ignore - don't perform check.")
         self.options.declare('singular_jac_tol', default=1e-16,
                              desc='Tolerance for zero row/column check.')
-        self.options.declare('use_hessp', default=True, types=bool,
+        self.options.declare('use_hessp', default=False, types=bool,
                              desc='If True, use Hessian-vector product for compatible optimizers.')
         self.options.declare('hessp_method', default='cs', values=['cs', 'fd'],
                              desc='Method for computing Hessian-vector product: '
@@ -484,22 +484,18 @@ class ScipyOptimizeDriver(Driver):
 
         # Hessian-vector product for optimizers that support it
         hessp = None
-        if opt in _hessian_optimizers and self.options['use_hessp'] and jac is not None:
-            hessp = self._hesspfunc
-
-        # Hessian calculation method for optimizers, which require it
+        hess = None
         if opt in _hessian_optimizers:
             if 'hess' in self.opt_settings:
+                # User provided explicit hess in opt_settings, extract it to pass via keyword
                 hess = self.opt_settings.pop('hess')
-            elif hessp is None:
-                # Defaults to BFGS only if hessp is not available
+            elif self.options['use_hessp'] and jac is not None:
+                # Use hessp (Hessian-vector product) callback
+                hessp = self._hesspfunc
+            else:
+                # Fall back to BFGS approximation for optimizers that require a Hessian
                 from scipy.optimize import BFGS
                 hess = BFGS()
-            else:
-                # If using hessp, don't provide hess (let scipy use hessp instead)
-                hess = None
-        else:
-            hess = None
 
         # compute dynamic simul deriv coloring if option is set
         prob.get_total_coloring(self._coloring_info, run_model=False)
@@ -898,11 +894,10 @@ class ScipyOptimizeDriver(Driver):
                     offset += dv_size
             else:  # inner_mode == 'rev'
                 # Inner JVP is in reverse mode, seed is on of (objectives)
-                # Need to convert p from design variable space to objective space
-                # For now, use p as the seed for each objective
+                # For reverse mode, seed should be 1.0 for each objective (scalar seed for each)
                 seed_dict = {}
                 for obj_name in obj_list:
-                    seed_dict[obj_name] = p
+                    seed_dict[obj_name] = 1.0
 
             # Compute Hessian-vector product
             hvp_result = prob.compute_hess_vec_product(
@@ -916,8 +911,14 @@ class ScipyOptimizeDriver(Driver):
             )
 
             # Extract result and convert to flat array
-            # Result is keyed by objective names, concatenate into single vector
-            hvp_flat = np.hstack([hvp_result[name] for name in obj_list])
+            # Result is keyed by objective names, values are derivatives w.r.t. design variables
+            # Concatenate all objectives into a single flat array matching p's shape
+            hvp_parts = []
+            for obj_name in obj_list:
+                obj_hvp = hvp_result[obj_name]
+                # Flatten in case it's multidimensional
+                hvp_parts.append(np.atleast_1d(obj_hvp).ravel())
+            hvp_flat = np.concatenate(hvp_parts)
 
             return hvp_flat
 
