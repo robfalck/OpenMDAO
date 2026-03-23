@@ -968,6 +968,10 @@ class Problem(object, metaclass=ProblemMetaclass):
         for dv_name in wrt:
             dv_vals[dv_name] = self[dv_name].copy()
 
+        # Always run linearize to ensure linear vectors are initialized
+        # This is needed for compute_jacvec_product to work properly
+        self.model.run_linearize()
+
         # Compute HVP using either complex step or finite difference
         if method == 'cs':
             hvp_result = self._compute_hvp_cs(of, wrt, inner_mode, seed, step, dv_vals,
@@ -1012,6 +1016,14 @@ class Problem(object, metaclass=ProblemMetaclass):
 
         hvp = {}
 
+        # Determine which variables key the JVP result based on inner_mode
+        if inner_mode == 'fwd':
+            # Forward mode: result keyed by 'of' variables
+            jvp_keys = of
+        else:  # rev
+            # Reverse mode: result keyed by 'wrt' variables
+            jvp_keys = wrt
+
         # Complex step each design variable
         for i, dv_name in enumerate(wrt):
             # Perturb design variable by complex step
@@ -1030,7 +1042,7 @@ class Problem(object, metaclass=ProblemMetaclass):
                                                              linearize=False)
 
                 # Extract imaginary part and divide by step to get derivative
-                for var in of:
+                for var in jvp_keys:
                     hvp_val = np.imag(jvp_perturbed[var]) / step
                     if var not in hvp:
                         hvp[var] = hvp_val
@@ -1079,6 +1091,14 @@ class Problem(object, metaclass=ProblemMetaclass):
 
         hvp = {}
 
+        # Determine which variables key the JVP result based on inner_mode
+        if inner_mode == 'fwd':
+            # Forward mode: result keyed by 'of' variables
+            jvp_keys = of
+        else:  # rev
+            # Reverse mode: result keyed by 'wrt' variables
+            jvp_keys = wrt
+
         # Finite difference each design variable
         for i, dv_name in enumerate(wrt):
             # Perturb design variable in positive direction
@@ -1093,7 +1113,7 @@ class Problem(object, metaclass=ProblemMetaclass):
                                                          linearize=False)
 
             # Compute finite difference: (jvp(x+h) - jvp(x)) / h
-            for var in of:
+            for var in jvp_keys:
                 hvp_val = (jvp_perturbed[var] - baseline_jvp[var]) / step
                 if var not in hvp:
                     hvp[var] = hvp_val

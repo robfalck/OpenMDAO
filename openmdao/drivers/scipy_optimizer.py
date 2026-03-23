@@ -203,7 +203,7 @@ class ScipyOptimizeDriver(Driver):
         self.options.declare('hessp_method', default='cs', values=['cs', 'fd'],
                              desc='Method for computing Hessian-vector product: '
                              'cs=complex step, fd=finite difference.')
-        self.options.declare('hessp_mode', default='rev', values=['fwd', 'rev'],
+        self.options.declare('hessp_mode', default='fwd', values=['fwd', 'rev'],
                              desc='Mode for computing Hessian-vector product: '
                              'fwd=forward-over-reverse, rev=reverse-over-forward.')
         self.options.declare('hessp_step', default=None, types=(float, type(None)),
@@ -870,19 +870,18 @@ class ScipyOptimizeDriver(Driver):
             # Get objective names from _objs dict
             obj_list = list(self._objs)
 
-            # Construct seed for the inner JVP computation
-            # The seed p is in the design variable space, so:
-            # - For 'fwd' mode (forward-over-reverse): seed should be on wrt variables (DVs)
-            # - For 'rev' mode (reverse-over-forward): seed should be on of variables (objs)
-            #
-            # The inner mode is opposite of the requested mode:
-            # - 'fwd' mode requests forward-over-reverse, so inner_mode = 'rev'
-            # - 'rev' mode requests reverse-over-forward, so inner_mode = 'fwd'
-            inner_mode = 'rev' if mode == 'fwd' else 'fwd'
+            # Construct seed for compute_hess_vec_product
+            # The seed format depends on the outer mode:
+            # - For 'fwd' mode (forward-over-reverse): seed should be dict keyed by objectives
+            # - For 'rev' mode (reverse-over-forward): seed should be dict keyed by design vars
 
-            # Build seed dictionary based on inner mode
-            if inner_mode == 'fwd':
-                # Inner JVP is in forward mode, seed is on wrt (design vars)
+            if mode == 'fwd':
+                # Forward-over-reverse mode: seed on objectives (to extract gradient)
+                seed_dict = {}
+                for obj_name in obj_list:
+                    seed_dict[obj_name] = 1.0
+            else:  # mode == 'rev'
+                # Reverse-over-forward mode: seed on design variables
                 # p is the design variable perturbation direction (flat array)
                 # Need to split p according to the size of each design variable
                 dv_vec = self._vectors['design_var']
@@ -892,12 +891,6 @@ class ScipyOptimizeDriver(Driver):
                     dv_size = dv_vec.metadata[dv_name]['size']
                     seed_dict[dv_name] = p[offset:offset+dv_size]
                     offset += dv_size
-            else:  # inner_mode == 'rev'
-                # Inner JVP is in reverse mode, seed is on of (objectives)
-                # For reverse mode, seed should be 1.0 for each objective (scalar seed for each)
-                seed_dict = {}
-                for obj_name in obj_list:
-                    seed_dict[obj_name] = 1.0
 
             # Compute Hessian-vector product
             hvp_result = prob.compute_hess_vec_product(
