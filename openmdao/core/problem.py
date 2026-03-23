@@ -910,6 +910,201 @@ class Problem(object, metaclass=ProblemMetaclass):
 
         return {n: lvec[resolver.source(n)].copy() for n in lnames}
 
+    def compute_hess_vec_product(self, of, wrt, mode, seed, method='cs', step=None,
+                                  linearize=False):
+        """
+        Given a seed and 'of' and 'wrt' variables, compute the Hessian-vector product.
+
+        The Hessian-vector product (HVP) is computed by finite-differencing or complex-stepping
+        the jacobian-vector product computation. The 'mode' parameter selects which derivative
+        direction is differentiated:
+        - 'fwd': Differentiate reverse-mode jvp (forward-over-reverse approach)
+        - 'rev': Differentiate forward-mode jvp (reverse-over-forward approach)
+
+        Parameters
+        ----------
+        of : list of str
+            Variables whose second derivatives will be computed.
+        wrt : list of str
+            Variables to differentiate with respect to (twice).
+        mode : str
+            Which differentiation to apply to the jvp computation: 'fwd' or 'rev'.
+        seed : dict or list
+            Either a dict keyed by 'wrt' varnames or 'of' varnames (depending on 'mode'),
+            containing seed values, OR a list of seed values.
+        method : str
+            'cs' for complex step (default) or 'fd' for finite difference.
+        step : float or None
+            Step size for complex step or finite difference. Default is 1e-40 for 'cs'
+            and 1e-6 for 'fd'. If None, the default is used based on 'method'.
+        linearize : bool
+            If True, linearize the model before computing the Hessian-vector product.
+
+        Returns
+        -------
+        dict
+            The Hessian-vector product, keyed by variable name.
+        """
+        if mode not in ('fwd', 'rev'):
+            raise ValueError(f"Invalid mode '{mode}'. Must be 'fwd' or 'rev'.")
+
+        if method not in ('cs', 'fd'):
+            raise ValueError(f"Invalid method '{method}'. Must be 'cs' or 'fd'.")
+
+        # Determine default step size
+        if step is None:
+            step = 1e-40 if method == 'cs' else 1e-6
+
+        # Determine which mode to use for the jvp we'll differentiate
+        if mode == 'fwd':
+            # Forward-over-reverse: differentiate reverse-mode jvp
+            inner_mode = 'rev'
+        else:  # rev
+            # Reverse-over-forward: differentiate forward-mode jvp
+            inner_mode = 'fwd'
+
+        # Store initial design variable values
+        dv_vals = {}
+        for dv_name in wrt:
+            dv_vals[dv_name] = self[dv_name].copy()
+
+        # Compute HVP using either complex step or finite difference
+        if method == 'cs':
+            hvp_result = self._compute_hvp_cs(of, wrt, inner_mode, seed, step, dv_vals,
+                                              linearize)
+        else:  # fd
+            hvp_result = self._compute_hvp_fd(of, wrt, inner_mode, seed, step, dv_vals,
+                                              linearize)
+
+        # Restore initial design variable values
+        for dv_name in wrt:
+            self[dv_name] = dv_vals[dv_name]
+
+        return hvp_result
+
+    def _compute_hvp_cs(self, of, wrt, inner_mode, seed, step, dv_vals, linearize):
+        """
+        Compute Hessian-vector product using complex step by differencing jac_vec_product.
+
+        Parameters
+        ----------
+        of : list of str
+            Variables whose second derivatives will be computed.
+        wrt : list of str
+            Variables to differentiate with respect to (twice).
+        inner_mode : str
+            'fwd' or 'rev', the mode for the jvp we're complex-stepping.
+        seed : dict or list
+            Seed values for the jvp computation.
+        step : float
+            Complex step size.
+        dv_vals : dict
+            Dictionary of original dv values to restore after.
+        linearize : bool
+            Whether to linearize the model.
+
+        Returns
+        -------
+        dict
+            The Hessian-vector product.
+        """
+        import numpy as np
+
+        hvp = {}
+
+        # Complex step each design variable
+        for i, dv_name in enumerate(wrt):
+            # Perturb design variable by complex step
+            self[dv_name] = dv_vals[dv_name] + step * 1j
+
+            # Linearize if requested
+            if linearize:
+                self.model.run_linearize()
+
+            # Set complex step mode before computing jvp
+            self.model._set_complex_step_mode(True)
+
+            try:
+                # Compute jvp at complex-stepped point
+                jvp_perturbed = self.compute_jacvec_product(of, wrt, inner_mode, seed,
+                                                             linearize=False)
+
+                # Extract imaginary part and divide by step to get derivative
+                for var in of:
+                    hvp_val = np.imag(jvp_perturbed[var]) / step
+                    if var not in hvp:
+                        hvp[var] = hvp_val
+                    else:
+                        hvp[var] = np.concatenate([hvp[var], hvp_val])
+            finally:
+                # Restore real-valued model
+                self.model._set_complex_step_mode(False)
+
+            # Restore real-valued design variable
+            self[dv_name] = dv_vals[dv_name]
+
+        return hvp
+
+    def _compute_hvp_fd(self, of, wrt, inner_mode, seed, step, dv_vals, linearize):
+        """
+        Compute Hessian-vector product using finite difference of jac_vec_product.
+
+        Parameters
+        ----------
+        of : list of str
+            Variables whose second derivatives will be computed.
+        wrt : list of str
+            Variables to differentiate with respect to (twice).
+        inner_mode : str
+            'fwd' or 'rev', the mode for the jvp we're finite-differencing.
+        seed : dict or list
+            Seed values for the jvp computation.
+        step : float
+            Finite difference step size.
+        dv_vals : dict
+            Dictionary of original dv values to restore after.
+        linearize : bool
+            Whether to linearize the model.
+
+        Returns
+        -------
+        dict
+            The Hessian-vector product.
+        """
+        import numpy as np
+
+        # Compute baseline jvp at the current point
+        baseline_jvp = self.compute_jacvec_product(of, wrt, inner_mode, seed,
+                                                    linearize=linearize)
+
+        hvp = {}
+
+        # Finite difference each design variable
+        for i, dv_name in enumerate(wrt):
+            # Perturb design variable in positive direction
+            self[dv_name] = dv_vals[dv_name] + step
+
+            # Linearize if requested
+            if linearize:
+                self.model.run_linearize()
+
+            # Compute jvp at perturbed point
+            jvp_perturbed = self.compute_jacvec_product(of, wrt, inner_mode, seed,
+                                                         linearize=False)
+
+            # Compute finite difference: (jvp(x+h) - jvp(x)) / h
+            for var in of:
+                hvp_val = (jvp_perturbed[var] - baseline_jvp[var]) / step
+                if var not in hvp:
+                    hvp[var] = hvp_val
+                else:
+                    hvp[var] = np.concatenate([hvp[var], hvp_val])
+
+            # Restore design variable
+            self[dv_name] = dv_vals[dv_name]
+
+        return hvp
+
     def _setup_recording(self):
         """
         Set up case recording.
