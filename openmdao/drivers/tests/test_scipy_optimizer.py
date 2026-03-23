@@ -2429,6 +2429,96 @@ class TestScipyOptimizeDriver(unittest.TestCase):
             prob.setup(mode='rev')
             prob.run_driver()
 
+    def test_paraboloid_with_hessp_trust_ncg(self):
+        """Test trust-ncg with Hessian-vector product on a simple quadratic."""
+        prob = om.Problem()
+        model = prob.model
+        model.add_subsystem('paraboloid', Paraboloid(), promotes=['*'])
+
+        prob.driver = om.ScipyOptimizeDriver()
+        prob.driver.options['optimizer'] = 'trust-ncg'
+        prob.driver.options['tol'] = 1e-8
+        prob.driver.options['maxiter'] = 100
+        prob.driver.options['disp'] = False
+        prob.driver.options['use_hessp'] = True
+        prob.driver.options['hessp_method'] = 'fd'
+        prob.driver.options['hessp_mode'] = 'rev'
+
+        model.add_design_var('x', lower=-100, upper=100)
+        model.add_design_var('y', lower=-100, upper=100)
+        model.add_objective('f_xy')
+
+        prob.setup()
+        prob['x'] = 0.0
+        prob['y'] = 0.0
+
+        prob.run_driver()
+
+        # Optimal solution: x = 6.6667; y = -7.3333
+        assert_near_equal(prob['x'], 6.6667, 1e-4)
+        assert_near_equal(prob['y'], -7.3333, 1e-4)
+        # Optimal f_xy: -27.333...
+        assert_near_equal(prob['f_xy'], -27.333, 1e-2)
+
+    def test_paraboloid_with_hessp_trust_constr(self):
+        """Test trust-constr with Hessian-vector product on a simple quadratic."""
+        prob = om.Problem()
+        model = prob.model
+        model.add_subsystem('paraboloid', Paraboloid(), promotes=['*'])
+
+        prob.driver = om.ScipyOptimizeDriver()
+        prob.driver.options['optimizer'] = 'trust-constr'
+        prob.driver.options['tol'] = 1e-8
+        prob.driver.options['maxiter'] = 100
+        prob.driver.options['disp'] = False
+        prob.driver.options['use_hessp'] = True
+        prob.driver.options['hessp_method'] = 'fd'
+        prob.driver.options['hessp_mode'] = 'rev'
+
+        model.add_design_var('x', lower=-100, upper=100)
+        model.add_design_var('y', lower=-100, upper=100)
+        model.add_objective('f_xy')
+
+        prob.setup()
+        prob['x'] = 0.0
+        prob['y'] = 0.0
+
+        prob.run_driver()
+
+        # Optimal solution: x = 6.6667; y = -7.3333
+        assert_near_equal(prob['x'], 6.6667, 1e-4)
+        assert_near_equal(prob['y'], -7.3333, 1e-4)
+        # Optimal f_xy: -27.333...
+        assert_near_equal(prob['f_xy'], -27.333, 1e-2)
+
+    def test_paraboloid_without_hessp_trust_ncg(self):
+        """Test trust-ncg without HVP falls back to BFGS approximation."""
+        prob = om.Problem()
+        model = prob.model
+        model.add_subsystem('paraboloid', Paraboloid(), promotes=['*'])
+
+        prob.driver = om.ScipyOptimizeDriver()
+        prob.driver.options['optimizer'] = 'trust-ncg'
+        prob.driver.options['tol'] = 1e-8
+        prob.driver.options['maxiter'] = 200  # Need more iterations without exact Hessian
+        prob.driver.options['disp'] = False
+        prob.driver.options['use_hessp'] = False  # Disable hessp, use BFGS
+
+        model.add_design_var('x', lower=-100, upper=100)
+        model.add_design_var('y', lower=-100, upper=100)
+        model.add_objective('f_xy')
+
+        prob.setup()
+        prob['x'] = 0.0
+        prob['y'] = 0.0
+
+        prob.run_driver()
+
+        # Should still converge, but BFGS approx is less accurate than exact Hessian
+        assert_near_equal(prob['x'], 6.6667, 5e-3)  # Looser tolerance without hessp
+        assert_near_equal(prob['y'], -7.3333, 5e-3)
+        assert_near_equal(prob['f_xy'], -27.333, 1e-1)
+
 
 @unittest.skipUnless(ScipyVersion >= Version("1.14"), "scipy >= 1.14 is required for COBYQA.")
 class TestScipyOptimizeDriverCOBYQA(unittest.TestCase):

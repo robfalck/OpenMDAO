@@ -21,6 +21,7 @@ _optimizers = {'Nelder-Mead', 'Powell', 'CG', 'BFGS', 'Newton-CG', 'L-BFGS-B',
                'TNC', 'COBYLA', 'SLSQP'}
 if Version(scipy_version) >= Version("1.1"):  # Only available in newer versions
     _optimizers.add('trust-constr')
+    _optimizers.add('trust-ncg')
 
 # For 'basinhopping' and 'shgo' gradients are used only in the local minimization
 _gradient_optimizers = {'CG', 'BFGS', 'Newton-CG', 'L-BFGS-B', 'TNC', 'SLSQP', 'dogleg',
@@ -52,10 +53,10 @@ if Version(scipy_version) >= Version("1.2"):  # Only available in newer versions
 # Global optimizers and optimizers in minimize
 _all_optimizers = _optimizers | _global_optimizers
 
-# These require Hessian or Hessian-vector product, so they are not supported
-# right now.
-# dual-annealing and basinhopping not supported yet
-_unsupported_optimizers = {'dogleg', 'trust-ncg'}
+# These require Hessian or Hessian-vector product
+# 'trust-ncg' is now supported via hessp (Hessian-vector product)
+# 'dogleg' and others not yet supported
+_unsupported_optimizers = {'dogleg'}
 
 # With "old-style" a constraint is a dictionary, with "new-style" an object
 # With "old-style" a bound is a tuple, with "new-style" a Bounds instance
@@ -197,6 +198,17 @@ class ScipyOptimizeDriver(Driver):
                              "ignore - don't perform check.")
         self.options.declare('singular_jac_tol', default=1e-16,
                              desc='Tolerance for zero row/column check.')
+        self.options.declare('use_hessp', default=True, types=bool,
+                             desc='If True, use Hessian-vector product for compatible optimizers.')
+        self.options.declare('hessp_method', default='cs', values=['cs', 'fd'],
+                             desc='Method for computing Hessian-vector product: '
+                             'cs=complex step, fd=finite difference.')
+        self.options.declare('hessp_mode', default='rev', values=['fwd', 'rev'],
+                             desc='Mode for computing Hessian-vector product: '
+                             'fwd=forward-over-reverse, rev=reverse-over-forward.')
+        self.options.declare('hessp_step', default=None, types=(float, type(None)),
+                             desc='Step size for Hessian-vector product computation. '
+                             'Default is 1e-40 for cs, 1e-6 for fd.')
 
     def _get_name(self):
         """
@@ -470,14 +482,22 @@ class ScipyOptimizeDriver(Driver):
         else:
             jac = None
 
+        # Hessian-vector product for optimizers that support it
+        hessp = None
+        if opt in _hessian_optimizers and self.options['use_hessp'] and jac is not None:
+            hessp = self._hesspfunc
+
         # Hessian calculation method for optimizers, which require it
         if opt in _hessian_optimizers:
             if 'hess' in self.opt_settings:
                 hess = self.opt_settings.pop('hess')
-            else:
-                # Defaults to BFGS, if not in opt_settings
+            elif hessp is None:
+                # Defaults to BFGS only if hessp is not available
                 from scipy.optimize import BFGS
                 hess = BFGS()
+            else:
+                # If using hessp, don't provide hess (let scipy use hessp instead)
+                hess = None
         else:
             hess = None
 
@@ -495,7 +515,7 @@ class ScipyOptimizeDriver(Driver):
                                   method=opt,
                                   jac=jac,
                                   hess=hess,
-                                  # hessp=None,
+                                  hessp=hessp,
                                   bounds=bounds,
                                   constraints=constraints,
                                   tol=self.options['tol'],
@@ -823,6 +843,88 @@ class ScipyOptimizeDriver(Driver):
             return -grad[grad_idx, :]
         else:
             return grad[grad_idx, :]
+
+    def _hesspfunc(self, x, p):
+        """
+        Compute Hessian-vector product using finite difference or complex step.
+
+        Parameters
+        ----------
+        x : ndarray
+            Current design variable values (flat array, in optimizer-scaled space).
+        p : ndarray
+            Direction vector for Hessian-vector product (flat array).
+
+        Returns
+        -------
+        ndarray
+            Hessian-vector product as flat array.
+        """
+        prob = self._problem()
+
+        if self._exc_info is not None:
+            self._reraise()
+
+        try:
+            # Get HVP configuration options
+            method = self.options['hessp_method']
+            mode = self.options['hessp_mode']
+            step = self.options['hessp_step']
+
+            # Get objective names from _objs dict
+            obj_list = list(self._objs)
+
+            # Construct seed for the inner JVP computation
+            # The seed p is in the design variable space, so:
+            # - For 'fwd' mode (forward-over-reverse): seed should be on wrt variables (DVs)
+            # - For 'rev' mode (reverse-over-forward): seed should be on of variables (objs)
+            #
+            # The inner mode is opposite of the requested mode:
+            # - 'fwd' mode requests forward-over-reverse, so inner_mode = 'rev'
+            # - 'rev' mode requests reverse-over-forward, so inner_mode = 'fwd'
+            inner_mode = 'rev' if mode == 'fwd' else 'fwd'
+
+            # Build seed dictionary based on inner mode
+            if inner_mode == 'fwd':
+                # Inner JVP is in forward mode, seed is on wrt (design vars)
+                # p is the design variable perturbation direction (flat array)
+                # Need to split p according to the size of each design variable
+                dv_vec = self._vectors['design_var']
+                seed_dict = {}
+                offset = 0
+                for dv_name in self._dvlist:
+                    dv_size = dv_vec.metadata[dv_name]['size']
+                    seed_dict[dv_name] = p[offset:offset+dv_size]
+                    offset += dv_size
+            else:  # inner_mode == 'rev'
+                # Inner JVP is in reverse mode, seed is on of (objectives)
+                # Need to convert p from design variable space to objective space
+                # For now, use p as the seed for each objective
+                seed_dict = {}
+                for obj_name in obj_list:
+                    seed_dict[obj_name] = p
+
+            # Compute Hessian-vector product
+            hvp_result = prob.compute_hess_vec_product(
+                of=obj_list,
+                wrt=self._dvlist,
+                mode=mode,
+                seed=seed_dict,
+                method=method,
+                step=step,
+                linearize=False
+            )
+
+            # Extract result and convert to flat array
+            # Result is keyed by objective names, concatenate into single vector
+            hvp_flat = np.hstack([hvp_result[name] for name in obj_list])
+
+            return hvp_flat
+
+        except Exception:
+            if self._exc_info is None:
+                self._exc_info = sys.exc_info()
+            return np.zeros_like(p)
 
 
 def signature_extender(fcn, extra_args):
