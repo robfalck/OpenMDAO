@@ -3,7 +3,6 @@ OpenMDAO Wrapper for the scipy.optimize.minimize family of local optimizers.
 """
 
 import sys
-import warnings
 from packaging.version import Version
 
 import numpy as np
@@ -864,14 +863,6 @@ class ScipyOptimizeDriver(Driver):
         Computes H @ p where H is the Hessian (second derivative) of the objective
         with respect to design variables, and p is the direction vector.
 
-        Algorithm:
-        1. Compute gradient at current design point (baseline)
-        2. Perturb design variables in direction p by step size epsilon
-        3. Solve nonlinear system at perturbed point
-        4. Compute gradient at perturbed point
-        5. Finite difference or complex step: (grad_perturbed - grad_baseline) / epsilon
-        6. Restore design variables to original state
-
         Parameters
         ----------
         x : ndarray
@@ -897,14 +888,10 @@ class ScipyOptimizeDriver(Driver):
             minimum_step = self.options['hessp_minimum_step']
             step = self.options['hessp_step']
 
-            if step is None:
-                step = 1e-40 if method == 'cs' else 1e-6
-
-            # Get objective and design variable lists
-            obj_list = list(self._objs)
+            # Get design variable list and metadata
             dv_vec = self._vectors['design_var']
 
-            # Set design variables from scipy's x array (unscaled)
+            # Set design variables from scipy's x array
             # x is the flat array of design variable values in optimizer space
             offset = 0
             for dv_name in self._dvlist:
@@ -918,151 +905,17 @@ class ScipyOptimizeDriver(Driver):
             # Linearize the model at the current point
             prob.model.run_linearize()
 
-            # Step 1: Compute baseline gradient at current point
-            # Use the problem's mode setting (which auto-selects for efficiency)
-            grad_mode = prob._mode
-            # Seed with 1.0 for each objective to extract the gradient
-            baseline_seed = {obj_name: 1.0 for obj_name in obj_list}
-            baseline_grad_dict = prob.compute_jacvec_product(
-                of=obj_list,
+            # Call the Problem's HVP approximation method
+            hvp_flat = prob.approx_hessvec_product(
+                of=list(self._objs),
                 wrt=self._dvlist,
-                mode=grad_mode,
-                seed=baseline_seed,
-                linearize=False
+                p=p,
+                method=method,
+                form=form,
+                step_calc=step_calc,
+                minimum_step=minimum_step,
+                step=step
             )
-            # Make a deep copy to avoid issues with shared references
-            baseline_grad = {dv_name: baseline_grad_dict[dv_name].copy()
-                            for dv_name in self._dvlist}
-
-            # Step 2: Save current DV values for restoration later
-            dv_vals = {}
-            for dv_name in self._dvlist:
-                dv_vals[dv_name] = prob[dv_name].copy()
-
-            # Step 3: Calculate step sizes based on step_calc option
-            step_sizes = {}
-            for dv_name in self._dvlist:
-                dv_val = dv_vals[dv_name]
-                if step_calc == 'abs':
-                    # Absolute step
-                    step_sizes[dv_name] = step
-                elif step_calc == 'rel_avg':
-                    # Relative to average magnitude
-                    avg_mag = np.mean(np.abs(dv_val))
-                    calc_step = max(minimum_step, avg_mag * step)
-                    step_sizes[dv_name] = calc_step
-                elif step_calc == 'rel_element':
-                    # Relative to each element
-                    calc_step = np.maximum(minimum_step, np.abs(dv_val) * step)
-                    step_sizes[dv_name] = calc_step
-
-            # Step 4: Perturb design variables in direction p
-            # Split p into per-DV chunks and perturb
-            offset = 0
-            for dv_name in self._dvlist:
-                dv_size = dv_vec.metadata[dv_name]['size']
-                p_chunk = p[offset:offset+dv_size]
-                h = step_sizes[dv_name]
-
-                if method == 'cs':
-                    # Complex step perturbation: suppress harmless complex casting warnings
-                    # The imaginary part is discarded during the solve, but we've already
-                    # extracted the HVP information from it in the gradient computation
-                    perturbed_val = np.asarray(dv_vals[dv_name], dtype=complex) + (1j * h) * p_chunk
-                    with warnings.catch_warnings():
-                        warnings.filterwarnings('ignore', message='Casting complex values')
-                        dv_vec[dv_name] = perturbed_val
-                else:  # 'fd'
-                    # Finite difference perturbation
-                    if form == 'central':
-                        # For central form, we'll compute +h and -h, save for now
-                        dv_vec[dv_name] = dv_vals[dv_name] + h * p_chunk
-                    elif form == 'backward':
-                        # For backward, perturb in negative direction
-                        dv_vec[dv_name] = dv_vals[dv_name] - h * p_chunk
-                    else:  # 'forward'
-                        # For forward, perturb in positive direction
-                        dv_vec[dv_name] = dv_vals[dv_name] + h * p_chunk
-
-                offset += dv_size
-
-            # Step 5: Solve nonlinear system at perturbed point
-            prob.model.run_solve_nonlinear()
-            # Re-linearize the model at the perturbed point for accurate gradient computation
-            prob.model.run_linearize()
-
-            # Step 6: Compute perturbed gradient (using same mode as baseline)
-            perturbed_grad_dict = prob.compute_jacvec_product(
-                of=obj_list,
-                wrt=self._dvlist,
-                mode=grad_mode,
-                seed=baseline_seed,
-                linearize=False
-            )
-            # Make a deep copy to avoid issues with shared references
-            perturbed_grad = {dv_name: perturbed_grad_dict[dv_name].copy()
-                             for dv_name in self._dvlist}
-
-            # For central form with FD, also need backward gradient
-            if method == 'fd' and form == 'central':
-                # Restore to baseline
-                for dv_name in self._dvlist:
-                    dv_vec[dv_name] = dv_vals[dv_name]
-
-                # Perturb in negative direction
-                offset = 0
-                for dv_name in self._dvlist:
-                    dv_size = dv_vec.metadata[dv_name]['size']
-                    p_chunk = p[offset:offset+dv_size]
-                    h = step_sizes[dv_name]
-                    dv_vec[dv_name] = dv_vals[dv_name] - h * p_chunk
-                    offset += dv_size
-
-                prob.model.run_solve_nonlinear()
-                # Re-linearize the model at the perturbed point
-                prob.model.run_linearize()
-
-                backward_grad_dict = prob.compute_jacvec_product(
-                    of=obj_list,
-                    wrt=self._dvlist,
-                    mode=grad_mode,
-                    seed=baseline_seed,
-                    linearize=False
-                )
-                # Make a deep copy to avoid issues with shared references
-                backward_grad = {dv_name: backward_grad_dict[dv_name].copy()
-                                for dv_name in self._dvlist}
-
-            # Step 7: Compute HVP from finite difference or complex step
-            hvp = {}
-            offset = 0
-            for dv_name in self._dvlist:
-                h = step_sizes[dv_name]
-                if method == 'cs':
-                    # Complex step: extract imaginary part and divide by step
-                    hvp[dv_name] = np.imag(perturbed_grad[dv_name]) / h
-                else:  # 'fd'
-                    if form == 'central':
-                        # Central difference: (forward - backward) / (2*h)
-                        hvp[dv_name] = (perturbed_grad[dv_name] - backward_grad[dv_name]) / (
-                            2.0 * h)
-                    elif form == 'backward':
-                        # Backward difference: (baseline - backward) / h
-                        hvp[dv_name] = (baseline_grad[dv_name] - perturbed_grad[dv_name]) / h
-                    else:  # 'forward'
-                        # Forward difference: (forward - baseline) / h
-                        hvp[dv_name] = (perturbed_grad[dv_name] - baseline_grad[dv_name]) / h
-
-            # Restore design variables to original state
-            for dv_name in self._dvlist:
-                dv_vec[dv_name] = dv_vals[dv_name]
-
-            # Extract per-DV results and concatenate into flat array
-            hvp_parts = []
-            for dv_name in self._dvlist:
-                hvp_val = hvp[dv_name]
-                hvp_parts.append(np.atleast_1d(hvp_val).ravel())
-            hvp_flat = np.concatenate(hvp_parts)
 
             return hvp_flat
 
