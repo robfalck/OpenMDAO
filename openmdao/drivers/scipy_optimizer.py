@@ -198,17 +198,25 @@ class ScipyOptimizeDriver(Driver):
                              "ignore - don't perform check.")
         self.options.declare('singular_jac_tol', default=1e-16,
                              desc='Tolerance for zero row/column check.')
-        self.options.declare('use_hessp', default=False, types=bool,
-                             desc='If True, use Hessian-vector product for compatible optimizers.')
-        self.options.declare('hessp_method', default='cs', values=['cs', 'fd'],
+        self.options.declare('hessp_method', default=None, values=['cs', 'fd', None],
                              desc='Method for computing Hessian-vector product: '
-                             'cs=complex step, fd=finite difference.')
-        self.options.declare('hessp_mode', default='fwd', values=['fwd', 'rev'],
-                             desc='Mode for computing Hessian-vector product: '
-                             'fwd=forward-over-reverse, rev=reverse-over-forward.')
+                             'cs=complex step, fd=finite difference, None=disabled.')
         self.options.declare('hessp_step', default=None, types=(float, type(None)),
                              desc='Step size for Hessian-vector product computation. '
                              'Default is 1e-40 for cs, 1e-6 for fd.')
+        self.options.declare('hessp_form', default='forward',
+                             values=['forward', 'backward', 'central'],
+                             desc='Form for finite difference Hessian-vector product: '
+                             'forward, backward, or central. Only used when hessp_method="fd".')
+        self.options.declare('hessp_step_calc', default='abs',
+                             values=['abs', 'rel_avg', 'rel_element'],
+                             desc='How to calculate the step size for '
+                             'Hessian-vector product computation. abs for absolute, '
+                             'rel_avg for relative to average, rel_element for '
+                             'relative to each element.')
+        self.options.declare('hessp_minimum_step', default=1e-12, types=(float,),
+                             desc='Minimum step size allowed when using relative '
+                             'step_calc options.')
 
     def _get_name(self):
         """
@@ -242,6 +250,14 @@ class ScipyOptimizeDriver(Driver):
         self.supports['equality_constraints'] = opt in _eq_constraint_optimizers
         self.supports._read_only = True
         self._check_jac = self.options['singular_jac_behavior'] in ['error', 'warn']
+
+        # Validate hessp_method if complex step is requested
+        if self.options['hessp_method'] == 'cs':
+            if not problem._metadata.get('force_alloc_complex', False):
+                msg = ('Complex-step Hessian-vector product computation requires the problem '
+                       'to be set up with force_alloc_complex=True. Either use hessp_method="fd" '
+                       'or call prob.setup(force_alloc_complex=True).')
+                raise RuntimeError(self.msginfo + ': ' + msg)
 
         # Raises error if multiple objectives are not supported, but more objectives were defined.
         if not self.supports['multiple_objectives'] and len(self._objs) > 1:
@@ -418,7 +434,7 @@ class ScipyOptimizeDriver(Driver):
                     else:
                         lb = lower
                         ub = upper
-                    
+
                     if linear:
                         # LinearConstraint
                         con = LinearConstraint(A=lincongrad[self._con_idx[name]],
@@ -489,7 +505,7 @@ class ScipyOptimizeDriver(Driver):
             if 'hess' in self.opt_settings:
                 # User provided explicit hess in opt_settings, extract it to pass via keyword
                 hess = self.opt_settings.pop('hess')
-            elif self.options['use_hessp'] and jac is not None:
+            elif self.options['hessp_method'] is not None and jac is not None:
                 # Use hessp (Hessian-vector product) callback
                 hessp = self._hesspfunc
             else:
@@ -844,6 +860,17 @@ class ScipyOptimizeDriver(Driver):
         """
         Compute Hessian-vector product using finite difference or complex step.
 
+        Computes H @ p where H is the Hessian (second derivative) of the objective
+        with respect to design variables, and p is the direction vector.
+
+        Algorithm:
+        1. Compute gradient at current design point (baseline)
+        2. Perturb design variables in direction p by step size epsilon
+        3. Solve nonlinear system at perturbed point
+        4. Compute gradient at perturbed point
+        5. Finite difference or complex step: (grad_perturbed - grad_baseline) / epsilon
+        6. Restore design variables to original state
+
         Parameters
         ----------
         x : ndarray
@@ -854,7 +881,7 @@ class ScipyOptimizeDriver(Driver):
         Returns
         -------
         ndarray
-            Hessian-vector product as flat array.
+            Hessian-vector product as flat array (shape matching p).
         """
         prob = self._problem()
 
@@ -864,53 +891,158 @@ class ScipyOptimizeDriver(Driver):
         try:
             # Get HVP configuration options
             method = self.options['hessp_method']
-            mode = self.options['hessp_mode']
+            form = self.options['hessp_form']
+            step_calc = self.options['hessp_step_calc']
+            minimum_step = self.options['hessp_minimum_step']
             step = self.options['hessp_step']
 
-            # Get objective names from _objs dict
+            if step is None:
+                step = 1e-40 if method == 'cs' else 1e-6
+
+            # Get objective and design variable lists
             obj_list = list(self._objs)
+            dv_vec = self._vectors['design_var']
 
-            # Construct seed for compute_hess_vec_product
-            # The seed format depends on the outer mode:
-            # - For 'fwd' mode (forward-over-reverse): seed should be dict keyed by objectives
-            # - For 'rev' mode (reverse-over-forward): seed should be dict keyed by design vars
+            # Linearize the model at the current point
+            prob.model.run_linearize()
 
-            if mode == 'fwd':
-                # Forward-over-reverse mode: seed on objectives (to extract gradient)
-                seed_dict = {}
-                for obj_name in obj_list:
-                    seed_dict[obj_name] = 1.0
-            else:  # mode == 'rev'
-                # Reverse-over-forward mode: seed on design variables
-                # p is the design variable perturbation direction (flat array)
-                # Need to split p according to the size of each design variable
-                dv_vec = self._vectors['design_var']
-                seed_dict = {}
+            # Step 1: Compute baseline gradient at current point
+            # Seed with 1.0 for each objective to extract the gradient
+            baseline_seed = {obj_name: 1.0 for obj_name in obj_list}
+            baseline_grad_dict = prob.compute_jacvec_product(
+                of=obj_list,
+                wrt=self._dvlist,
+                mode='rev',
+                seed=baseline_seed,
+                linearize=False
+            )
+            # Make a deep copy to avoid issues with shared references
+            baseline_grad = {dv_name: baseline_grad_dict[dv_name].copy()
+                            for dv_name in self._dvlist}
+
+            # Step 2: Save current DV values for restoration later
+            dv_vals = {}
+            for dv_name in self._dvlist:
+                dv_vals[dv_name] = prob[dv_name].copy()
+
+            # Step 3: Calculate step sizes based on step_calc option
+            step_sizes = {}
+            for dv_name in self._dvlist:
+                dv_val = dv_vals[dv_name]
+                if step_calc == 'abs':
+                    # Absolute step
+                    step_sizes[dv_name] = step
+                elif step_calc == 'rel_avg':
+                    # Relative to average magnitude
+                    avg_mag = np.mean(np.abs(dv_val))
+                    calc_step = max(minimum_step, avg_mag * step)
+                    step_sizes[dv_name] = calc_step
+                elif step_calc == 'rel_element':
+                    # Relative to each element
+                    calc_step = np.maximum(minimum_step, np.abs(dv_val) * step)
+                    step_sizes[dv_name] = calc_step
+
+            # Step 4: Perturb design variables in direction p
+            # Split p into per-DV chunks and perturb
+            offset = 0
+            for dv_name in self._dvlist:
+                dv_size = dv_vec.metadata[dv_name]['size']
+                p_chunk = p[offset:offset+dv_size]
+                h = step_sizes[dv_name]
+
+                if method == 'cs':
+                    # Complex step perturbation
+                    prob[dv_name] = dv_vals[dv_name] + (1j * h) * p_chunk
+                else:  # 'fd'
+                    # Finite difference perturbation
+                    if form == 'central':
+                        # For central form, we'll compute +h and -h, save for now
+                        prob[dv_name] = dv_vals[dv_name] + h * p_chunk
+                    elif form == 'backward':
+                        # For backward, perturb in negative direction
+                        prob[dv_name] = dv_vals[dv_name] - h * p_chunk
+                    else:  # 'forward'
+                        # For forward, perturb in positive direction
+                        prob[dv_name] = dv_vals[dv_name] + h * p_chunk
+
+                offset += dv_size
+
+            # Step 5: Solve nonlinear system at perturbed point
+            prob.model.run_solve_nonlinear()
+            # Re-linearize the model at the perturbed point for accurate gradient computation
+            prob.model.run_linearize()
+
+            # Step 6: Compute perturbed gradient
+            perturbed_grad_dict = prob.compute_jacvec_product(
+                of=obj_list,
+                wrt=self._dvlist,
+                mode='rev',
+                seed=baseline_seed,
+                linearize=False
+            )
+            # Make a deep copy to avoid issues with shared references
+            perturbed_grad = {dv_name: perturbed_grad_dict[dv_name].copy()
+                             for dv_name in self._dvlist}
+
+            # For central form with FD, also need backward gradient
+            if method == 'fd' and form == 'central':
+                # Restore and perturb backward
+                for dv_name in self._dvlist:
+                    prob[dv_name] = dv_vals[dv_name]
+
+                # Perturb in negative direction
                 offset = 0
                 for dv_name in self._dvlist:
                     dv_size = dv_vec.metadata[dv_name]['size']
-                    seed_dict[dv_name] = p[offset:offset+dv_size]
+                    p_chunk = p[offset:offset+dv_size]
+                    h = step_sizes[dv_name]
+                    prob[dv_name] = dv_vals[dv_name] - h * p_chunk
                     offset += dv_size
 
-            # Compute Hessian-vector product
-            hvp_result = prob.compute_hess_vec_product(
-                of=obj_list,
-                wrt=self._dvlist,
-                mode=mode,
-                seed=seed_dict,
-                method=method,
-                step=step,
-                linearize=False
-            )
+                prob.model.run_solve_nonlinear()
+                # Re-linearize the model at the perturbed point
+                prob.model.run_linearize()
 
-            # Extract result and convert to flat array
-            # Result is keyed by objective names, values are derivatives w.r.t. design variables
-            # Concatenate all objectives into a single flat array matching p's shape
+                backward_grad_dict = prob.compute_jacvec_product(
+                    of=obj_list,
+                    wrt=self._dvlist,
+                    mode='rev',
+                    seed=baseline_seed,
+                    linearize=False
+                )
+                # Make a deep copy to avoid issues with shared references
+                backward_grad = {dv_name: backward_grad_dict[dv_name].copy()
+                                for dv_name in self._dvlist}
+
+            # Step 7: Compute HVP from finite difference or complex step
+            hvp = {}
+            offset = 0
+            for dv_name in self._dvlist:
+                h = step_sizes[dv_name]
+                if method == 'cs':
+                    # Complex step: extract imaginary part and divide by step
+                    hvp[dv_name] = np.imag(perturbed_grad[dv_name]) / h
+                else:  # 'fd'
+                    if form == 'central':
+                        # Central difference: (forward - backward) / (2*h)
+                        hvp[dv_name] = (perturbed_grad[dv_name] - backward_grad[dv_name]) / (
+                            2.0 * h)
+                    elif form == 'backward':
+                        # Backward difference: (baseline - backward) / h
+                        hvp[dv_name] = (baseline_grad[dv_name] - perturbed_grad[dv_name]) / h
+                    else:  # 'forward'
+                        # Forward difference: (forward - baseline) / h
+                        hvp[dv_name] = (perturbed_grad[dv_name] - baseline_grad[dv_name]) / h
+
+            # Restore design variables to original state
+            for dv_name in self._dvlist:
+                prob[dv_name] = dv_vals[dv_name]
+
+            # Extract per-DV results and concatenate into flat array
             hvp_parts = []
-            for obj_name in obj_list:
-                obj_hvp = hvp_result[obj_name]
-                # Flatten in case it's multidimensional
-                hvp_parts.append(np.atleast_1d(obj_hvp).ravel())
+            for dv_name in self._dvlist:
+                hvp_val = hvp[dv_name]
+                hvp_parts.append(np.atleast_1d(hvp_val).ravel())
             hvp_flat = np.concatenate(hvp_parts)
 
             return hvp_flat

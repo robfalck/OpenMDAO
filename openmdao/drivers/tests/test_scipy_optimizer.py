@@ -2431,65 +2431,100 @@ class TestScipyOptimizeDriver(unittest.TestCase):
 
     def test_paraboloid_with_hessp_trust_ncg(self):
         """Test trust-ncg with Hessian-vector product on a simple quadratic."""
+        # Test both CS and FD methods
+        for hessp_method in ['cs', 'fd']:
+            with self.subTest(hessp_method=hessp_method):
+                prob = om.Problem()
+                model = prob.model
+                model.add_subsystem('paraboloid', Paraboloid(), promotes=['*'])
+
+                prob.driver = om.ScipyOptimizeDriver()
+                prob.driver.options['optimizer'] = 'trust-ncg'
+                prob.driver.options['tol'] = 1e-8
+                prob.driver.options['maxiter'] = 100
+                prob.driver.options['disp'] = False
+                prob.driver.options['hessp_method'] = hessp_method
+
+                model.add_design_var('x', lower=-100, upper=100)
+                model.add_design_var('y', lower=-100, upper=100)
+                model.add_objective('f_xy')
+
+                # CS method requires force_alloc_complex=True
+                force_complex = (hessp_method == 'cs')
+                prob.setup(force_alloc_complex=force_complex)
+                prob['x'] = 0.0
+                prob['y'] = 0.0
+
+                prob.run_driver()
+
+                # Optimal solution: x = 6.6667; y = -7.3333
+                assert_near_equal(prob['x'], 6.6667, 1e-4)
+                assert_near_equal(prob['y'], -7.3333, 1e-4)
+                # Optimal f_xy: -27.333...
+                assert_near_equal(prob['f_xy'], -27.333, 1e-2)
+
+    def test_paraboloid_with_hessp_cs_requires_force_alloc_complex(self):
+        """Test that CS hessp_method raises error without force_alloc_complex=True."""
         prob = om.Problem()
         model = prob.model
         model.add_subsystem('paraboloid', Paraboloid(), promotes=['*'])
 
         prob.driver = om.ScipyOptimizeDriver()
         prob.driver.options['optimizer'] = 'trust-ncg'
-        prob.driver.options['tol'] = 1e-8
-        prob.driver.options['maxiter'] = 100
-        prob.driver.options['disp'] = False
-        prob.driver.options['use_hessp'] = True
-        prob.driver.options['hessp_method'] = 'fd'
-        prob.driver.options['hessp_mode'] = 'rev'
+        prob.driver.options['hessp_method'] = 'cs'
 
         model.add_design_var('x', lower=-100, upper=100)
         model.add_design_var('y', lower=-100, upper=100)
         model.add_objective('f_xy')
 
-        prob.setup()
+        # Setup without force_alloc_complex
+        prob.setup(force_alloc_complex=False)
         prob['x'] = 0.0
         prob['y'] = 0.0
 
-        prob.run_driver()
+        # Should raise RuntimeError when run_driver tries to setup the driver
+        with self.assertRaises(RuntimeError) as cm:
+            prob.run_driver()
 
-        # Optimal solution: x = 6.6667; y = -7.3333
-        assert_near_equal(prob['x'], 6.6667, 1e-4)
-        assert_near_equal(prob['y'], -7.3333, 1e-4)
-        # Optimal f_xy: -27.333...
-        assert_near_equal(prob['f_xy'], -27.333, 1e-2)
+        # Verify error message
+        expected_msg = ('Complex-step Hessian-vector product computation requires the problem '
+                        'to be set up with force_alloc_complex=True. Either use hessp_method="fd" '
+                        'or call prob.setup(force_alloc_complex=True).')
+        self.assertIn(expected_msg, str(cm.exception))
 
     def test_paraboloid_with_hessp_trust_constr(self):
         """Test trust-constr with Hessian-vector product on a simple quadratic."""
-        prob = om.Problem()
-        model = prob.model
-        model.add_subsystem('paraboloid', Paraboloid(), promotes=['*'])
+        # Test both CS and FD methods
+        for hessp_method in ['cs', 'fd']:
+            with self.subTest(hessp_method=hessp_method):
+                prob = om.Problem()
+                model = prob.model
+                model.add_subsystem('paraboloid', Paraboloid(), promotes=['*'])
 
-        prob.driver = om.ScipyOptimizeDriver()
-        prob.driver.options['optimizer'] = 'trust-constr'
-        prob.driver.options['tol'] = 1e-8
-        prob.driver.options['maxiter'] = 100
-        prob.driver.options['disp'] = False
-        prob.driver.options['use_hessp'] = True
-        prob.driver.options['hessp_method'] = 'fd'
-        prob.driver.options['hessp_mode'] = 'rev'
+                prob.driver = om.ScipyOptimizeDriver()
+                prob.driver.options['optimizer'] = 'trust-constr'
+                prob.driver.options['tol'] = 1e-8
+                prob.driver.options['maxiter'] = 100
+                prob.driver.options['disp'] = False
+                prob.driver.options['hessp_method'] = hessp_method
 
-        model.add_design_var('x', lower=-100, upper=100)
-        model.add_design_var('y', lower=-100, upper=100)
-        model.add_objective('f_xy')
+                model.add_design_var('x', lower=-100, upper=100)
+                model.add_design_var('y', lower=-100, upper=100)
+                model.add_objective('f_xy')
 
-        prob.setup()
-        prob['x'] = 0.0
-        prob['y'] = 0.0
+                # CS method requires force_alloc_complex=True
+                force_complex = (hessp_method == 'cs')
+                prob.setup(force_alloc_complex=force_complex)
+                prob['x'] = 0.0
+                prob['y'] = 0.0
 
-        prob.run_driver()
+                prob.run_driver()
 
-        # Optimal solution: x = 6.6667; y = -7.3333
-        assert_near_equal(prob['x'], 6.6667, 1e-4)
-        assert_near_equal(prob['y'], -7.3333, 1e-4)
-        # Optimal f_xy: -27.333...
-        assert_near_equal(prob['f_xy'], -27.333, 1e-2)
+                # Optimal solution: x = 6.6667; y = -7.3333
+                assert_near_equal(prob['x'], 6.6667, 1e-4)
+                assert_near_equal(prob['y'], -7.3333, 1e-4)
+                # Optimal f_xy: -27.333...
+                assert_near_equal(prob['f_xy'], -27.333, 1e-2)
 
     def test_paraboloid_without_hessp_trust_ncg(self):
         """Test trust-ncg without HVP falls back to BFGS approximation."""
@@ -2502,7 +2537,7 @@ class TestScipyOptimizeDriver(unittest.TestCase):
         prob.driver.options['tol'] = 1e-8
         prob.driver.options['maxiter'] = 200  # Need more iterations without exact Hessian
         prob.driver.options['disp'] = False
-        prob.driver.options['use_hessp'] = False  # Disable hessp, use BFGS
+        prob.driver.options['hessp_method'] = None  # Disable hessp, use BFGS
 
         model.add_design_var('x', lower=-100, upper=100)
         model.add_design_var('y', lower=-100, upper=100)

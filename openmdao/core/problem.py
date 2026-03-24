@@ -910,16 +910,18 @@ class Problem(object, metaclass=ProblemMetaclass):
 
         return {n: lvec[resolver.source(n)].copy() for n in lnames}
 
-    def compute_hess_vec_product(self, of, wrt, mode, seed, method='cs', step=None,
+    def compute_hess_vec_product(self, of, wrt, direction=None, method='cs', step=None,
                                   linearize=False):
         """
-        Given a seed and 'of' and 'wrt' variables, compute the Hessian-vector product.
+        Compute the Hessian-vector product or full Hessian.
 
-        The Hessian-vector product (HVP) is computed by finite-differencing or complex-stepping
-        the jacobian-vector product computation. The 'mode' parameter selects which derivative
-        direction is differentiated:
-        - 'fwd': Differentiate reverse-mode jvp (forward-over-reverse approach)
-        - 'rev': Differentiate forward-mode jvp (reverse-over-forward approach)
+        If direction is None, computes the full Hessian (or partial Hessian if wrt contains
+        multiple variables) using nested differentiation (slower, O(n) operations where n is
+        the number of design variables).
+
+        If direction is provided, computes H @ direction, the Hessian applied to a direction
+        vector (fast, O(1) operation). This is more efficient when you only need the product
+        in a specific direction.
 
         Parameters
         ----------
@@ -927,27 +929,25 @@ class Problem(object, metaclass=ProblemMetaclass):
             Variables whose second derivatives will be computed.
         wrt : list of str
             Variables to differentiate with respect to (twice).
-        mode : str
-            Which differentiation to apply to the jvp computation: 'fwd' or 'rev'.
-        seed : dict or list
-            Either a dict keyed by 'wrt' varnames or 'of' varnames (depending on 'mode'),
-            containing seed values, OR a list of seed values.
+        direction : ndarray or dict or None
+            Direction vector for computing H @ direction. If None, computes full Hessian.
+            If ndarray, interpreted as flat array matching wrt variable order.
+            If dict, keyed by wrt variable names.
         method : str
             'cs' for complex step (default) or 'fd' for finite difference.
         step : float or None
             Step size for complex step or finite difference. Default is 1e-40 for 'cs'
             and 1e-6 for 'fd'. If None, the default is used based on 'method'.
         linearize : bool
-            If True, linearize the model before computing the Hessian-vector product.
+            If True, linearize the model before computing derivatives.
 
         Returns
         -------
         dict
-            The Hessian-vector product, keyed by variable name.
+            If direction is None: Full Hessian keyed by 'of' or 'wrt' variables depending
+                                   on the nested differentiation approach.
+            If direction is provided: H @ direction keyed by 'of' variables.
         """
-        if mode not in ('fwd', 'rev'):
-            raise ValueError(f"Invalid mode '{mode}'. Must be 'fwd' or 'rev'.")
-
         if method not in ('cs', 'fd'):
             raise ValueError(f"Invalid method '{method}'. Must be 'cs' or 'fd'.")
 
@@ -955,13 +955,48 @@ class Problem(object, metaclass=ProblemMetaclass):
         if step is None:
             step = 1e-40 if method == 'cs' else 1e-6
 
-        # Determine which mode to use for the jvp we'll differentiate
-        if mode == 'fwd':
-            # Forward-over-reverse: differentiate reverse-mode jvp
-            inner_mode = 'rev'
+        if direction is None:
+            # Compute full Hessian using nested differentiation approach
+            return self._compute_full_hessian(of, wrt, method, step, linearize)
+        else:
+            # Compute H @ direction directly
+            return self._compute_hvp_directional(of, wrt, direction, method, step, linearize)
+
+    def _compute_full_hessian(self, of, wrt, method, step, linearize):
+        """
+        Compute full Hessian using nested differentiation approach.
+
+        This is slow (O(n) operations where n is the number of design variables)
+        but computes the complete Hessian.
+
+        Parameters
+        ----------
+        of : list of str
+            Variables whose second derivatives will be computed.
+        wrt : list of str
+            Variables to differentiate with respect to (twice).
+        method : str
+            'cs' for complex step or 'fd' for finite difference.
+        step : float
+            Step size.
+        linearize : bool
+            Whether to linearize the model.
+
+        Returns
+        -------
+        dict
+            The full Hessian.
+        """
+        # Use the problem's setup mode for the inner JVP
+        inner_mode = self._mode
+
+        # Construct seed for the inner JVP based on the mode
+        if inner_mode == 'fwd':
+            # Forward mode: seed is keyed by 'wrt' variables
+            seed = {dv_name: 1.0 for dv_name in wrt}
         else:  # rev
-            # Reverse-over-forward: differentiate forward-mode jvp
-            inner_mode = 'fwd'
+            # Reverse mode: seed is keyed by 'of' variables
+            seed = {of_name: 1.0 for of_name in of}
 
         # Store initial design variable values
         dv_vals = {}
@@ -969,16 +1004,15 @@ class Problem(object, metaclass=ProblemMetaclass):
             dv_vals[dv_name] = self[dv_name].copy()
 
         # Always run linearize to ensure linear vectors are initialized
-        # This is needed for compute_jacvec_product to work properly
         self.model.run_linearize()
 
-        # Compute HVP using either complex step or finite difference
+        # Compute full Hessian using either complex step or finite difference
         if method == 'cs':
-            hvp_result = self._compute_hvp_cs(of, wrt, inner_mode, seed, step, dv_vals,
-                                              linearize)
+            hvp_result = self._compute_full_hessian_cs(of, wrt, inner_mode, seed, step,
+                                                       dv_vals, linearize)
         else:  # fd
-            hvp_result = self._compute_hvp_fd(of, wrt, inner_mode, seed, step, dv_vals,
-                                              linearize)
+            hvp_result = self._compute_full_hessian_fd(of, wrt, inner_mode, seed, step,
+                                                       dv_vals, linearize)
 
         # Restore initial design variable values
         for dv_name in wrt:
@@ -986,9 +1020,9 @@ class Problem(object, metaclass=ProblemMetaclass):
 
         return hvp_result
 
-    def _compute_hvp_cs(self, of, wrt, inner_mode, seed, step, dv_vals, linearize):
+    def _compute_full_hessian_cs(self, of, wrt, inner_mode, seed, step, dv_vals, linearize):
         """
-        Compute Hessian-vector product using complex step by differencing jac_vec_product.
+        Compute full Hessian using complex step by differencing jac_vec_product.
 
         Parameters
         ----------
@@ -1010,7 +1044,7 @@ class Problem(object, metaclass=ProblemMetaclass):
         Returns
         -------
         dict
-            The Hessian-vector product.
+            The full Hessian.
         """
         import numpy as np
 
@@ -1057,9 +1091,9 @@ class Problem(object, metaclass=ProblemMetaclass):
 
         return hvp
 
-    def _compute_hvp_fd(self, of, wrt, inner_mode, seed, step, dv_vals, linearize):
+    def _compute_full_hessian_fd(self, of, wrt, inner_mode, seed, step, dv_vals, linearize):
         """
-        Compute Hessian-vector product using finite difference of jac_vec_product.
+        Compute full Hessian using finite difference of jac_vec_product.
 
         Parameters
         ----------
@@ -1081,7 +1115,7 @@ class Problem(object, metaclass=ProblemMetaclass):
         Returns
         -------
         dict
-            The Hessian-vector product.
+            The full Hessian.
         """
         import numpy as np
 
@@ -1122,6 +1156,159 @@ class Problem(object, metaclass=ProblemMetaclass):
 
             # Restore design variable
             self[dv_name] = dv_vals[dv_name]
+
+        return hvp
+
+    def _compute_hvp_directional(self, of, wrt, direction, method, step, linearize):
+        """
+        Compute H @ direction directly using gradient differencing.
+
+        This is efficient (O(1) operation) and computes only the Hessian applied to the
+        given direction vector.
+
+        Parameters
+        ----------
+        of : list of str
+            Variables whose second derivatives will be computed.
+        wrt : list of str
+            Variables to differentiate with respect to (twice).
+        direction : ndarray or dict
+            Direction vector for computing H @ direction.
+            If ndarray, interpreted as flat array matching wrt variable order.
+            If dict, keyed by wrt variable names.
+        method : str
+            'cs' for complex step or 'fd' for finite difference.
+        step : float
+            Step size.
+        linearize : bool
+            Whether to linearize the model.
+
+        Returns
+        -------
+        dict
+            H @ direction keyed by 'of' variables.
+        """
+        import numpy as np
+
+        # Convert direction to dict format if it's an array
+        if isinstance(direction, np.ndarray):
+            direction_dict = {}
+            offset = 0
+            for dv_name in wrt:
+                dv_val = self[dv_name]
+                dv_shape = dv_val.shape if hasattr(dv_val, 'shape') else (1,)
+                dv_size = int(np.prod(dv_shape))
+                direction_chunk = direction[offset:offset+dv_size]
+                direction_dict[dv_name] = direction_chunk.reshape(dv_shape)
+                offset += dv_size
+        else:
+            direction_dict = direction
+
+        # Use the problem's setup mode for JVP computation
+        jvp_mode = self._mode
+
+        # Linearize the model at the baseline point if needed
+        if linearize:
+            self.model.run_linearize()
+
+        # Construct seed for JVP based on the mode
+        if jvp_mode == 'fwd':
+            # Forward mode: seed is keyed by 'wrt' variables
+            baseline_seed = {dv_name: 1.0 for dv_name in wrt}
+        else:  # rev
+            # Reverse mode: seed is keyed by 'of' variables
+            baseline_seed = {obj_name: 1.0 for obj_name in of}
+
+        # Compute baseline gradient at current point
+        baseline_grad_dict = self.compute_jacvec_product(
+            of=of,
+            wrt=wrt,
+            mode=jvp_mode,
+            seed=baseline_seed,
+            linearize=False
+        )
+        # Make a deep copy to avoid issues with shared references
+        if jvp_mode == 'fwd':
+            baseline_grad = {of_name: baseline_grad_dict[of_name].copy() for of_name in of}
+        else:
+            baseline_grad = {dv_name: baseline_grad_dict[dv_name].copy() for dv_name in wrt}
+
+        # Save current DV values for restoration later
+        dv_vals = {}
+        for dv_name in wrt:
+            dv_vals[dv_name] = self[dv_name].copy()
+
+        # Perturb design variables in direction
+        if method == 'cs':
+            # Complex step perturbation
+            for dv_name in wrt:
+                self[dv_name] = dv_vals[dv_name] + (1j * step) * direction_dict[dv_name]
+        else:  # 'fd'
+            # Finite difference perturbation
+            for dv_name in wrt:
+                self[dv_name] = dv_vals[dv_name] + step * direction_dict[dv_name]
+
+        # Solve nonlinear system at perturbed point
+        self.model.run_solve_nonlinear()
+        # Re-linearize the model at the perturbed point for accurate gradient computation
+        self.model.run_linearize()
+
+        # Compute perturbed gradient
+        perturbed_grad_dict = self.compute_jacvec_product(
+            of=of,
+            wrt=wrt,
+            mode=jvp_mode,
+            seed=baseline_seed,
+            linearize=False
+        )
+        # Make a deep copy to avoid issues with shared references
+        if jvp_mode == 'fwd':
+            perturbed_grad = {of_name: perturbed_grad_dict[of_name].copy() for of_name in of}
+        else:
+            perturbed_grad = {dv_name: perturbed_grad_dict[dv_name].copy() for dv_name in wrt}
+
+        # Restore design variables to original state
+        for dv_name in wrt:
+            self[dv_name] = dv_vals[dv_name]
+
+        # Compute HVP from finite difference or complex step
+        hvp = {}
+
+        if jvp_mode == 'fwd':
+            # Forward mode: baseline_grad and perturbed_grad are keyed by 'of' variables
+            # Since we perturbed all DVs in the direction at once, the gradient difference
+            # for the output already contains H @ direction
+            for of_name in of:
+                if method == 'cs':
+                    # Complex step: extract imaginary part and divide by step
+                    hvp[of_name] = np.imag(perturbed_grad[of_name]) / step
+                else:  # 'fd'
+                    # Finite difference: (grad_new - grad_baseline) / step
+                    hvp[of_name] = (perturbed_grad[of_name] - baseline_grad[of_name]) / step
+
+        else:  # rev mode
+            # Reverse mode: baseline_grad and perturbed_grad are keyed by 'wrt' variables
+            # Since we perturbed all DVs in the direction at once:
+            # perturbed_grad[dv] - baseline_grad[dv] ≈ H[output, dv] @ direction (up to step size)
+            # So H @ direction = [grad_diff['x']/step, grad_diff['y']/step, ...]
+            for of_name in of:
+                hvp_components = []
+                for dv_name in wrt:
+                    if method == 'cs':
+                        # Complex step: extract imaginary part and divide by step
+                        hvp_dv = np.imag(perturbed_grad[dv_name]) / step
+                    else:  # 'fd'
+                        # Finite difference: (grad_new - grad_baseline) / step
+                        hvp_dv = (perturbed_grad[dv_name] - baseline_grad[dv_name]) / step
+
+                    # hvp_dv is the component of H@direction for this DV
+                    hvp_components.append(hvp_dv.ravel())
+
+                # Concatenate all DV components into single array for this output
+                if hvp_components:
+                    hvp[of_name] = np.concatenate(hvp_components)
+                else:
+                    hvp[of_name] = np.array([])
 
         return hvp
 
@@ -2174,7 +2361,7 @@ class Problem(object, metaclass=ProblemMetaclass):
         def_desvar_opts = [opt for opt in ('indices',) if opt not in desvar_opts and
                            _find_dict_meta(desvars, opt)]
         desvar_opts = [opt for opt in desvar_opts if _find_dict_meta(desvars, opt)]
-    
+
         if ('lower' in desvar_opts or 'upper' in desvar_opts) and driver_scaling:
             lower, upper, _ = self.driver._autoscaler.get_bounds_scaling('design_var')
             for name in desvars:

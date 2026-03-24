@@ -538,42 +538,29 @@ class TestProblem(unittest.TestCase):
         prob.model.nonlinear_solver = om.NonlinearBlockGS()
         prob.model.linear_solver = om.ScipyKrylov()
 
-        prob.setup(mode='fwd')
+        prob.setup()
         prob.run_model()
 
         of = ['obj']
         wrt = ['_auto_ivc.v1', '_auto_ivc.v0']
 
-        # For HVP test, we use a seed vector in the jvp space
-        # For rev mode (reverse-over-forward): jvp is in forward mode, so seed is on 'wrt'
-        rvec = prob.model._vectors['output']['linear']
-        seed = []
+        # Create a direction vector for H @ p computation
+        # Use simple direction for testing
+        direction = {}
         for name in wrt:
-            seed.append(np.random.random(rvec[name].size))
+            direction[name] = np.ones(1)
 
-        # Compute HVP with rev mode (reverse-over-forward)
-        hvp = prob.compute_hess_vec_product(of, wrt, 'rev', seed, method=method)
+        # Compute HVP with directional computation
+        hvp = prob.compute_hess_vec_product(of, wrt, direction=direction, method=method)
 
         # Verify the result is returned as a dict
         self.assertIsInstance(hvp, dict)
-        # Results should be keyed by 'of' variables since we differentiated forward-mode jvp
+        # Results should be keyed by 'of' variables
         for name in of:
             self.assertIn(name, hvp)
-            # Verify shape is reasonable (should be array)
-            self.assertIsInstance(hvp[name], np.ndarray)
-
-    def test_compute_hess_vec_product_invalid_mode(self):
-
-        prob = om.Problem()
-        prob.model = SellarDerivatives()
-        prob.setup()
-        prob.run_model()
-
-        of = ['obj']
-        wrt = ['_auto_ivc.v1']
-
-        with self.assertRaises(ValueError):
-            prob.compute_hess_vec_product(of, wrt, 'invalid', [1.0])
+            # Verify result is a scalar or array
+            hvp_val = hvp[name]
+            self.assertTrue(isinstance(hvp_val, (float, int, np.ndarray)))
 
     def test_compute_hess_vec_product_invalid_method(self):
 
@@ -586,7 +573,7 @@ class TestProblem(unittest.TestCase):
         wrt = ['_auto_ivc.v1']
 
         with self.assertRaises(ValueError):
-            prob.compute_hess_vec_product(of, wrt, 'fwd', [1.0], method='invalid')
+            prob.compute_hess_vec_product(of, wrt, direction=[1.0], method='invalid')
 
     def test_feature_set_indeps(self):
 
