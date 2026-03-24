@@ -3,6 +3,7 @@ OpenMDAO Wrapper for the scipy.optimize.minimize family of local optimizers.
 """
 
 import sys
+import warnings
 from packaging.version import Version
 
 import numpy as np
@@ -962,19 +963,24 @@ class ScipyOptimizeDriver(Driver):
                 h = step_sizes[dv_name]
 
                 if method == 'cs':
-                    # Complex step perturbation
-                    prob[dv_name] = dv_vals[dv_name] + (1j * h) * p_chunk
+                    # Complex step perturbation: suppress harmless complex casting warnings
+                    # The imaginary part is discarded during the solve, but we've already
+                    # extracted the HVP information from it in the gradient computation
+                    perturbed_val = np.asarray(dv_vals[dv_name], dtype=complex) + (1j * h) * p_chunk
+                    with warnings.catch_warnings():
+                        warnings.filterwarnings('ignore', message='Casting complex values')
+                        dv_vec[dv_name] = perturbed_val
                 else:  # 'fd'
                     # Finite difference perturbation
                     if form == 'central':
                         # For central form, we'll compute +h and -h, save for now
-                        prob[dv_name] = dv_vals[dv_name] + h * p_chunk
+                        dv_vec[dv_name] = dv_vals[dv_name] + h * p_chunk
                     elif form == 'backward':
                         # For backward, perturb in negative direction
-                        prob[dv_name] = dv_vals[dv_name] - h * p_chunk
+                        dv_vec[dv_name] = dv_vals[dv_name] - h * p_chunk
                     else:  # 'forward'
                         # For forward, perturb in positive direction
-                        prob[dv_name] = dv_vals[dv_name] + h * p_chunk
+                        dv_vec[dv_name] = dv_vals[dv_name] + h * p_chunk
 
                 offset += dv_size
 
@@ -997,9 +1003,9 @@ class ScipyOptimizeDriver(Driver):
 
             # For central form with FD, also need backward gradient
             if method == 'fd' and form == 'central':
-                # Restore and perturb backward
+                # Restore to baseline
                 for dv_name in self._dvlist:
-                    prob[dv_name] = dv_vals[dv_name]
+                    dv_vec[dv_name] = dv_vals[dv_name]
 
                 # Perturb in negative direction
                 offset = 0
@@ -1007,7 +1013,7 @@ class ScipyOptimizeDriver(Driver):
                     dv_size = dv_vec.metadata[dv_name]['size']
                     p_chunk = p[offset:offset+dv_size]
                     h = step_sizes[dv_name]
-                    prob[dv_name] = dv_vals[dv_name] - h * p_chunk
+                    dv_vec[dv_name] = dv_vals[dv_name] - h * p_chunk
                     offset += dv_size
 
                 prob.model.run_solve_nonlinear()
@@ -1047,7 +1053,7 @@ class ScipyOptimizeDriver(Driver):
 
             # Restore design variables to original state
             for dv_name in self._dvlist:
-                prob[dv_name] = dv_vals[dv_name]
+                dv_vec[dv_name] = dv_vals[dv_name]
 
             # Extract per-DV results and concatenate into flat array
             hvp_parts = []
