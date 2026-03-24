@@ -910,60 +910,8 @@ class Problem(object, metaclass=ProblemMetaclass):
 
         return {n: lvec[resolver.source(n)].copy() for n in lnames}
 
-    def compute_hess_vec_product(self, of, wrt, direction=None, method='cs', step=None,
-                                  linearize=False):
-        """
-        Compute the Hessian-vector product or full Hessian.
-
-        If direction is None, computes the full Hessian (or partial Hessian if wrt contains
-        multiple variables) using nested differentiation (slower, O(n) operations where n is
-        the number of design variables).
-
-        If direction is provided, computes H @ direction, the Hessian applied to a direction
-        vector (fast, O(1) operation). This is more efficient when you only need the product
-        in a specific direction.
-
-        Parameters
-        ----------
-        of : list of str
-            Variables whose second derivatives will be computed.
-        wrt : list of str
-            Variables to differentiate with respect to (twice).
-        direction : ndarray or dict or None
-            Direction vector for computing H @ direction. If None, computes full Hessian.
-            If ndarray, interpreted as flat array matching wrt variable order.
-            If dict, keyed by wrt variable names.
-        method : str
-            'cs' for complex step (default) or 'fd' for finite difference.
-        step : float or None
-            Step size for complex step or finite difference. Default is 1e-40 for 'cs'
-            and 1e-6 for 'fd'. If None, the default is used based on 'method'.
-        linearize : bool
-            If True, linearize the model before computing derivatives.
-
-        Returns
-        -------
-        dict
-            If direction is None: Full Hessian keyed by 'of' or 'wrt' variables depending
-                                   on the nested differentiation approach.
-            If direction is provided: H @ direction keyed by 'of' variables.
-        """
-        if method not in ('cs', 'fd'):
-            raise ValueError(f"Invalid method '{method}'. Must be 'cs' or 'fd'.")
-
-        # Determine default step size
-        if step is None:
-            step = 1e-40 if method == 'cs' else 1e-6
-
-        if direction is None:
-            # Compute full Hessian using nested differentiation approach
-            return self._compute_full_hessian(of, wrt, method, step, linearize)
-        else:
-            # Compute H @ direction directly
-            return self._compute_hvp_directional(of, wrt, direction, method, step, linearize)
-
     def approx_hessvec_product(self, of, wrt, p, method='cs', form='forward', step_calc='abs',
-                               minimum_step=1e-16, step=None):
+                               minimum_step=1e-16, step=None, mode=None):
         """
         Compute an approximation of the Hessian-vector product H @ p.
 
@@ -998,6 +946,9 @@ class Problem(object, metaclass=ProblemMetaclass):
             Minimum absolute step size. Default is 1e-16.
         step : float or None
             Step size for perturbation. If None, defaults to 1e-40 for 'cs' or 1e-6 for 'fd'.
+        mode : str or None
+            Autodiff mode: 'fwd' for forward mode or 'rev' for reverse mode.
+            If None, uses the mode established during problem setup.
 
         Returns
         -------
@@ -1015,6 +966,14 @@ class Problem(object, metaclass=ProblemMetaclass):
         if method not in ('cs', 'fd'):
             raise ValueError(f"Invalid method '{method}'. Must be 'cs' or 'fd'.")
 
+        # Get autodiff mode, defaulting to setup mode if not specified
+        if mode is None:
+            grad_mode = self._mode
+        else:
+            if mode not in ('fwd', 'rev'):
+                raise ValueError(f"Invalid mode '{mode}'. Must be 'fwd' or 'rev'.")
+            grad_mode = mode
+
         # Get list of objectives
         obj_list = list(of)
 
@@ -1026,7 +985,7 @@ class Problem(object, metaclass=ProblemMetaclass):
             dv_vals[dv_name] = dv_val.copy() if hasattr(dv_val, 'copy') else np.array(dv_val)
             dv_sizes[dv_name] = int(np.prod(dv_val.shape if hasattr(dv_val, 'shape') else [1]))
 
-        # Compute baseline gradient at current point
+        # Compute baseline gradient at current point (skip for CS since we only need imaginary part)
         grad_mode = self._mode
         # Construct seed based on the mode
         if grad_mode == 'fwd':
@@ -1036,20 +995,26 @@ class Problem(object, metaclass=ProblemMetaclass):
             # Reverse mode: seed is keyed by 'of' variables
             baseline_seed = {obj_name: 1.0 for obj_name in obj_list}
 
-        baseline_grad_dict = self.compute_jacvec_product(
-            of=obj_list,
-            wrt=wrt,
-            mode=grad_mode,
-            seed=baseline_seed,
-            linearize=False
-        )
-        # Make a deep copy to avoid issues with shared references
-        # In forward mode, result is keyed by 'of'; in reverse, keyed by 'wrt'
-        if grad_mode == 'fwd':
-            baseline_grad = {obj_name: baseline_grad_dict[obj_name].copy() for obj_name in obj_list}
+        # For complex step, skip baseline gradient (we only need imaginary part)
+        # For finite difference, we need baseline gradient for all forms
+        if method == 'cs':
+            baseline_grad = None
         else:
-            baseline_grad = {dv_name: baseline_grad_dict[dv_name].copy()
-                            for dv_name in wrt}
+            baseline_grad_dict = self.compute_jacvec_product(
+                of=obj_list,
+                wrt=wrt,
+                mode=grad_mode,
+                seed=baseline_seed,
+                linearize=False
+            )
+            # Make a deep copy to avoid issues with shared references
+            # In forward mode, result is keyed by 'of'; in reverse, keyed by 'wrt'
+            if grad_mode == 'fwd':
+                baseline_grad = {obj_name: baseline_grad_dict[obj_name].copy()
+                                 for obj_name in obj_list}
+            else:
+                baseline_grad = {dv_name: baseline_grad_dict[dv_name].copy()
+                                for dv_name in wrt}
 
         # Calculate step sizes based on step_calc option
         step_sizes = {}

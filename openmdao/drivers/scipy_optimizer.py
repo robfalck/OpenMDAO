@@ -905,7 +905,10 @@ class ScipyOptimizeDriver(Driver):
             # Linearize the model at the current point
             prob.model.run_linearize()
 
-            # Call the Problem's HVP approximation method
+            # Compute Hessian-vector product using approx_hessvec_product
+            # This method implements efficient computation:
+            # - For complex step: single model evaluation with weighted gradient sum
+            # - For finite difference: baseline and perturbed evaluations with weighted gradients
             hvp_flat = prob.approx_hessvec_product(
                 of=list(self._objs),
                 wrt=self._dvlist,

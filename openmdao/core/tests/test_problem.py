@@ -529,51 +529,55 @@ class TestProblem(unittest.TestCase):
 
         np.testing.assert_allclose(checkvec, result)
 
-    @parameterized.expand(['fd'])
-    def test_compute_hess_vec_product(self, method):
-        # Test HVP using finite difference (simpler to validate)
-
+    def test_approx_hessvec_product_mode_parameter(self):
+        """Test that approx_hessvec_product accepts mode parameter."""
         prob = om.Problem()
-        prob.model = SellarDerivatives()
-        prob.model.nonlinear_solver = om.NonlinearBlockGS()
-        prob.model.linear_solver = om.ScipyKrylov()
-
+        prob.model.add_subsystem('comp', om.ExecComp('y=x**2'), promotes=['*'])
         prob.setup()
+        prob['x'] = 2.0
         prob.run_model()
 
-        of = ['obj']
-        wrt = ['_auto_ivc.v1', '_auto_ivc.v0']
+        # Direction vector as flat array
+        p = np.array([1.0])
 
-        # Create a direction vector for H @ p computation
-        # Use simple direction for testing
-        direction = {}
-        for name in wrt:
-            direction[name] = np.ones(1)
+        # Should not raise error with valid mode
+        hvp_fwd = prob.approx_hessvec_product(of=['y'], wrt=['x'], p=p, method='fd',
+                                              mode='fwd', step=1e-2)
+        self.assertIsInstance(hvp_fwd, np.ndarray)
 
-        # Compute HVP with directional computation
-        hvp = prob.compute_hess_vec_product(of, wrt, direction=direction, method=method)
+        hvp_rev = prob.approx_hessvec_product(of=['y'], wrt=['x'], p=p, method='fd',
+                                              mode='rev', step=1e-2)
+        self.assertIsInstance(hvp_rev, np.ndarray)
 
-        # Verify the result is returned as a dict
-        self.assertIsInstance(hvp, dict)
-        # Results should be keyed by 'of' variables
-        for name in of:
-            self.assertIn(name, hvp)
-            # Verify result is a scalar or array
-            hvp_val = hvp[name]
-            self.assertTrue(isinstance(hvp_val, (float, int, np.ndarray)))
-
-    def test_compute_hess_vec_product_invalid_method(self):
-
+    def test_approx_hessvec_product_invalid_mode(self):
+        """Test approx_hessvec_product with invalid mode raises ValueError."""
         prob = om.Problem()
-        prob.model = SellarDerivatives()
+        prob.model.add_subsystem('comp', om.ExecComp('y=x**2'), promotes=['*'])
         prob.setup()
+        prob['x'] = 2.0
         prob.run_model()
 
-        of = ['obj']
-        wrt = ['_auto_ivc.v1']
+        # Direction vector as flat array
+        p = np.array([1.0])
 
+        # Should raise ValueError for invalid mode
         with self.assertRaises(ValueError):
-            prob.compute_hess_vec_product(of, wrt, direction=[1.0], method='invalid')
+            prob.approx_hessvec_product(of=['y'], wrt=['x'], p=p, method='fd', mode='invalid')
+
+    def test_approx_hessvec_product_invalid_method(self):
+        """Test approx_hessvec_product with invalid method raises ValueError."""
+        prob = om.Problem()
+        prob.model.add_subsystem('comp', om.ExecComp('y=x**2'), promotes=['*'])
+        prob.setup()
+        prob['x'] = 2.0
+        prob.run_model()
+
+        # Direction vector as flat array
+        p = np.array([1.0])
+
+        # Should raise ValueError for invalid method
+        with self.assertRaises(ValueError):
+            prob.approx_hessvec_product(of=['y'], wrt=['x'], p=p, method='invalid')
 
     def test_feature_set_indeps(self):
 
