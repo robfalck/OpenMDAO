@@ -919,12 +919,14 @@ class ScipyOptimizeDriver(Driver):
             prob.model.run_linearize()
 
             # Step 1: Compute baseline gradient at current point
+            # Use the problem's mode setting (which auto-selects for efficiency)
+            grad_mode = prob._mode
             # Seed with 1.0 for each objective to extract the gradient
             baseline_seed = {obj_name: 1.0 for obj_name in obj_list}
             baseline_grad_dict = prob.compute_jacvec_product(
                 of=obj_list,
                 wrt=self._dvlist,
-                mode='rev',
+                mode=grad_mode,
                 seed=baseline_seed,
                 linearize=False
             )
@@ -989,11 +991,11 @@ class ScipyOptimizeDriver(Driver):
             # Re-linearize the model at the perturbed point for accurate gradient computation
             prob.model.run_linearize()
 
-            # Step 6: Compute perturbed gradient
+            # Step 6: Compute perturbed gradient (using same mode as baseline)
             perturbed_grad_dict = prob.compute_jacvec_product(
                 of=obj_list,
                 wrt=self._dvlist,
-                mode='rev',
+                mode=grad_mode,
                 seed=baseline_seed,
                 linearize=False
             )
@@ -1023,7 +1025,7 @@ class ScipyOptimizeDriver(Driver):
                 backward_grad_dict = prob.compute_jacvec_product(
                     of=obj_list,
                     wrt=self._dvlist,
-                    mode='rev',
+                    mode=grad_mode,
                     seed=baseline_seed,
                     linearize=False
                 )
