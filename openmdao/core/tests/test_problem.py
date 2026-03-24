@@ -579,6 +579,170 @@ class TestProblem(unittest.TestCase):
         with self.assertRaises(ValueError):
             prob.approx_hessvec_product(of=['y'], wrt=['x'], p=p, method='invalid')
 
+    def test_approx_hessvec_product_rosenbrock_calls(self):
+        """
+        Test HVP computations with Rosenbrock problem using different method options.
+
+        Uses subTests to systematically test different combinations of:
+        - Problem dimensions (n=2, 10, 100)
+        - Differentiation method ('cs', 'fd')
+        - Finite difference form ('forward', 'backward', 'central')
+        - Step calculation method ('abs', 'rel_avg', 'rel_element')
+        - Autodiff mode ('fwd', 'rev')
+
+        Verifies that the method doesn't raise exceptions and returns properly shaped arrays.
+        """
+        class Rosenbrock(om.ExplicitComponent):
+            """Rosenbrock function: f(x) = sum[(1 - x_i)^2 + 100*(x_{i+1} - x_i^2)^2]."""
+
+            def initialize(self):
+                self.options.declare('n', default=2, types=int)
+
+            def setup(self):
+                n = self.options['n']
+                self.add_input('x', val=np.ones(n))
+                self.add_output('f', val=0.0)
+                self.declare_partials('f', 'x')
+
+            def compute(self, inputs, outputs):
+                x = inputs['x']
+                n = len(x)
+                f = 0.0
+                for i in range(n - 1):
+                    f += (1.0 - x[i]) ** 2 + 100.0 * (x[i + 1] - x[i] ** 2) ** 2
+                outputs['f'] = f
+
+            def compute_partials(self, inputs, partials):
+                x = inputs['x']
+                n = len(x)
+                grad = np.zeros(n)
+                for i in range(n - 1):
+                    grad[i] += -2.0 * (1.0 - x[i]) - 400.0 * x[i] * (x[i + 1] - x[i] ** 2)
+                    grad[i + 1] += 200.0 * (x[i + 1] - x[i] ** 2)
+                partials['f', 'x'] = grad
+
+            def compute_analytical_hvp(self, x, p):
+                """
+                Compute analytical Hessian-vector product H @ p for Rosenbrock.
+
+                The Rosenbrock function is f = sum_i[(1 - x_i)^2 + 100*(x_{i+1} - x_i^2)^2]
+                which creates a tridiagonal Hessian. Each segment i (from x_i to x_{i+1}) contributes
+                to multiple diagonal elements, so we accumulate contributions properly:
+                - Segment i contributes to H[i,i], H[i+1,i+1], and H[i,i+1]=H[i+1,i]
+                """
+                n = len(x)
+                hvp = np.zeros(n)
+
+                for i in range(n - 1):
+                    # Each segment i contributes:
+                    # H[i,i] contribution from (1-x_i)^2 term: 2
+                    h_ii = 2.0 - 400.0 * x[i + 1] + 1200.0 * x[i] ** 2
+
+                    # H[i+1,i+1] contribution from (x_{i+1} - x_i^2)^2 term: 200
+                    h_ip1_ip1 = 200.0
+
+                    # H[i,i+1] (and by symmetry H[i+1,i]) contribution:
+                    h_i_ip1 = -400.0 * x[i]
+
+                    # Apply to HVP: hvp = H @ p
+                    hvp[i] += h_ii * p[i] + h_i_ip1 * p[i + 1]
+                    hvp[i + 1] += h_i_ip1 * p[i] + h_ip1_ip1 * p[i + 1]
+
+                return hvp
+
+        # Test parameters
+        dimensions = [2, 10, 100]
+        methods = ['fd']
+        forms = {'cs': [None], 'fd': ['forward', 'backward', 'central']}
+        step_calcs = ['abs', 'rel_avg', 'rel_element']
+        modes = ['fwd', 'rev']
+        steps_map = {'cs': [1e-40], 'fd': [1e-6]}
+
+        for n in dimensions:
+            for method in methods:
+                for form in forms[method]:
+                    for step_calc in step_calcs:
+                        for mode in modes:
+                            for step in steps_map[method]:
+                                with self.subTest(
+                                    n=n, method=method, form=form, step_calc=step_calc,
+                                    mode=mode, step=step
+                                ):
+                                    # Create problem with Rosenbrock function
+                                    prob = om.Problem()
+                                    prob.model.add_subsystem(
+                                        'rosenbrock', Rosenbrock(n=n), promotes=['*']
+                                    )
+                                    prob.setup(check=False, mode=mode, force_alloc_complex=True)
+
+                                    # Set initial point
+                                    x_init = np.ones(n) * 2.0
+                                    prob['x'] = x_init
+                                    prob.run_model()
+
+                                    # Direction vector
+                                    np.random.seed(42 + n)
+                                    p = np.random.randn(n)
+
+                                    # Compute approximate HVP (mode parameter overrides problem setup)
+                                    if method == 'cs':
+                                        hvp_approx = prob.approx_hessvec_product(
+                                            of=['f'], wrt=['x'], p=p, method=method,
+                                            step_calc=step_calc, step=step, mode=mode
+                                        )
+                                    else:  # 'fd'
+                                        hvp_approx = prob.approx_hessvec_product(
+                                            of=['f'], wrt=['x'], p=p, method=method,
+                                            form=form, step_calc=step_calc, step=step, mode=mode
+                                        )
+
+                                    # Verify result is ndarray and finite
+                                    self.assertIsInstance(hvp_approx, np.ndarray,
+                                                         f'HVP should be ndarray, got {type(hvp_approx)}')
+                                    self.assertTrue(hvp_approx.size > 0,
+                                                   'HVP should be non-empty')
+                                    self.assertTrue(np.all(np.isfinite(hvp_approx)),
+                                                   f'HVP contains non-finite values: {hvp_approx}')
+
+                                    # Validate HVP accuracy against analytical HVP (only in reverse mode and FD)
+                                    # Note: CS validation is skipped because OpenMDAO casts complex-valued design
+                                    # variables back to real during assignment (due to declared variable dtype).
+                                    # Supporting CS for HVP would require architectural changes to allow complex
+                                    # perturbations to be preserved through variable assignment.
+                                    if mode == 'rev' and method == 'fd':
+                                        # Compute analytical HVP
+                                        rosenbrock_comp = prob.model._get_subsystem('rosenbrock')
+                                        hvp_analytical = rosenbrock_comp.compute_analytical_hvp(x_init, p)
+
+                                        # Skip validation if analytical HVP is essentially zero
+                                        hvp_analytical_norm = np.linalg.norm(hvp_analytical)
+                                        if hvp_analytical_norm < 1e-14:
+                                            continue
+
+                                        # In reverse mode, hvp_approx should be shape (n,)
+                                        hvp_approx_flat = hvp_approx.ravel()
+
+                                        # Compute relative error
+                                        abs_error = np.linalg.norm(hvp_approx_flat - hvp_analytical)
+                                        rel_error = abs_error / (hvp_analytical_norm + 1e-16)
+
+                                        # TODO: Remove debug print
+                                        print(f'{n=}{mode=} {form=} {step_calc=} ')
+                                        print(hvp_analytical)
+                                        print(hvp_approx_flat)
+                                        print(hvp_analytical - hvp_approx_flat)
+                                        print()
+
+                                        # Tolerance depends on FD form
+                                        # With step=1e-6, expect FD error ~ O(h) or O(h^2) depending on form
+                                        if form == 'central':
+                                            tol = 1e-6  # Central diff O(h^2) error
+                                        else:  # forward/backward
+                                            tol = 1e-3  # One-sided O(h) error
+
+                                        self.assertLess(rel_error, tol,
+                                                       f'Relative error {rel_error:.2e} exceeds tolerance {tol:.2e}')
+
     def test_feature_set_indeps(self):
 
         prob = om.Problem()

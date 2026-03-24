@@ -924,6 +924,14 @@ class Problem(object, metaclass=ProblemMetaclass):
 
         The result is H @ p, which is used by scipy's trust-region optimizers.
 
+        Notes
+        -----
+        Complex step method ('cs') requires components to implement compute_partials with
+        complex-aware code. If compute_partials does not handle complex inputs properly,
+        the imaginary parts will be lost and complex step will return zeros. For models
+        with components that do not support complex arithmetic, use finite difference
+        method ('fd') instead.
+
         Parameters
         ----------
         of : list of str
@@ -956,7 +964,6 @@ class Problem(object, metaclass=ProblemMetaclass):
             Hessian-vector product as a flat array matching the concatenated shape of wrt variables.
         """
         import numpy as np
-        import warnings
 
         # Get default step size if not provided
         if step is None:
@@ -985,8 +992,6 @@ class Problem(object, metaclass=ProblemMetaclass):
             dv_vals[dv_name] = dv_val.copy() if hasattr(dv_val, 'copy') else np.array(dv_val)
             dv_sizes[dv_name] = int(np.prod(dv_val.shape if hasattr(dv_val, 'shape') else [1]))
 
-        # Compute baseline gradient at current point (skip for CS since we only need imaginary part)
-        grad_mode = self._mode
         # Construct seed based on the mode
         if grad_mode == 'fwd':
             # Forward mode: seed is keyed by 'wrt' variables
@@ -994,6 +999,9 @@ class Problem(object, metaclass=ProblemMetaclass):
         else:  # 'rev'
             # Reverse mode: seed is keyed by 'of' variables
             baseline_seed = {obj_name: 1.0 for obj_name in obj_list}
+
+        # Linearize the model at the baseline point to compute accurate gradients
+        self.model.run_linearize()
 
         # For complex step, skip baseline gradient (we only need imaginary part)
         # For finite difference, we need baseline gradient for all forms
@@ -1016,55 +1024,68 @@ class Problem(object, metaclass=ProblemMetaclass):
                 baseline_grad = {dv_name: baseline_grad_dict[dv_name].copy()
                                 for dv_name in wrt}
 
-        # Calculate step sizes based on step_calc option
-        step_sizes = {}
-        for dv_name in wrt:
-            dv_val = dv_vals[dv_name]
-            if step_calc == 'abs':
-                # Absolute step
-                step_sizes[dv_name] = step
-            elif step_calc == 'rel_avg':
-                # Relative to average magnitude
-                avg_mag = np.mean(np.abs(dv_val))
-                calc_step = max(minimum_step, avg_mag * step)
-                step_sizes[dv_name] = calc_step
-            elif step_calc == 'rel_element':
-                # Relative to each element
-                calc_step = np.maximum(minimum_step, np.abs(dv_val) * step)
-                step_sizes[dv_name] = calc_step
-            else:
-                msg = f"Invalid step_calc '{step_calc}'. Must be 'abs', 'rel_avg', or " \
-                      f"'rel_element'."
-                raise ValueError(msg)
+        # Calculate step size based on step_calc option
+        # For HVP computation, we need a single scalar step size for the entire direction p,
+        # not per-element step sizes. The step_calc determines how to compute this scalar based
+        # on the magnitude of the design variables.
+        if step_calc == 'abs':
+            # Absolute step
+            h_scalar = step
+        elif step_calc == 'rel_avg':
+            # Relative to average magnitude of all design variables
+            avg_mag = 0.0
+            total_size = 0
+            for dv_name in wrt:
+                dv_val = dv_vals[dv_name]
+                avg_mag += np.sum(np.abs(dv_val))
+                total_size += dv_sizes[dv_name]
+            if total_size > 0:
+                avg_mag = avg_mag / total_size
+            h_scalar = max(minimum_step, avg_mag * step)
+        elif step_calc == 'rel_element':
+            # For rel_element, use the average magnitude of all elements (same as rel_avg)
+            # Note: Per-element step sizes break HVP computation due to Hessian coupling
+            avg_mag = 0.0
+            total_size = 0
+            for dv_name in wrt:
+                dv_val = dv_vals[dv_name]
+                avg_mag += np.sum(np.abs(dv_val))
+                total_size += dv_sizes[dv_name]
+            if total_size > 0:
+                avg_mag = avg_mag / total_size
+            h_scalar = max(minimum_step, avg_mag * step)
+        else:
+            msg = f"Invalid step_calc '{step_calc}'. Must be 'abs', 'rel_avg', or " \
+                  f"'rel_element'."
+            raise ValueError(msg)
 
         # Perturb design variables in direction p
-        # Split p into per-DV chunks and perturb
+        # Split p into per-DV chunks and perturb using scalar step size h_scalar
         offset = 0
         for dv_name in wrt:
             dv_size = dv_sizes[dv_name]
             p_chunk = p[offset:offset+dv_size]
             p_reshaped = p_chunk.reshape(dv_vals[dv_name].shape)
-            h = step_sizes[dv_name]
 
             if method == 'cs':
-                # Complex step perturbation: suppress harmless complex casting warnings
-                # The imaginary part is discarded during the solve, but we've already
-                # extracted the HVP information from it in the gradient computation
-                perturbed_val = np.asarray(dv_vals[dv_name], dtype=complex) + (1j * h) * p_reshaped
-                with warnings.catch_warnings():
-                    warnings.filterwarnings('ignore', message='Casting complex values')
-                    self[dv_name] = perturbed_val
+                # Complex step perturbation
+                # Note: For CS to work properly with the current architecture,
+                # components must implement compute_partials with complex-aware code.
+                # See approx_hessvec_product docstring for details on CS limitations.
+                perturbed_val = (np.asarray(dv_vals[dv_name], dtype=complex) +
+                                 (1j * h_scalar) * p_reshaped)
+                self[dv_name] = perturbed_val
             else:  # 'fd'
                 # Finite difference perturbation
                 if form == 'central':
                     # For central form, we'll compute +h and -h, save for now
-                    self[dv_name] = dv_vals[dv_name] + h * p_reshaped
+                    self[dv_name] = dv_vals[dv_name] + h_scalar * p_reshaped
                 elif form == 'backward':
                     # For backward, perturb in negative direction
-                    self[dv_name] = dv_vals[dv_name] - h * p_reshaped
+                    self[dv_name] = dv_vals[dv_name] - h_scalar * p_reshaped
                 else:  # 'forward'
                     # For forward, perturb in positive direction
-                    self[dv_name] = dv_vals[dv_name] + h * p_reshaped
+                    self[dv_name] = dv_vals[dv_name] + h_scalar * p_reshaped
 
             offset += dv_size
 
@@ -1096,14 +1117,13 @@ class Problem(object, metaclass=ProblemMetaclass):
             for dv_name in wrt:
                 self[dv_name] = dv_vals[dv_name]
 
-            # Perturb in negative direction
+            # Perturb in negative direction using scalar step h_scalar
             offset = 0
             for dv_name in wrt:
                 dv_size = dv_sizes[dv_name]
                 p_chunk = p[offset:offset+dv_size]
                 p_reshaped = p_chunk.reshape(dv_vals[dv_name].shape)
-                h = step_sizes[dv_name]
-                self[dv_name] = dv_vals[dv_name] - h * p_reshaped
+                self[dv_name] = dv_vals[dv_name] - h_scalar * p_reshaped
                 offset += dv_size
 
             self.model.run_solve_nonlinear()
@@ -1131,30 +1151,25 @@ class Problem(object, metaclass=ProblemMetaclass):
 
         if grad_mode == 'fwd':
             # Forward mode: perturbed_grad is keyed by 'of' variables
-            # When we perturb all DVs in direction p with per-DV step sizes,
-            # we need to normalize by the step for proper second derivative
-            # For simplicity and correctness, use the first DV's step as reference
-            # (In practice, forward mode is typically only used when it's more efficient,
-            # which usually means few outputs and many DVs, so single objective is typical)
-            first_dv_step = step_sizes[wrt[0]] if wrt else 1.0
+            # Use the scalar step h_scalar for all computations
 
             for obj_name in obj_list:
                 if method == 'cs':
                     # Complex step: extract imaginary part and divide by step
-                    hvp[obj_name] = np.imag(perturbed_grad[obj_name]) / first_dv_step
+                    hvp[obj_name] = np.imag(perturbed_grad[obj_name]) / h_scalar
                 else:  # 'fd'
                     if form == 'central':
                         # Central difference: (forward - backward) / (2*h)
                         hvp[obj_name] = (perturbed_grad[obj_name] - backward_grad[obj_name]) \
-                                        / (2.0 * first_dv_step)
+                                        / (2.0 * h_scalar)
                     elif form == 'backward':
                         # Backward difference: (baseline - backward) / h
                         hvp[obj_name] = (baseline_grad[obj_name] - perturbed_grad[obj_name]) \
-                                        / first_dv_step
+                                        / h_scalar
                     else:  # 'forward'
                         # Forward difference: (forward - baseline) / h
                         hvp[obj_name] = (perturbed_grad[obj_name] - baseline_grad[obj_name]) \
-                                        / first_dv_step
+                                        / h_scalar
 
             # In forward mode, extract per-output HVP and concatenate
             hvp_parts = []
@@ -1165,23 +1180,22 @@ class Problem(object, metaclass=ProblemMetaclass):
 
         else:  # reverse mode
             # Reverse mode: perturbed_grad is keyed by 'wrt' variables
-            # For each DV, compute the difference in gradient with respect to the output
+            # Use scalar step h_scalar for all computations
             for dv_name in wrt:
-                h = step_sizes[dv_name]
                 if method == 'cs':
                     # Complex step: extract imaginary part and divide by step
-                    hvp[dv_name] = np.imag(perturbed_grad[dv_name]) / h
+                    hvp[dv_name] = np.imag(perturbed_grad[dv_name]) / h_scalar
                 else:  # 'fd'
                     if form == 'central':
                         # Central difference: (forward - backward) / (2*h)
                         hvp[dv_name] = (perturbed_grad[dv_name] - backward_grad[dv_name]) \
-                                       / (2.0 * h)
+                                       / (2.0 * h_scalar)
                     elif form == 'backward':
                         # Backward difference: (baseline - backward) / h
-                        hvp[dv_name] = (baseline_grad[dv_name] - perturbed_grad[dv_name]) / h
+                        hvp[dv_name] = (baseline_grad[dv_name] - perturbed_grad[dv_name]) / h_scalar
                     else:  # 'forward'
                         # Forward difference: (forward - baseline) / h
-                        hvp[dv_name] = (perturbed_grad[dv_name] - baseline_grad[dv_name]) / h
+                        hvp[dv_name] = (perturbed_grad[dv_name] - baseline_grad[dv_name]) / h_scalar
 
             # Extract per-DV results and concatenate into flat array
             hvp_parts = []
