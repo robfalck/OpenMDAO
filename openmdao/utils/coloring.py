@@ -187,8 +187,6 @@ class ColoringMeta(object):
         The coloring object.
     _failed : bool
         If True, coloring was already generated but failed.
-    _approx : bool
-        If True, this is an approx coloring.
     randomize_subjacs : bool
         If True, use random subjacs when computing sparsity.
     randomize_seeds : bool
@@ -221,7 +219,6 @@ class ColoringMeta(object):
         self.msginfo = msginfo
         self._coloring = None
         self._failed = False
-        self._approx = False
         self.randomize_subjacs = True
         self.randomize_seeds = False
         self.direct = direct
@@ -551,7 +548,6 @@ class Partial_ColoringMeta(ColoringMeta):
         self.per_instance = per_instance
         self.fname = None
         self.wrt_matches = None
-        self._approx = True
 
     @property
     def wrt_patterns(self):
@@ -1930,6 +1926,7 @@ class Coloring(object):
                 if of not in sparsity:
                     sparsity[of] = {}
                 sparsity[of][wrt] = (nzrows, nzcols, shape)
+            return sparsity
 
     def _subjac_sparsity_iter(self):
         if self._row_vars and self._col_vars and self._row_var_sizes and self._col_var_sizes:
