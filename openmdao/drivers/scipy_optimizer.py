@@ -903,6 +903,17 @@ class ScipyOptimizeDriver(Driver):
             obj_list = list(self._objs)
             dv_vec = self._vectors['design_var']
 
+            # Set design variables from scipy's x array (unscaled)
+            # x is the flat array of design variable values in optimizer space
+            offset = 0
+            for dv_name in self._dvlist:
+                dv_size = dv_vec.metadata[dv_name]['size']
+                prob[dv_name] = x[offset:offset+dv_size]
+                offset += dv_size
+
+            # Run the model to compute outputs
+            prob.model.run_solve_nonlinear()
+
             # Linearize the model at the current point
             prob.model.run_linearize()
 
