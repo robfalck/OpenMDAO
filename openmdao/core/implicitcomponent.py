@@ -336,10 +336,10 @@ class ImplicitComponent(Component):
         """
         Propagate sparsity patterns based on declared partials (implicit components).
 
-        This method is used for sparsity detection on implicit components. It propagates 1's
-        through the system using only the declared sparsity patterns (rows/cols), without
-        any numerical computation.
-        
+        This method is used for sparsity detection on implicit components. It propagates
+        1's through the system using only the declared sparsity patterns (rows/cols),
+        without any numerical computation.
+
         For implicit components, sparsity is propagated through residuals.
 
         Parameters
@@ -359,68 +359,75 @@ class ImplicitComponent(Component):
 
             if mode == 'fwd':
                 # Forward mode: propagate from inputs to residuals/outputs
+                # Pre-process declared partials to avoid repeated glob expansion
                 for (of, wrt), meta in self._declared_partials_patterns.items():
-                    # Expand glob patterns
-                    of_names = self._resolve_var_names(of, 'output')
-                    wrt_names = self._resolve_var_names(wrt, 'input')
-
                     if not meta.get('dependent', True):
                         continue
 
-                    # Get rows and cols if they exist (element-level sparsity)
+                    # Expand glob patterns once
+                    of_names = self._resolve_var_names(of, 'output')
+                    wrt_names = self._resolve_var_names(wrt, 'input')
                     rows = meta.get('rows')
                     cols = meta.get('cols')
+                    is_dense = rows is None or cols is None
 
-                    for of_name in of_names:
-                        for wrt_name in wrt_names:
-                            # Check if input has any nonzeros
-                            d_wrt = d_inputs._abs_get_val(wrt_name, flat=True)
-                            if not np.any(d_wrt):
-                                continue
+                    # Iterate through resolved names
+                    for wrt_name in wrt_names:
+                        # Check if input has any nonzeros (early exit)
+                        d_wrt = d_inputs._abs_get_val(wrt_name, flat=True)
+                        if not np.any(d_wrt):
+                            continue
 
-                            # For implicit components, propagate to residuals
+                        # Propagate to all residuals for this input
+                        for of_name in of_names:
                             d_res = d_residuals._abs_get_val(of_name, flat=True)
 
-                            if rows is None or cols is None:
+                            if is_dense:
                                 # Dense block: entire residual becomes nonzero
-                                d_res[:] = 1.0
+                                d_res[:] = 1
                             else:
                                 # Sparse block: only specific (row, col) positions
-                                for row, col in zip(rows, cols):
-                                    if d_wrt[col] != 0:
-                                        d_res[row] = 1.0
+                                # Vectorized: set d_res[rows[mask]] = 1 where mask indicates nonzero
+                                # cols
+                                rows_arr = np.asarray(rows)
+                                cols_arr = np.asarray(cols)
+                                d_res[rows_arr[d_wrt[cols_arr] != 0]] = 1
 
             else:  # rev
                 # Reverse mode: propagate from residuals to inputs
+                # Pre-process declared partials to avoid repeated glob expansion
                 for (of, wrt), meta in self._declared_partials_patterns.items():
-                    # Expand glob patterns
-                    of_names = self._resolve_var_names(of, 'output')
-                    wrt_names = self._resolve_var_names(wrt, 'input')
-
                     if not meta.get('dependent', True):
                         continue
 
-                    # Get rows and cols if they exist (element-level sparsity)
+                    # Expand glob patterns once
+                    of_names = self._resolve_var_names(of, 'output')
+                    wrt_names = self._resolve_var_names(wrt, 'input')
                     rows = meta.get('rows')
                     cols = meta.get('cols')
+                    is_dense = rows is None or cols is None
 
+                    # Iterate through resolved names
                     for of_name in of_names:
-                        for wrt_name in wrt_names:
-                            # Check if residual has any nonzeros
-                            d_res = d_residuals._abs_get_val(of_name, flat=True)
-                            if not np.any(d_res):
-                                continue
+                        # Check if residual has any nonzeros (early exit)
+                        d_res = d_residuals._abs_get_val(of_name, flat=True)
+                        if not np.any(d_res):
+                            continue
 
+                        # Propagate to all inputs for this residual
+                        for wrt_name in wrt_names:
                             d_wrt = d_inputs._abs_get_val(wrt_name, flat=True)
 
-                            if rows is None or cols is None:
+                            if is_dense:
                                 # Dense block: entire input becomes nonzero
-                                d_wrt[:] = 1.0
+                                d_wrt[:] = 1
                             else:
                                 # Sparse block: only specific (row, col) positions
-                                for row, col in zip(rows, cols):
-                                    if d_res[row] != 0:
-                                        d_wrt[col] = 1.0
+                                # Vectorized: set d_wrt[cols[mask]] = 1 where mask indicates nonzero
+                                # rows
+                                rows_arr = np.asarray(rows)
+                                cols_arr = np.asarray(cols)
+                                d_wrt[cols_arr[d_res[rows_arr] != 0]] = 1
 
     def _solve_linear_wrapper(self, *args):
         """

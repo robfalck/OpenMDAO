@@ -61,10 +61,9 @@ class SparsityDeterminer:
             return self._J1_sparsity_cache[design_var_index].copy()
 
         # Get design variable metadata
-        design_var_names = self.system._var_allprocs_abs2meta['output'].keys()
-        design_var_names = [n for n in design_var_names if
-                            self.system._var_allprocs_abs2meta['output'][n].get('is_design_var',
-                                                                                False)]
+        design_var_names = [n for n in self.system._var_allprocs_abs2meta['output'].keys()
+                           if self.system._var_allprocs_abs2meta['output'][n].get('is_design_var',
+                                                                                  False)]
 
         if design_var_index >= len(design_var_names):
             raise ValueError(f"Design variable index {design_var_index} out of range "
@@ -72,24 +71,24 @@ class SparsityDeterminer:
 
         dv_name = list(design_var_names)[design_var_index]
 
-        # Create perturbation vectors
-        d_inputs = self.system._create_perturbation_vector('input')
-        d_outputs = self.system._create_perturbation_vector('output')
+        # Create perturbation vectors using _matvec_context
+        with self.system._matvec_context(scope_out=None, scope_in=None, mode='fwd') as vecs:
+            d_inputs, d_outputs, d_residuals = vecs
 
-        # Set one element in the design variable
-        d_inputs._abs_set_val(dv_name,
-                              np.ones(self.system._var_allprocs_abs2meta['input'][dv_name]['size']))
+            # Set one element in the design variable
+            d_inputs._abs_set_val(dv_name, np.ones(self.system._var_allprocs_abs2meta
+                                                   ['output'][dv_name]['size']))
 
-        # Propagate through system in sparsity mode
-        self._propagate_sparsity(d_inputs, d_outputs, mode='fwd')
+            # Propagate through system in sparsity mode
+            self.system._apply_linear_sparsity('fwd', scope_out=None, scope_in=None)
 
-        # Extract sparsity pattern from outputs
-        output_names = list(self.system._var_allprocs_abs2meta['output'].keys())
-        sparsity = np.zeros(len(output_names), dtype=bool)
+            # Extract sparsity pattern from outputs
+            output_names = list(self.system._var_allprocs_abs2meta['output'].keys())
+            sparsity = np.zeros(len(output_names), dtype=bool)
 
-        for i, out_name in enumerate(output_names):
-            d_out = d_outputs._abs_get_val(out_name, flat=True)
-            sparsity[i] = np.any(d_out)
+            for i, out_name in enumerate(output_names):
+                d_out = d_outputs._abs_get_val(out_name, flat=True)
+                sparsity[i] = np.any(d_out)
 
         # Cache the result
         if use_cache:
@@ -122,26 +121,26 @@ class SparsityDeterminer:
 
         out_name = output_names[output_index]
 
-        # Create perturbation vectors
-        d_inputs = self.system._create_perturbation_vector('input')
-        d_outputs = self.system._create_perturbation_vector('output')
+        # Create perturbation vectors using _matvec_context
+        with self.system._matvec_context(scope_out=None, scope_in=None, mode='rev') as vecs:
+            d_inputs, d_outputs, d_residuals = vecs
 
-        # Set one element in the output
-        d_outputs._abs_set_val(out_name,
-                               np.ones(self.system._var_allprocs_abs2meta['output'][out_name]['size']))
+            # Set one element in the output
+            d_outputs._abs_set_val(out_name,
+                                   np.ones(self.system._var_allprocs_abs2meta['output'][out_name]['size']))
 
-        # Propagate through system in reverse sparsity mode
-        self._propagate_sparsity(d_inputs, d_outputs, mode='rev')
+            # Propagate through system in reverse sparsity mode
+            self.system._apply_linear_sparsity('rev', scope_out=None, scope_in=None)
 
-        # Extract sparsity pattern from design variables
-        design_var_names = [n for n in output_names if
-                           self.system._var_allprocs_abs2meta['output'][n].get('is_design_var',
-                                                                               False)]
-        sparsity = np.zeros(len(design_var_names), dtype=bool)
+            # Extract sparsity pattern from design variables
+            design_var_names = [n for n in output_names if
+                               self.system._var_allprocs_abs2meta['output'][n].get('is_design_var',
+                                                                                   False)]
+            sparsity = np.zeros(len(design_var_names), dtype=bool)
 
-        for i, dv_name in enumerate(design_var_names):
-            d_in = d_inputs._abs_get_val(dv_name, flat=True)
-            sparsity[i] = np.any(d_in)
+            for i, dv_name in enumerate(design_var_names):
+                d_in = d_inputs._abs_get_val(dv_name, flat=True)
+                sparsity[i] = np.any(d_in)
 
         return sparsity
 
@@ -402,27 +401,3 @@ class SparsityDeterminer:
             self._J1_colors[dv_idx] = color
 
         return J1_sparsity, self._J1_colors
-
-    def _propagate_sparsity(self, d_inputs, d_outputs, mode):
-        """
-        Propagate sparsity patterns through the system.
-
-        Parameters
-        ----------
-        d_inputs : Vector
-            Input perturbation vector.
-        d_outputs : Vector
-            Output perturbation vector (modified in place).
-        mode : str
-            'fwd' or 'rev'.
-        """
-        # Recursively call _apply_linear_sparsity on all components
-        self.system._apply_linear_sparsity(mode, scope_out=None, scope_in=None)
-
-
-# Helper function for creating test vectors (placeholder - would need system integration)
-def _create_perturbation_vector(system, var_type):
-    """Create a perturbation vector for sparsity testing."""
-    # This is a placeholder; actual implementation would integrate with the system
-    # to create the appropriate vector structure
-    pass

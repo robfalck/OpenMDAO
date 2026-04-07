@@ -503,67 +503,75 @@ class ExplicitComponent(Component):
 
             if mode == 'fwd':
                 # Forward mode: propagate from inputs to outputs
+                # Pre-process declared partials to avoid repeated glob pattern expansion
                 for (of, wrt), meta in self._declared_partials_patterns.items():
-                    # Expand glob patterns
-                    of_names = self._resolve_var_names(of, 'output')
-                    wrt_names = self._resolve_var_names(wrt, 'input')
-
                     if not meta.get('dependent', True):
                         continue
 
-                    # Get rows and cols if they exist (element-level sparsity)
+                    # Expand glob patterns once
+                    of_names = self._resolve_var_names(of, 'output')
+                    wrt_names = self._resolve_var_names(wrt, 'input')
                     rows = meta.get('rows')
                     cols = meta.get('cols')
+                    is_dense = rows is None or cols is None
 
-                    for of_name in of_names:
-                        for wrt_name in wrt_names:
-                            # Check if input has any nonzeros
-                            d_wrt = d_inputs._abs_get_val(wrt_name, flat=True)
-                            if not np.any(d_wrt):
-                                continue
+                    # Iterate through resolved names
+                    for wrt_name in wrt_names:
+                        # Check if input has any nonzeros (early exit)
+                        d_wrt = d_inputs._abs_get_val(wrt_name, flat=True)
+                        if not np.any(d_wrt):
+                            continue
 
+                        # Propagate to all outputs for this input
+                        for of_name in of_names:
                             d_of = d_outputs._abs_get_val(of_name, flat=True)
 
-                            if rows is None or cols is None:
+                            if is_dense:
                                 # Dense block: entire output becomes nonzero
-                                d_of[:] = 1.0
+                                d_of[:] = 1
                             else:
                                 # Sparse block: only specific (row, col) positions
-                                for row, col in zip(rows, cols):
-                                    if d_wrt[col] != 0:
-                                        d_of[row] = 1.0
+                                # Vectorized: set d_of[rows[mask]] = 1 where mask indicates nonzero
+                                # cols
+                                rows_arr = np.asarray(rows)
+                                cols_arr = np.asarray(cols)
+                                d_of[rows_arr[d_wrt[cols_arr] != 0]] = 1
 
             else:  # rev
                 # Reverse mode: propagate from outputs to inputs
+                # Pre-process declared partials to avoid repeated glob pattern expansion
                 for (of, wrt), meta in self._declared_partials_patterns.items():
-                    # Expand glob patterns
-                    of_names = self._resolve_var_names(of, 'output')
-                    wrt_names = self._resolve_var_names(wrt, 'input')
-
                     if not meta.get('dependent', True):
                         continue
 
-                    # Get rows and cols if they exist (element-level sparsity)
+                    # Expand glob patterns once
+                    of_names = self._resolve_var_names(of, 'output')
+                    wrt_names = self._resolve_var_names(wrt, 'input')
                     rows = meta.get('rows')
                     cols = meta.get('cols')
+                    is_dense = rows is None or cols is None
 
+                    # Iterate through resolved names
                     for of_name in of_names:
-                        for wrt_name in wrt_names:
-                            # Check if output has any nonzeros
-                            d_of = d_outputs._abs_get_val(of_name, flat=True)
-                            if not np.any(d_of):
-                                continue
+                        # Check if output has any nonzeros (early exit)
+                        d_of = d_outputs._abs_get_val(of_name, flat=True)
+                        if not np.any(d_of):
+                            continue
 
+                        # Propagate to all inputs for this output
+                        for wrt_name in wrt_names:
                             d_wrt = d_inputs._abs_get_val(wrt_name, flat=True)
 
-                            if rows is None or cols is None:
+                            if is_dense:
                                 # Dense block: entire input becomes nonzero
-                                d_wrt[:] = 1.0
+                                d_wrt[:] = 1
                             else:
                                 # Sparse block: only specific (row, col) positions
-                                for row, col in zip(rows, cols):
-                                    if d_of[row] != 0:
-                                        d_wrt[col] = 1.0
+                                # Vectorized: set d_wrt[cols[mask]] = 1 where mask indicates nonzero
+                                # rows
+                                rows_arr = np.asarray(rows)
+                                cols_arr = np.asarray(cols)
+                                d_wrt[cols_arr[d_of[rows_arr] != 0]] = 1
 
     def _solve_linear(self, mode, scope_out=_UNDEFINED, scope_in=_UNDEFINED):
         """
