@@ -3,6 +3,8 @@
 from itertools import chain
 from types import MethodType
 
+import numpy as np
+
 from openmdao.jacobians.dictionary_jacobian import ExplicitDictionaryJacobian
 from openmdao.jacobians.jacobian import JacobianUpdateContext
 from openmdao.utils.coloring import _ColSparsityJac
@@ -477,6 +479,91 @@ class ExplicitComponent(Component):
                                                              mode, self._discrete_inputs)
                 finally:
                     d_inputs.read_only = d_residuals.read_only = False
+
+    def _apply_linear_sparsity(self, mode, scope_out=None, scope_in=None):
+        """
+        Propagate sparsity patterns based on declared partials.
+
+        This method is used for sparsity detection. It propagates 1's through the system
+        using only the declared sparsity patterns (rows/cols), without any numerical computation.
+
+        Parameters
+        ----------
+        mode : str
+            'fwd' or 'rev'.
+        scope_out : set or None
+            Set of absolute output names in the scope of this sparsity propagation.
+            If None, all are in the scope.
+        scope_in : set or None
+            Set of absolute input names in the scope of this sparsity propagation.
+            If None, all are in the scope.
+        """
+        with self._matvec_context(scope_out, scope_in, mode) as vecs:
+            d_inputs, d_outputs, d_residuals = vecs
+
+            if mode == 'fwd':
+                # Forward mode: propagate from inputs to outputs
+                for (of, wrt), meta in self._declared_partials_patterns.items():
+                    # Expand glob patterns
+                    of_names = self._resolve_var_names(of, 'output')
+                    wrt_names = self._resolve_var_names(wrt, 'input')
+
+                    if not meta.get('dependent', True):
+                        continue
+
+                    # Get rows and cols if they exist (element-level sparsity)
+                    rows = meta.get('rows')
+                    cols = meta.get('cols')
+
+                    for of_name in of_names:
+                        for wrt_name in wrt_names:
+                            # Check if input has any nonzeros
+                            d_wrt = d_inputs._abs_get_val(wrt_name, flat=True)
+                            if not np.any(d_wrt):
+                                continue
+
+                            d_of = d_outputs._abs_get_val(of_name, flat=True)
+
+                            if rows is None or cols is None:
+                                # Dense block: entire output becomes nonzero
+                                d_of[:] = 1.0
+                            else:
+                                # Sparse block: only specific (row, col) positions
+                                for row, col in zip(rows, cols):
+                                    if d_wrt[col] != 0:
+                                        d_of[row] = 1.0
+
+            else:  # rev
+                # Reverse mode: propagate from outputs to inputs
+                for (of, wrt), meta in self._declared_partials_patterns.items():
+                    # Expand glob patterns
+                    of_names = self._resolve_var_names(of, 'output')
+                    wrt_names = self._resolve_var_names(wrt, 'input')
+
+                    if not meta.get('dependent', True):
+                        continue
+
+                    # Get rows and cols if they exist (element-level sparsity)
+                    rows = meta.get('rows')
+                    cols = meta.get('cols')
+
+                    for of_name in of_names:
+                        for wrt_name in wrt_names:
+                            # Check if output has any nonzeros
+                            d_of = d_outputs._abs_get_val(of_name, flat=True)
+                            if not np.any(d_of):
+                                continue
+
+                            d_wrt = d_inputs._abs_get_val(wrt_name, flat=True)
+
+                            if rows is None or cols is None:
+                                # Dense block: entire input becomes nonzero
+                                d_wrt[:] = 1.0
+                            else:
+                                # Sparse block: only specific (row, col) positions
+                                for row, col in zip(rows, cols):
+                                    if d_of[row] != 0:
+                                        d_wrt[col] = 1.0
 
     def _solve_linear(self, mode, scope_out=_UNDEFINED, scope_in=_UNDEFINED):
         """

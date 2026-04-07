@@ -2705,6 +2705,44 @@ class Group(System):
                     # zero out dvecs of irrelevant subsystems
                     s._doutputs.set_val(0.0)
 
+    def _apply_linear_sparsity(self, mode, scope_out=None, scope_in=None):
+        """
+        Propagate sparsity patterns through group recursively.
+
+        This method is used for sparsity detection. It recursively calls _apply_linear_sparsity
+        on all subsystems, propagating sparsity patterns through the system hierarchy.
+
+        Parameters
+        ----------
+        mode : str
+            'fwd' or 'rev'.
+        scope_out : set or None
+            Set of absolute output names in the scope of this sparsity propagation.
+            If None, all are in the scope.
+        scope_in : set or None
+            Set of absolute input names in the scope of this sparsity propagation.
+            If None, all are in the scope.
+        """
+        with self._matvec_context(scope_out, scope_in, mode) as vecs:
+            d_inputs, d_outputs, d_residuals = vecs
+
+            if mode == 'fwd':
+                # Forward mode: transfer and recurse
+                self._transfer('linear', mode)
+                for s in self._relevance.filter(self._subsystems_myproc, relevant=False):
+                    # zero out dvecs of irrelevant subsystems
+                    s._dresiduals.set_val(0.0)
+
+            for s in self._relevance.filter(self._subsystems_myproc, relevant=True):
+                s._apply_linear_sparsity(mode, scope_out, scope_in)
+
+            if mode == 'rev':
+                # Reverse mode: transfer and recurse
+                self._transfer('linear', mode)
+                for s in self._relevance.filter(self._subsystems_myproc, relevant=False):
+                    # zero out dvecs of irrelevant subsystems
+                    s._doutputs.set_val(0.0)
+
     def _apply_fd_rev_xfer_correction(self):
         """
         Apply the fd reverse transfer correction.
