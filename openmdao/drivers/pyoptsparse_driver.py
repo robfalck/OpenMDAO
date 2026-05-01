@@ -30,7 +30,7 @@ else:
     pyoptsparse_version = None
 
 # All optimizers in pyoptsparse
-optlist = {'ALPSO', 'CONMIN', 'IPOPT', 'NLPQLP', 'NSGA2', 'ParOpt', 'PSQP', 'SLSQP', 'SNOPT', 'UNO'}
+optlist = {'ALPSO', 'CONMIN', 'IPOPT', 'NLPQLP', 'NSGA2', 'ParOpt', 'PSQP', 'SLSQP', 'SNOPT', 'Uno'}
 
 if pyoptsparse_version is None or pyoptsparse_version < Version('2.6.0'):
     optlist.add('NOMAD')
@@ -40,7 +40,7 @@ if pyoptsparse_version is None or pyoptsparse_version < Version('2.1.2'):
 
 # names of optimizers that use gradients
 grad_drivers = optlist.intersection({'CONMIN', 'FSQP', 'IPOPT', 'NLPQLP', 'PSQP',
-                                     'SLSQP', 'SNOPT', 'NLPY_AUGLAG', 'ParOpt', 'UNO'})
+                                     'SLSQP', 'SNOPT', 'NLPY_AUGLAG', 'ParOpt', 'Uno'})
 
 # names of optimizers that allow multiple objectives
 multi_obj_drivers = {'NSGA2'}
@@ -65,7 +65,7 @@ respects_fail_flag = {
     'ParOpt': True,
     'SLSQP': False,
     'SNOPT': True,           # as of v2.0.0, requires SNOPT 7.7
-    'UNO': True,             # as of unopy 0.3.0
+    'Uno': True,             # as of Unopy 0.3.0
     'FSQP': False,           # no longer supported as of v2.1.2
     'NLPY_AUGLAG': False,    # no longer supported as of v2.1.2
     'NOMAD': False           # no longer supported as of v2.6.0
@@ -76,6 +76,10 @@ DEFAULT_OPT_SETTINGS['IPOPT'] = {
     'hessian_approximation': 'limited-memory',
     'nlp_scaling_method': 'user-scaling',
     'linear_solver': 'mumps'
+}
+
+DEFAULT_OPT_SETTINGS['Uno'] = {
+    'logger': 'INFO',
 }
 
 CITATIONS = """@article{Wu_pyoptsparse_2020,
@@ -113,6 +117,104 @@ CITATIONS = """@article{Wu_pyoptsparse_2020,
 DEFAULT_SIGNAL = None
 
 
+class _MPISafeStream:
+    """
+    MPI-safe stream object for writing to a file.
+
+    This stream writes only from the master rank (rank 0) to avoid multiple
+    processes writing to the same file. It is designed to be used with
+    optimizer logging options and can accept either a file path or a file-like
+    object.
+
+    Parameters
+    ----------
+    stream_source : str or file-like object
+        Either a file path (string) to write to, or a file-like object with
+        a write() method (e.g., sys.stdout, sys.stderr, or an open file).
+    comm : MPI.Comm, optional
+        MPI communicator. If None or a FakeComm, writes will proceed normally.
+        Default is None.
+
+    Attributes
+    ----------
+    _file : file object
+        The underlying file object (only used on rank 0 in MPI).
+    _rank : int
+        MPI rank of the current process.
+    _owns_file : bool
+        If True, close() will close the file. If False, the file was provided
+        externally and will not be closed.
+    """
+
+    def __init__(self, stream_source, comm=None):
+        """
+        Initialize the MPISafeStream.
+
+        Parameters
+        ----------
+        stream_source : str or file-like object
+            Either a file path (string) to write to, or a file-like object
+            with a write() method.
+        comm : MPI.Comm, optional
+            MPI communicator. If None or a FakeComm, writes proceed normally.
+        """
+        self._file = None
+        self._owns_file = False
+        self._rank = 0
+
+        if comm is not None and not isinstance(comm, FakeComm):
+            self._rank = comm.rank
+
+        # Only rank 0 needs to open/use the stream
+        if self._rank == 0:
+            if isinstance(stream_source, str):
+                # User provided a file path - open it
+                self._file = open(stream_source, 'w')
+                self._owns_file = True
+            elif hasattr(stream_source, 'write'):
+                # User provided a file-like object - use it directly
+                self._file = stream_source
+                self._owns_file = False
+            else:
+                raise TypeError(
+                    f'logger_stream must be a file path (str) or file-like object with '
+                    f'a write() method, got {type(stream_source).__name__}'
+                )
+
+    def write(self, message):
+        """
+        Write message to file (rank 0 only).
+
+        Parameters
+        ----------
+        message : str
+            The message to write.
+        """
+        if self._rank == 0 and self._file is not None:
+            self._file.write(message)
+            self._file.flush()
+
+    def flush(self):
+        """Flush the file stream (rank 0 only)."""
+        if self._rank == 0 and self._file is not None:
+            self._file.flush()
+
+    def close(self):
+        """
+        Close the file stream (rank 0 only).
+
+        Only closes the file if we opened it ourselves. External file-like
+        objects (e.g., sys.stdout) are not closed.
+        """
+        if self._rank == 0 and self._file is not None and self._owns_file:
+            self._file.close()
+            self._file = None
+
+    def __del__(self):
+        """Ensure file is closed on object deletion."""
+        self.close()
+
+
 class UserRequestedException(Exception):
     """
     User Requested Exception.
@@ -133,7 +235,7 @@ class pyOptSparseDriver(Driver):
     constrained optimization problems, with additional MPI capability.
     pypptsparse has interfaces to the following optimizers:
     ALPSO, CONMIN, FSQP, IPOPT, NLPQLP, NSGA2, PSQP, SLSQP,
-    SNOPT, NLPY_AUGLAG, NOMAD, ParOpt, and UNO.
+    SNOPT, NLPY_AUGLAG, NOMAD, ParOpt, and Uno.
     Note that some of these are not open source and therefore not included
     in the pyoptsparse source code.
 
@@ -177,6 +279,9 @@ class pyOptSparseDriver(Driver):
         This is set to True after the full model has been run at least once.
     _Optimization: class
         The pyoptsparse Optimization class, lazily imported.
+    _uno_stream: _MPISafeStream
+        An _MPISafeStream object that wraps the user-provided opt_settings["logger_stream"] for the
+        Uno optimizer.
     """
 
     def __init__(self, **kwargs):
@@ -237,6 +342,7 @@ class pyOptSparseDriver(Driver):
         self._total_jac_format = 'dict'
         self._total_jac_sparsity = None
         self._model_ran = False
+        self._uno_stream = None
 
         self.cite = CITATIONS
 
@@ -558,6 +664,13 @@ class pyOptSparseDriver(Driver):
                 if name not in self.opt_settings:
                     self.opt_settings[name] = value
 
+        # Create MPI-safe logger stream for Uno if requested
+        if optimizer == 'Uno' and 'logger_stream' in self.opt_settings:
+            logger_stream_source = self.opt_settings['logger_stream']
+            # Wrap the stream source (file path or file-like object) for MPI safety
+            self._uno_stream = _MPISafeStream(logger_stream_source, comm=problem.comm)
+            self.opt_settings['logger_stream'] = self._uno_stream
+
         # Set optimization options
         for option, value in self.opt_settings.items():
             opt.setOption(option, value)
@@ -606,6 +719,12 @@ class pyOptSparseDriver(Driver):
         except Exception:
             if self._exc_info is None:
                 raise
+
+        finally:
+            # Ensure the Uno logger stream is properly closed
+            if self._uno_stream is not None:
+                self._uno_stream.close()
+                self._uno_stream = None
 
         if self._exc_info is not None:
             exc_info = self._exc_info
