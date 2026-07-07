@@ -443,7 +443,7 @@ class TestScipyOptimizeDriver(unittest.TestCase):
         assert_near_equal(prob['y'], -7.3333333, 1e-6)
 
     def test_normalize_design_vars_COBYLA_multiscale(self):
-        # Verifies that normalize_design_vars lets COBYLA's scalar rhobeg option produce a
+        # Verifies that BoundsNormalizedAutoscaler lets COBYLA's scalar rhobeg option produce a
         # meaningful step for every design variable when the DVs span very different orders
         # of magnitude (e.g. a plant size in kW alongside a 0..1 ratio).
 
@@ -463,8 +463,8 @@ class TestScipyOptimizeDriver(unittest.TestCase):
         prob.model.add_subsystem('comp', ScaledParaboloid(), promotes=['*'])
         prob.set_solver_print(level=0)
 
-        prob.driver = om.ScipyOptimizeDriver(optimizer='COBYLA', tol=1e-8, disp=False,
-                                             normalize_design_vars=True)
+        prob.driver = om.ScipyOptimizeDriver(optimizer='COBYLA', tol=1e-8, disp=False)
+        prob.driver.autoscaler = om.BoundsNormalizedAutoscaler()
         # rhobeg = 0.1 -> 10% of (upper - lower) for each DV: 300 kW for x_big and
         # 0.1 for y_ratio.
         prob.driver.opt_settings['rhobeg'] = 0.1
@@ -511,7 +511,7 @@ class TestScipyOptimizeDriver(unittest.TestCase):
                            "code path.")
 
     def test_normalize_design_vars_SLSQP_matches_unnormalized(self):
-        # Enabling normalize_design_vars should not change the final solution for a
+        # Enabling BoundsNormalizedAutoscaler should not change the final solution for a
         # gradient-based optimizer; the chain-rule scaling applied to the returned
         # gradients has to keep SLSQP consistent with the unnormalized run.
 
@@ -524,8 +524,8 @@ class TestScipyOptimizeDriver(unittest.TestCase):
         model.add_subsystem('con', om.ExecComp('c = - x + y'), promotes=['*'])
 
         prob.set_solver_print(level=0)
-        prob.driver = om.ScipyOptimizeDriver(optimizer='SLSQP', tol=1e-9, disp=False,
-                                             normalize_design_vars=True)
+        prob.driver = om.ScipyOptimizeDriver(optimizer='SLSQP', tol=1e-9, disp=False)
+        prob.driver.autoscaler = om.BoundsNormalizedAutoscaler()
 
         model.add_design_var('x', lower=-50.0, upper=50.0)
         model.add_design_var('y', lower=-50.0, upper=50.0)
@@ -550,8 +550,8 @@ class TestScipyOptimizeDriver(unittest.TestCase):
         model.add_subsystem('comp', Paraboloid(), promotes=['*'])
 
         prob.set_solver_print(level=0)
-        prob.driver = om.ScipyOptimizeDriver(optimizer='COBYLA', disp=False,
-                                             normalize_design_vars=True)
+        prob.driver = om.ScipyOptimizeDriver(optimizer='COBYLA', disp=False)
+        prob.driver.autoscaler = om.BoundsNormalizedAutoscaler()
 
         # x has no bounds -- normalization should reject this configuration.
         model.add_design_var('x')
