@@ -10,7 +10,7 @@ from functools import partial
 from openmdao.core.implicitcomponent import ImplicitComponent
 from openmdao.utils.om_warnings import issue_warning
 from openmdao.utils.jax_utils import jax, jit, jnp, _jax_register_pytree_class, \
-    _compute_sparsity, get_vmap_tangents, _update_subjac_sparsity, \
+    _compute_sparsity, _compute_sparsity_asdex, _asdex_available, _declare_partials_from_asdex, _asdex_can_pay_off, get_vmap_tangents, _update_subjac_sparsity, \
     _jax_derivs2partials, _ensure_returns_tuple, _update_add_input_kwargs, \
     _update_add_output_kwargs, _re_init, _get_differentiable_compute_primal, \
     _jax2np, _compute_output_shapes, _check_output_shapes
@@ -97,6 +97,29 @@ class JaxImplicitComponent(ImplicitComponent):
                              'scalar and whose shape is not explicitly set. Inputs will use '
                              'shape_by_conn and outputs will use a compute_shape method based '
                              'on jax.eval_shape. Default is False.')
+
+        self.options.declare('sparsity_method', values=['auto', 'asdex', 'perturb'],
+                             default='auto',
+                             desc="Method used to determine jacobian sparsity. 'asdex' uses "
+                             "graph based detection, which yields a global sparsity pattern and "
+                             "does not require computing a dense jacobian, but requires the "
+                             "optional asdex package. 'perturb' evaluates jvp/vjp at a perturbed "
+                             "point, which can miss dependencies whose derivative is zero at that "
+                             "point. 'auto' uses asdex if it is installed and 'perturb' "
+                             "otherwise.")
+
+        self.options.declare('sparsity_density_threshold', types=float, default=0.5,
+                             desc='If asdex detects a jacobian whose density is greater than or '
+                             'equal to this, the subjacs are left dense. Sparse storage and '
+                             'coloring both carry overhead, so a nearly dense jacobian is '
+                             'cheaper to treat as dense.')
+
+        self.options.declare('sparsity_min_dim', types=int, default=2,
+                             desc='Sparsity detection is skipped when the smaller jacobian '
+                             'dimension is below this. A dense evaluation already costs '
+                             'min(nrows, ncols) AD passes, so nothing can be gained when that '
+                             'is tiny, e.g. a single row jacobian that reverse mode gets in one '
+                             'pass.')
 
         self.options.undeclare("distributed")
 
@@ -203,31 +226,46 @@ class JaxImplicitComponent(ImplicitComponent):
                 self._coloring_info.deactivate()
                 self.apply_linear = self._jax_apply_linear
             else:
-                # if user hasn't declared partials, try to infer them from the compute_primal. If
-                # that fails, declare all partials.
-                if not self._declared_partials_patterns:
-                    self._do_sparsity = True
-                    try:
-                        deps = list(get_function_deps(self._orig_compute_primal,
-                                                      self._var_rel_names['output']))
-                    except Exception as err:
-                        issue_warning(f"{self.msginfo}: Couldn't determine function graph for "
-                                      f"compute_primal: {err}")
-                        deps = []
-
-                    if deps:
-                        contvars = set(self._var_rel_names['input'])
-                        contvars.update(self._var_rel_names['output'])
-                        for of, wrt in deps:
-                            if of in contvars and wrt in contvars:
-                                self.declare_partials(of, wrt)
-                    else:
-                        self.declare_partials('*', '*')
-
                 self.linearize = self._jax_linearize
                 self._has_linearize = True
 
+        # super()._setup_partials() is what calls the user's setup_partials(), so any check of
+        # _declared_partials_patterns has to happen after it.  Checking beforehand makes
+        # declarations made in setup_partials(), the documented place to make them, invisible.
         super()._setup_partials()
+
+        if self.options['derivs_method'] == 'jax' and not self.matrix_free:
+            # if user hasn't declared partials, try to infer them from the compute_primal. If
+            # that fails, declare all partials.
+            if not self._declared_partials_patterns:
+                self._do_sparsity = True
+
+                # Prefer asdex: it yields a global pattern from the jaxpr, and declaring it here
+                # is what selects sparse subjac storage.
+                if self._use_asdex_sparsity() and self._declare_partials_from_asdex():
+                    self._do_sparsity = False
+                    super()._setup_partials()
+                    return
+
+                try:
+                    deps = list(get_function_deps(self._orig_compute_primal,
+                                                  self._var_rel_names['output']))
+                except Exception as err:
+                    issue_warning(f"{self.msginfo}: Couldn't determine function graph for "
+                                  f"compute_primal: {err}")
+                    deps = []
+
+                if deps:
+                    contvars = set(self._var_rel_names['input'])
+                    contvars.update(self._var_rel_names['output'])
+                    for of, wrt in deps:
+                        if of in contvars and wrt in contvars:
+                            self.declare_partials(of, wrt)
+                else:
+                    self.declare_partials('*', '*')
+
+                # Re-run the base setup so the partials just declared are registered.
+                super()._setup_partials()
 
     def _statics_changed(self, discrete_inputs):
         """
@@ -462,10 +500,56 @@ class JaxImplicitComponent(ImplicitComponent):
             if self._has_approx:
                 self._sparsity = super().compute_sparsity(direction=direction, num_iters=num_iters,
                                                           perturb_size=perturb_size)[0]
+            elif self._use_asdex_sparsity():
+                self._sparsity = _compute_sparsity_asdex(
+                    self, density_threshold=self.options['sparsity_density_threshold'])
             else:
                 self._sparsity = _compute_sparsity(self, direction, num_iters, perturb_size)[0]
 
         return self._sparsity
+
+    def _declare_partials_from_asdex(self):
+        """
+        Declare partials from an asdex detected sparsity pattern.
+
+        Returns
+        -------
+        bool
+            True if partials were declared from the detected pattern.
+        """
+        try:
+            return _declare_partials_from_asdex(
+                self, density_threshold=self.options['sparsity_density_threshold'])
+        except Exception as err:
+            issue_warning(f"{self.msginfo}: asdex sparsity detection failed, falling back to "
+                          f"the default partials declaration: {err}")
+            return False
+
+    def _use_asdex_sparsity(self):
+        """
+        Return True if asdex should be used to determine this component's jacobian sparsity.
+
+        Returns
+        -------
+        bool
+            True if the asdex based sparsity detection should be used.
+        """
+        method = self.options['sparsity_method']
+        if method == 'perturb':
+            return False
+        if method == 'asdex':
+            if not _asdex_available():
+                raise RuntimeError(f"{self.msginfo}: sparsity_method is 'asdex' but the asdex "
+                                   "package is not installed. Install it with "
+                                   "'pip install asdex' or set sparsity_method to 'perturb'.")
+            return True
+        # 'auto' falls back to the perturbation method when asdex isn't installed, and skips it
+        # when the jacobian shape means there is no benefit to be had.  Both the setup time
+        # declaration and the runtime sparsity computation go through here, so the check applies
+        # to both.
+        if not _asdex_available():
+            return False
+        return _asdex_can_pay_off(self, min_dim=self.options['sparsity_min_dim'])
 
     def _update_subjac_sparsity(self, sparsity_iter):
         if self.options['derivs_method'] == 'jax':

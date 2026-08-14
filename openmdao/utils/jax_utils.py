@@ -951,6 +951,218 @@ def _compute_sparsity(self, direction=None, num_iters=1, perturb_size=1e-9, use_
     return sparsity, info
 
 
+def _asdex_available():
+    """
+    Return True if the optional asdex dependency can be imported.
+
+    Returns
+    -------
+    bool
+        True if asdex is importable.
+    """
+    return importlib.util.find_spec('asdex') is not None
+
+
+def _compute_sparsity_asdex(self, density_threshold=0.5):
+    """
+    Compute the sparsity of the Jacobian using asdex's graph based sparsity detection.
+
+    Unlike _compute_sparsity, which evaluates jvp/vjp at a perturbed point and thresholds the
+    result, this determines sparsity by abstract interpretation of the jaxpr.  The resulting
+    pattern is global, i.e. valid for all inputs, so it does not drop dependencies whose
+    derivative happens to be zero at the sampled point, and it does not require computing a
+    dense jacobian in order to discover that the jacobian is sparse.
+
+    If the detected pattern is not sparse enough to be worth exploiting, the subjacs are left
+    dense and info['dense'] is True.  Sparse storage and coloring both carry overhead, so a
+    nearly dense jacobian is cheaper to treat as dense.
+
+    Parameters
+    ----------
+    self : Component
+        The component to compute the sparsity for.
+    density_threshold : float
+        Patterns whose density is greater than or equal to this are treated as dense and the
+        subjac sparsity is left untouched.
+
+    Returns
+    -------
+    coo_matrix, dict
+        The boolean sparsity matrix and info.
+    """
+    # Imported lazily and never at module scope: asdex pulls in numba, which costs roughly half
+    # a second to import and is only needed by models that contain jax components.
+    import asdex
+
+    implicit = not self.is_explicit(is_comp=True)
+
+    if implicit:
+        ncontins = self._inputs.nvars() + self._outputs.nvars()
+    else:
+        ncontins = self._inputs.nvars()
+
+    idiscvals = tuple(self._discrete_inputs.values())
+    differentiable_part = _get_differentiable_compute_primal(self, idiscvals)
+
+    # asdex traces the function abstractly, so these values are irrelevant and only the shapes
+    # and dtypes matter.  It requires concrete arrays rather than ShapeDtypeStructs.
+    args = tuple(jnp.zeros(arg.shape, arg.dtype)
+                 for arg in self._get_compute_primal_tracing_args()[:ncontins])
+
+    pattern = asdex.jacobian_sparsity(differentiable_part, *args,
+                                      argnums=tuple(range(ncontins)))
+
+    idxs = np.asarray(pattern.to_bcoo().indices)
+    dense = np.zeros((pattern.m, pattern.n), dtype=bool)
+    if idxs.size > 0:
+        dense[idxs[:, 0], idxs[:, 1]] = True
+
+    if implicit:
+        # OpenMDAO jacs order the wrt columns as outputs followed by inputs, but compute_primal
+        # takes inputs followed by outputs, so swap the two column blocks.
+        dense = np.hstack((dense[:, -len(self._outputs):], dense[:, :len(self._inputs)]))
+
+    nz = np.nonzero(dense)
+    sparsity = coo_matrix((np.ones(len(nz[0]), dtype=bool), nz), shape=dense.shape)
+
+    size = dense.shape[0] * dense.shape[1]
+    density = len(nz[0]) / size if size else 1.0
+    too_dense = density >= density_threshold
+
+    info = {
+        'tol': 0.,
+        'orders': None,
+        'good_tol': 0.,
+        'nz_matches': 0,
+        'n_tested': 0,
+        'nz_entries': len(nz[0]),
+        'J_shape': sparsity.shape,
+        'method': 'asdex',
+        'density': density,
+        'dense': too_dense,
+    }
+
+    if not too_dense:
+        self._update_subjac_sparsity(self.subjac_sparsity_iter(sparsity=sparsity))
+
+    return sparsity, info
+
+
+def _asdex_can_pay_off(self, min_dim=2):
+    """
+    Return True if sparsity detection could plausibly pay for itself on this component.
+
+    A dense jacobian evaluation costs min(nrows, ncols) AD passes, since either forward or
+    reverse mode may be chosen.  Exploiting sparsity cannot do better than that, so when the
+    smaller dimension is already tiny there is nothing to win and detection would be pure
+    overhead.  A single row jacobian is the common case: reverse mode gets it in one pass.
+
+    This is decided from shapes alone, before any tracing, so it costs nothing.
+
+    Parameters
+    ----------
+    self : Component
+        The component to check.
+    min_dim : int
+        Detection is skipped when the smaller jacobian dimension is below this.
+
+    Returns
+    -------
+    bool
+        True if detection should be attempted.
+    """
+    meta = self._var_rel2meta
+    nrows = sum(meta[n]['size'] for n in self._var_rel_names['output'])
+
+    wrtnames = list(self._var_rel_names['input'])
+    if not self.is_explicit(is_comp=True):
+        wrtnames += list(self._var_rel_names['output'])
+    ncols = sum(meta[n]['size'] for n in wrtnames)
+
+    return min(nrows, ncols) >= min_dim
+
+
+def _declare_partials_from_asdex(self, density_threshold=0.5):
+    """
+    Detect the jacobian sparsity with asdex and declare partials using the detected pattern.
+
+    This runs during setup_partials, which is the earliest point where dynamically sized
+    variables have known shapes, and is early enough that the declared row/col patterns select
+    sparse subjac storage.  Recording sparsity later, once subjacs exist, does not change how
+    they are stored.
+
+    Blocks with no structural nonzeros are not declared at all, blocks that are fully dense are
+    declared without row/col indices, and everything else is declared sparse.
+
+    Parameters
+    ----------
+    self : Component
+        The component to declare partials for.
+    density_threshold : float
+        If the overall detected density is greater than or equal to this, no partials are
+        declared and False is returned, leaving the caller to fall back to dense declarations.
+
+    Returns
+    -------
+    bool
+        True if partials were declared from the detected pattern.
+    """
+    # Imported lazily and never at module scope: asdex pulls in numba, which costs roughly half
+    # a second to import and is only needed by models that contain jax components.
+    import asdex
+
+    implicit = not self.is_explicit(is_comp=True)
+    innames = list(self._var_rel_names['input'])
+    outnames = list(self._var_rel_names['output'])
+    # compute_primal takes inputs followed by outputs for implicit components.
+    argnames = innames + outnames if implicit else innames
+
+    discvals = tuple(self._discrete_inputs.values()) if self._discrete_inputs else ()
+    func = _get_differentiable_compute_primal(self, discvals)
+
+    # asdex traces abstractly, so only shapes and dtypes matter here.  It requires concrete
+    # arrays rather than ShapeDtypeStructs.
+    tracing_args = self._get_compute_primal_tracing_args()
+    if len(tracing_args) != len(argnames):
+        return False
+
+    args = tuple(jnp.zeros(a.shape, a.dtype) for a in tracing_args)
+
+    pattern = asdex.jacobian_sparsity(func, *args, argnums=tuple(range(len(args))))
+
+    dense = np.zeros((pattern.m, pattern.n), dtype=bool)
+    idxs = np.asarray(pattern.to_bcoo().indices)
+    if idxs.size > 0:
+        dense[idxs[:, 0], idxs[:, 1]] = True
+
+    if dense.size == 0:
+        return False
+
+    density = dense.sum() / dense.size
+    if density >= density_threshold:
+        # A nearly dense jacobian is cheaper to store and factor densely, so leave it alone.
+        return False
+
+    meta = self._var_rel2meta
+    rowstart = 0
+    for of in outnames:
+        rowend = rowstart + meta[of]['size']
+        colstart = 0
+        for wrt in argnames:
+            colend = colstart + meta[wrt]['size']
+            block = dense[rowstart:rowend, colstart:colend]
+            if block.any():
+                if block.all():
+                    self.declare_partials(of, wrt)
+                else:
+                    rows, cols = np.nonzero(block)
+                    self.declare_partials(of, wrt, rows=rows, cols=cols)
+            colstart = colend
+        rowstart = rowend
+
+    return True
+
+
 def _compute_output_shapes(func, input_shapes):
     """
     Compute the shapes of the outputs of the function.
