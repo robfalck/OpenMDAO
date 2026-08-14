@@ -112,6 +112,20 @@ build_pyoptsparse = { git = "https://github.com/OpenMDAO/build_pyoptsparse.git" 
 [feature.jax.pypi-dependencies]
 jax = "*"
 
+# asdex provides graph based jacobian sparsity detection for jax components.
+# It is scoped per platform because it depends on numba, which no longer ships
+# macOS x86_64 wheels, so osx-64 is deliberately excluded and macOS is supported
+# on Apple silicon only. OpenMDAO falls back to perturbation based sparsity
+# detection wherever asdex is not installed.
+[feature.jax.target.linux-64.pypi-dependencies]
+asdex = "*"
+
+[feature.jax.target.osx-arm64.pypi-dependencies]
+asdex = "*"
+
+[feature.jax.target.win-64.pypi-dependencies]
+asdex = "*"
+
 # petsc isn't available for windows
 [feature.mpi.target.linux-64.dependencies]
 openmpi = "*"

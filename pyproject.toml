@@ -60,6 +60,7 @@ doe = [
 jax = [
     "jax>=0.4.0",
     "jaxlib>=0.4.0",
+    "asdex; python_version>='3.12'",
 ]
 julia = [
     "omjlcomps>=0.2.6",
