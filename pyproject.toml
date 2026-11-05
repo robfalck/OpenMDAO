@@ -64,6 +64,9 @@ jax = [
 julia = [
     "omjlcomps>=0.2.6",
 ]
+modopt = [
+    "modopt @ git+https://github.com/lsdolab/modopt.git@main",
+]
 numba = [
     "numba",
 ]
@@ -186,6 +189,9 @@ responsesurface = "openmdao.surrogate_models.response_surface:ResponseSurface"
 
 [project.urls]
 Homepage = "http://openmdao.org"
+
+[tool.hatch.metadata]
+allow-direct-references = true
 
 [tool.hatch.version]
 path = "openmdao/__init__.py"

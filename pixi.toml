@@ -6,8 +6,7 @@
 # Quick Start:
 #   pixi install --frozen        # Install with exact CI-tested versions
 #   pixi shell                   # Activate the default environment
-#   pip install -e .             # Install OpenMDAO in development mode
-#
+
 #
 # Available Environments:
 #
@@ -15,9 +14,9 @@
 #            Good for users who don't want MPI capability.
 #            Usage: pixi shell  (or pixi shell -e default)
 #
-# - py311, py312, py313: Full environments pinned to specific Python versions.
+# - py312, py313, py314: Full environments pinned to specific Python versions.
 #          Useful for testing compatibility across Python versions.
-#          These are probably the most useful environments for ueers.
+#          These are probably the most useful environments for users.
 #          Usage: pixi shell -e py312
 #
 # - minimal: Default dependencies only plus testing related dependencies.
@@ -52,9 +51,10 @@ exclude-newer = "7d"  # Cooldown to mitigate supply chain attacks
 [dependencies]
 python = ">=3.11"
 numpy = ">=2.0,!=2.4.0"
-scipy = ">=1.13,<=1.17"
+scipy = ">=1.13"
 networkx = ">=3.3"
 pip = ">=25.3"
+uv = ">=0.5"
 packaging = ">=25.0"
 requests = ">=2.32.5"
 compilers = ">=1.8.0,<2"
@@ -74,6 +74,9 @@ python = "3.13.*"
 
 [feature.py314.dependencies]
 python = "3.14.*"
+
+[feature.py315.dependencies]
+python = "3.15.*"
 
 ##########################################################
 # Optional features (version-agnostic as much as possible)
@@ -105,7 +108,6 @@ cyipopt = "*"
 pymoo = ">=0.6.1"
 
 [feature.opt.pypi-dependencies]
-modopt = {git = "https://github.com/lsdolab/modopt.git", branch = "main"}
 build_pyoptsparse = { git = "https://github.com/OpenMDAO/build_pyoptsparse.git" }
 
 # Jax not available for windows on conda-forge
@@ -188,7 +190,7 @@ rich = "*"
 ###############################################
 
 [feature.deps-oldest.dependencies]
-python = "3.11.*"
+python = "3.12.*"
 numpy = "2.0.*"
 scipy = "1.13.*"
 networkx = "==3.3"
@@ -203,6 +205,10 @@ networkx = "==3.3"
 default = { features = ["py313", "doe", "opt", "jax", "numba", "notebooks", "visualization", "test", "mpi", "openblas-explicit"], solve-group = "default" }
 dev = { features = ["py313", "doe", "opt", "jax", "numba", "notebooks", "visualization", "test", "mpi", "docs", "packaging", "openblas-explicit"], solve-group = "default" }
 minimal = { features = ["py313", "test", "openblas-explicit"], solve-group = "default" }
+
+# Experimental: testing Python 3.15 solvability only, not yet part of CI
+# py315-mpi = { features = ["py315", "test", "mpi", "openblas-explicit"], solve-group = "py315-test-mpi" }
+# py315-opt = { features = ["py315", "test", "opt", "openblas-explicit"], solve-group = "py315-test-opt" }
 
 # Oldest supported versions
 # Note: "doe" is intentionally omitted here. Every pydoe release requires
@@ -225,25 +231,14 @@ py314 = { features = ["py314", "doe", "opt", "jax", "numba", "notebooks", "visua
 
 [tasks]
 
-# Development workflow helpers
-clean = "rm -rf packaging dist *.egg-info .pixi"
+clean = { cmd = "rm -rf packaging dist *.egg-info .pixi", description = "Remove build artifacts and the local pixi environment cache" }
+test = { cmd = "testflo --skip_dir=.pixi", description = "Run the OpenMDAO test suite with testflo" }
+install-openmdao-dev = { cmd = "uv pip install --no-deps -e . && pre-commit install", description = "Install OpenMDAO in development mode and set up pre-commit hooks" }
+install-julia-deps = { cmd = "uv pip install omjlcomps juliacall juliapkg", description = "Install Julia-related Python dependencies (omjlcomps, juliacall, juliapkg). Requires Julia to be installed first." }
+install-modopt = { cmd = "uv pip install -e .[modopt]", description = "Install modopt from https://github.com/LSDOlab/modopt" }
+install-openmdao-latest = { cmd = "uv pip install --no-deps openmdao", description = "Install latest OpenMDAO from PyPI" }
+install-openmdao-master = { cmd = "uv pip install --no-deps git+https://github.com/OpenMDAO/OpenMDAO.git@master", description = "Install OpenMDAO from GitHub master branch" }
 
-test = "testflo --skip_dir=.pixi"
-
-# Install OpenMDAO in development mode and set up pre-commit hooks
-install-openmdao-dev = { cmd = "pip install --no-deps -e . && pre-commit install", description = "Install OpenMDAO in development mode and set up pre-commit hooks" }
-
-# Install Julia-related Python dependencies (requires Julia to be installed separately)
-install-julia-deps = { cmd = "pip install omjlcomps juliacall juliapkg", description = "Install Julia-related Python dependencies (omjlcomps, juliacall, juliapkg). Requires Julia to be installed first." }
-
-# Install latest OpenMDAO from PyPI
-install-openmdao-latest = { cmd = "pip install --no-deps openmdao", description = "Install latest OpenMDAO from PyPI" }
-
-# Install OpenMDAO from GitHub master branch
-install-openmdao-master = { cmd = "pip install --no-deps git+https://github.com/OpenMDAO/OpenMDAO.git@master", description = "Install OpenMDAO from GitHub master branch" }
-
-
-# Build the SNOPT module for pyoptsparse
 [tasks.build-snopt]
 description = "Build SNOPT module. Usage: pixi run build-snopt <path_to_snopt_source>"
 args = ["snopt_src"]
